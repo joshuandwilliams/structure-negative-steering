@@ -19,7 +19,10 @@ structure-negative-steering/
 ├── scripts/
 │   ├── sync_from_pipeline.py     # pull/refresh engine/ from the pipeline (+ --check)
 │   ├── sync_to_hpc.sh            # rsync this repo up to the HPC (excludes experiments/)
-│   └── sync_from_hpc.sh          # pull an experiment's results back down
+│   ├── sync_from_hpc.sh          # pull an experiment's results back down
+│   ├── prepare_inputs.py         # derive FASTAs + interface/design-region from a complex PDB
+│   └── run_negative_steering.sh  # drive the engine on a prepared complex (HPC, GPU)
+├── docs/running_a_test.md        # end-to-end recipe (e.g. 6G10)
 ├── tests/
 │   ├── test_engine_integrity.py  # vendored files unchanged since last sync (runs anywhere)
 │   ├── test_engine_staleness.py  # are we behind the pipeline? (skips if pipeline absent)
@@ -74,16 +77,36 @@ pytest -m local_unit          # laptop tier: integrity, staleness, syntax — no
 pytest -m hpc                 # cluster tier: a real steering run (GPU + Boltz)
 ```
 
-## Running negative steering
+## Running negative steering on a complex (e.g. 6G10)
 
-Standalone runs need a GPU + the Boltz container and happen on the HPC. Sync the
-repo up and drive the engine from there:
+The engine is a *mid-pipeline* component — it does **not** turn a bare PDB into
+results by itself. It needs the two chain sequences plus a true-interface and a
+design-region index file; it uses the complex as the **comparison basis** and
+outputs predicted structures + steering summary tables. Two scripts bridge the
+gap:
 
 ```bash
+pip install -e '.[experiments]'        # numpy + gemmi + biopython (prepare step)
+
+# 1. Derive inputs from the complex (runs anywhere):
+./scripts/prepare_inputs.py \
+    --complex experiments/6G10/6G10.pdb \
+    --outdir  experiments/6G10/inputs \
+    --derive --contact-cutoff 5.0      # or: --interface-file <your residues>
+
+# 2. Run the engine (HPC, GPU + Boltz container):
 ./scripts/sync_to_hpc.sh
-# on the HPC: invoke engine/bin/negative_steering_run_one.sh / the Nextflow
-# module against an input under experiments/.
+./scripts/run_negative_steering.sh \
+    --name 6G10_test \
+    --complex experiments/6G10/6G10.pdb \
+    --inputs-dir experiments/6G10/inputs \
+    --boltz-container /path/to/boltz2_negsteer.img \
+    --plan-extra-args "--mode mild --n-designs 5 --num-seeds 1"
 ```
+
+Chains default to receptor=A / effector=B (override with `--receptor-chain` /
+`--effector-chain`). The interface can be **derived** from heavy-atom contacts or
+**provided** as a residue file. Full walkthrough: [`docs/running_a_test.md`](docs/running_a_test.md).
 
 ## Experiments
 
