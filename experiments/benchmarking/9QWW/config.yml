@@ -40,13 +40,13 @@ design_region: "none"
 
 # ── Steering knobs (forwarded verbatim to boltz2_negative_steering.py `plan`) ─
 negsteer_mode:                 "mild"   # strong | mild | conservative | alanine
-negsteer_n_designs:            5
-negsteer_num_seeds:            1
+negsteer_n_designs:            20
+negsteer_num_seeds:            3
 negsteer_max_mutations:        6
-negsteer_candidate_pool_size:  6
+negsteer_candidate_pool_size:  12
 negsteer_protected_set_source: "true_interface"   # true_interface | design_region_union
 negsteer_effector_template:    true
-negsteer_diffusion_samples:    1
+negsteer_diffusion_samples:    5
 negsteer_recycling_steps:      3
 negsteer_seed:                 0
 negsteer_rmsd_threshold:       5.0
