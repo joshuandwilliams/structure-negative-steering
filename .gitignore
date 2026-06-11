@@ -1,0 +1,84 @@
+# ============================================================
+# .gitignore for structure-negative-steering
+# ============================================================
+
+# ----- Experiments — run inputs/outputs are HPC-side, never pushed -----
+# The whole experiments/ tree (prior runs migrated from the HPC scratch folder
+# plus any future runs) is local/HPC-only. Only experiments/README.md is kept.
+experiments/*
+!experiments/README.md
+
+# ----- Nextflow -----
+.nextflow/
+.nextflow.log*
+.nextflow.history*
+work/
+
+# ----- Pipeline-style outputs -----
+*_results/
+results/
+
+# ----- SLURM logs -----
+*.out
+*.err
+slurm-*.out
+slurm-*.err
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# ----- Jupyter -----
+.ipynb_checkpoints/
+
+# ----- macOS -----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ----- Microsoft Office lock files -----
+~$*
+
+# ----- Editors / IDEs -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ----- Environment / secrets -----
+.env
+.env.local
+*.local
+
+# ----- Build / packaging -----
+build/
+dist/
+*.egg
+.eggs/
+
+# ----- Singularity / Apptainer images -----
+*.img
+*.sif
+
+# ----- Sync helper artefacts -----
+rsync_dryrun*.txt
+rsync_deletions*.txt
+
+# ----- OS / misc -----
+Thumbs.db
+desktop.ini

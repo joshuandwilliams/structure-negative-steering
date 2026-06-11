@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "structure-negative-steering"
+version = "0.1.0"
+description = "Standalone negative-steering engine for Boltz-2, vendored from receptor-resurfacing-pipeline. Run negative steering on arbitrary inputs in isolation, with tests."
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+# Deps to run the engine standalone. boltz/torch are GPU/HPC-side and are
+# intentionally NOT listed here — the laptop test tier never imports them.
+test = [
+    "pytest>=7.0",
+]
+experiments = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "gemmi>=0.6",
+    "biopython>=1.81",
+    "matplotlib>=3.7",
+    "PyYAML>=6.0",
+]
+
+[tool.setuptools]
+# engine/bin/ scripts are invoked standalone (by Nextflow / the orchestrator),
+# not imported as an installed package.
+packages = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers -ra"
+markers = [
+    "local_unit: tier — runs on a laptop with no GPU/containers; vendored-engine integrity, drift, and syntax checks; <1s each.",
+    "hpc: tier — requires a GPU + Boltz container on the cluster (a real negative-steering run); HPC-only.",
+    "slow: long-running test.",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+# Vendored engine code is owned upstream — never lint-gate it here.
+exclude = ["engine/"]
