@@ -1,0 +1,66 @@
+# =============================================================================
+# Negative-steering benchmark — 6G10
+# =============================================================================
+# Consumed by scripts/run_from_config.py: it prepares the engine inputs from the
+# reference complex below, then drives engine/bin/negative_steering_run_one.sh.
+# All paths are resolved relative to THIS file's directory.
+#
+# Required: reference_pdb, receptor_chain, effector_chain
+# =============================================================================
+
+name: "6G11"
+
+
+# ── Reference complex ─────────────────────────────────────────────────
+# A single PDB containing both chains.  Used as the comparison basis
+# (ground truth) that every steered design is scored against, and to derive
+# the interface.  Chains: A = receptor, B = effector (plant rec/eff convention).
+reference_pdb:   "./6G11.pdb"
+receptor_chain:  "A"          # the protein being steered
+effector_chain:  "B"          # what it should be steered AWAY from binding
+
+
+# ── True interface ────────────────────────────────────────────────────
+# How to define the native receptor↔effector contacts.
+#   interface_mode: derive   -> heavy-atom contacts within the cutoff (default)
+#   interface_mode: provide  -> read interface_residues_file (0-based indices)
+interface_mode:           "derive"
+interface_contact_cutoff: 5.0
+# interface_residues_file: "./my_interface.txt"
+
+
+# ── Design region (PROTECTED from steering) ───────────────────────────
+# The receptor residues the engine must NOT mutate.  In the full pipeline this
+# is the RFDiffusion de-novo region being validated; a native complex has none,
+# so the default protects only the true interface.  Accepts:
+#   "none" | "all" | "interface" | a path to a 1-based indices file
+# See experiments/benchmarking/README.md for why this matters.
+design_region: "none"
+
+
+# ── Steering knobs (forwarded verbatim to boltz2_negative_steering.py `plan`) ─
+negsteer_mode:                 "mild"   # strong | mild | conservative | alanine
+negsteer_n_designs:            5
+negsteer_num_seeds:            1
+negsteer_max_mutations:        6
+negsteer_candidate_pool_size:  6
+negsteer_protected_set_source: "true_interface"   # true_interface | design_region_union
+negsteer_effector_template:    true
+negsteer_diffusion_samples:    1
+negsteer_recycling_steps:      3
+negsteer_seed:                 0
+negsteer_rmsd_threshold:       5.0
+negsteer_contact_cutoff:       5.0
+negsteer_no_kernels:           false
+
+
+# ── Post-processing thresholds (extract_passing / final metrics) ──────
+negsteer_postprocess_rmsd_threshold:  5.0
+negsteer_postprocess_metric_column:   "steered_ra_eff_vs_truth"
+negsteer_postprocess_contact_cutoff:  5.0
+
+
+# ── Runtime (HPC + GPU) ───────────────────────────────────────────────
+# Path to the Boltz-2 Singularity image.  Override with --boltz-container.
+# Default points at the image the pipeline bundles on the cluster.
+boltz_container: "/hpc-home/jowillia/receptor_design/receptor-resurfacing-pipeline/containers/boltz2_negsteer.img"

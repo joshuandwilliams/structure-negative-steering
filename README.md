@@ -23,8 +23,9 @@ structure-negative-steering/
 │   ├── run_from_config.slurm.sh  # airgapped-HPC entry point (sbatch; everything in-container)
 │   ├── run_from_config.py        # the Python brain (runs IN the container)
 │   ├── prepare_inputs.py         # derive FASTAs + interface/design-region from a complex PDB
-│   └── run_negative_steering.sh  # drive the engine on a prepared complex (HPC, GPU)
-├── experiments/benchmarking/     # tracked per-target test specs (config.yml + ref PDB)
+│   ├── run_negative_steering.sh  # drive the engine on a prepared complex (HPC, GPU)
+│   └── benchmark_submission.sh   # sbatch one job per benchmarking target (logs land per-target)
+├── experiments/benchmarking/     # tracked per-target test specs (config.yml + ref PDB), one per complex
 ├── docs/running_a_test.md        # end-to-end recipe (e.g. 6G10)
 ├── tests/
 │   ├── test_engine_integrity.py  # vendored files unchanged since last sync (runs anywhere)
@@ -113,6 +114,24 @@ bash scripts/run_from_config.slurm.sh experiments/benchmarking/6G10/config.yml -
 
 The container defaults to the config's `boltz_container:`; override with
 `--container /path/to.img` (see `/hpc-home/jowillia/singularity/` for the library).
+
+#### Run all benchmark targets
+
+`experiments/benchmarking/` holds one folder per complex from
+`complexes_for_benchmarking` (43 of them, each receptor=A / effector=B).
+`benchmark_submission.sh` submits a job per target, directing **every** output —
+SLURM `.out`/`.err`, the derived `inputs/`, and the `run/` workdir — **into that
+target's own folder**, so nothing floats in the repo root or `scripts/`:
+
+```bash
+./scripts/benchmark_submission.sh --dry-run        # preview the sbatch commands
+./scripts/benchmark_submission.sh                  # submit all 43
+./scripts/benchmark_submission.sh --only 6G10      # just one (repeatable)
+```
+
+> A bare `sbatch scripts/run_from_config.slurm.sh <config>` writes its `.out`/`.err`
+> to the *submission* directory (SLURM default). Use `benchmark_submission.sh` (or
+> `sbatch --output=<dir>/... --error=<dir>/...`) to keep logs with the target.
 
 ### On the Mac (optional — for prepping/inspecting only, no GPU)
 
