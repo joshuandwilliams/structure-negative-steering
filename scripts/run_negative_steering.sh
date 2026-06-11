@@ -93,7 +93,7 @@ echo "  container:              ${BOLTZ_CONTAINER}"
 echo "  plan-extra-args:        ${PLAN_EXTRA_ARGS:-<none>}"
 echo
 
-exec bash "$ORCHESTRATOR" \
+bash "$ORCHESTRATOR" \
     --seq-name "$NAME" \
     --ground-truth "$COMPLEX" \
     --receptor-chain "$RECEPTOR_CHAIN" \
@@ -107,3 +107,32 @@ exec bash "$ORCHESTRATOR" \
     --boltz-container "$BOLTZ_CONTAINER" \
     --plan-extra-args "$PLAN_EXTRA_ARGS" \
     "${PASSTHROUGH[@]}"
+orch_rc=$?
+if [[ $orch_rc -ne 0 ]]; then
+    echo "ERROR: negative_steering_run_one.sh exited ${orch_rc} — skipping tiering." >&2
+    exit "$orch_rc"
+fi
+
+# ── Tiering: pick the representative steered design + assign cross_tier ──────
+# Mirrors the pipeline's NEGSTEER_CROSS_SEQUENCE stage. cross_summary_v2.py reads
+# the run's passing_summary.csv, picks ONE representative (tier-then-composite
+# policy) and writes cross_sequence_summary.csv with cross_tier:
+#   A: n_pass == n_seeds   B: 1 < n_pass < n_seeds   C: n_pass == 1   none: 0
+# Runs in-container (CPU). NON-FATAL: the engine results are already written, so a
+# tiering hiccup must not fail the run.
+PASSING="${WORKDIR}/passing_summary.csv"
+XSUMM="${WORKDIR}/cross_sequence_summary.csv"
+if [[ -f "$PASSING" ]]; then
+    echo
+    echo "=== tiering: representative + cross_tier -> cross_sequence_summary.csv ==="
+    if singularity exec --bind "$WORKDIR" --bind "$ENGINE_BIN" "$BOLTZ_CONTAINER" \
+            python "$ENGINE_BIN/cross_summary_v2.py" \
+                --passing-summary "${NAME}=${PASSING}" \
+                --output "$XSUMM"; then
+        echo "wrote $XSUMM"
+    else
+        echo "WARNING: tiering step failed; engine results preserved in $WORKDIR." >&2
+    fi
+else
+    echo "WARNING: no passing_summary.csv in $WORKDIR — skipping tiering." >&2
+fi

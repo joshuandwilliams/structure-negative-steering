@@ -14,6 +14,8 @@ benchmarking/
 │   ├── negsteer_<jobid>.out  # SLURM log (via benchmark_submission.sh)    [gitignored]
 │   ├── inputs/               # derived by prepare                          [gitignored]
 │   └── run/                  # engine outputs + launch.sh                  [gitignored]
+│       ├── passing_summary.csv          # the run's passing design(s)
+│       └── cross_sequence_summary.csv   # representative + cross_tier (A/B/C/none)
 ├── 7B1I/  …
 └── … (one per complex)
 ```
@@ -82,3 +84,23 @@ Consequences for a **native** solved complex like 6G10:
 If you instead want to steer a **designed** receptor sequence, point
 `reference_pdb` at the design and set `design_region` to the de-novo stretch
 (and `negsteer_protected_set_source: design_region_union`).
+
+## Tiering
+
+After the engine finishes, `run_negative_steering.sh` runs the pipeline's
+`cross_summary_v2.py` on the run's `passing_summary.csv` and writes
+`run/cross_sequence_summary.csv`. It picks **one representative steered design for
+the run** (tier-then-composite policy) and assigns its `cross_tier` from
+`n_pass`/`n_seeds`:
+
+| tier | condition | meaning |
+|---|---|---|
+| **A** | `n_pass == n_seeds` | all seeds pass |
+| **B** | `1 < n_pass < n_seeds` | most seeds pass |
+| **C** | `n_pass == 1` | one seed passes |
+| **none** | `n_pass == 0` | no passing seed (e.g. pose_collapses) |
+
+So each run yields a single tiered representative. (In the full pipeline there's
+one `passing_summary.csv` per MPNN sequence, so it stacks one representative per
+sequence; standalone has one input → one representative.) With `num_seeds: 1` only
+tiers A or none can occur — `num_seeds ≥ 3` is what lets A/B/C resolve.
