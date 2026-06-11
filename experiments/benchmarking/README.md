@@ -20,17 +20,21 @@ test spec. Only the derived `inputs/` and the `run/` outputs are gitignored.
 
 ## Running a target
 
+On the **airgapped HPC**, everything runs in a container — use the bash entry
+point (`run_from_config.sh`), which execs all Python via `singularity exec` and
+needs nothing installed on the host:
+
 ```bash
-# Prepare + print the run command (no GPU needed):
-./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml --dry-run
-
-# Prepare the inputs locally (needs: pip install -e '.[experiments]'):
-./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml --prepare-only
-
-# Full run on the HPC (GPU + Boltz image):
-./scripts/sync_to_hpc.sh
-./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml
+./scripts/sync_to_hpc.sh                                       # from the Mac
+# then on the HPC:
+./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml --dry-run
+./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml --prepare-only
+./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml   # prepare + run
 ```
+
+On the **Mac** (optional, for prepping/inspecting — no GPU), the Python driver
+works directly after `pip install -e '.[experiments]'`:
+`./scripts/run_from_config.py …/config.yml --prepare-only`.
 
 Add a new target by copying `6G10/`, dropping in its PDB, and editing
 `config.yml` (`reference_pdb`, `receptor_chain`, `effector_chain`, …).

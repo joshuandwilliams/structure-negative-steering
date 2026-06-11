@@ -20,7 +20,8 @@ structure-negative-steering/
 │   ├── sync_from_pipeline.py     # pull/refresh engine/ from the pipeline (+ --check)
 │   ├── sync_to_hpc.sh            # rsync this repo up to the HPC (excludes experiments/)
 │   ├── sync_from_hpc.sh          # pull an experiment's results back down
-│   ├── run_from_config.py        # config-driven: prepare + run from one YAML
+│   ├── run_from_config.sh        # airgapped-HPC entry point (everything in-container)
+│   ├── run_from_config.py        # the Python brain (runs IN the container)
 │   ├── prepare_inputs.py         # derive FASTAs + interface/design-region from a complex PDB
 │   └── run_negative_steering.sh  # drive the engine on a prepared complex (HPC, GPU)
 ├── experiments/benchmarking/     # tracked per-target test specs (config.yml + ref PDB)
@@ -86,27 +87,41 @@ results by itself. It needs the two chain sequences plus a true-interface and a
 design-region index file; it uses the complex as the **comparison basis** and
 outputs predicted structures + steering summary tables.
 
-The easiest path is **config-driven** — one YAML per target under
-`experiments/benchmarking/`, e.g. [`experiments/benchmarking/6G10/config.yml`](experiments/benchmarking/6G10/config.yml)
-(reference PDB, chains, interface mode, steering knobs):
+It's **config-driven** — one YAML per target under `experiments/benchmarking/`,
+e.g. [`experiments/benchmarking/6G10/config.yml`](experiments/benchmarking/6G10/config.yml)
+(reference PDB, chains, interface mode, steering knobs).
+
+### On the HPC (airgapped — nothing installed, everything in a container)
+
+`run_from_config.sh` is the entry point. It uses only base-OS tools on the host
+(`bash`, `grep`, `singularity`); **all Python runs inside the Boltz image** (which
+ships `yaml`/`gemmi`/`biopython`/`numpy`), and the GPU run is launched on the host
+via a generated `launch.sh` whose orchestrator does its own `singularity exec --nv`:
+
+```bash
+./scripts/sync_to_hpc.sh                                       # from the Mac
+# then on the HPC:
+./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml --dry-run
+./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml --prepare-only
+./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml   # prepare + run
+```
+
+The container defaults to the config's `boltz_container:`; override with
+`--container /path/to.img` (see `/hpc-home/jowillia/singularity/` for the library).
+
+### On the Mac (optional — for prepping/inspecting only, no GPU)
 
 ```bash
 pip install -e '.[experiments]'        # numpy + gemmi + biopython + pyyaml
-
-# Print the prepare/run commands without executing (no GPU needed):
 ./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml --dry-run
-
-# Prepare inputs locally, then run on the HPC (GPU + Boltz image):
 ./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml --prepare-only
-./scripts/sync_to_hpc.sh
-./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml
 ```
 
-Under the hood `run_from_config.py` calls `prepare_inputs.py` (derive FASTAs +
-interface + design-region) then `run_negative_steering.sh` (drive the engine);
-you can also call those two directly. The interface can be **derived** from
-heavy-atom contacts or **provided** as a residue file. Full walkthrough and the
-design-region caveat: [`docs/running_a_test.md`](docs/running_a_test.md) and
+Under the hood the driver calls `prepare_inputs.py` (derive FASTAs + interface +
+design-region) then writes a `launch.sh` that calls `run_negative_steering.sh`.
+The interface can be **derived** from heavy-atom contacts or **provided** as a
+residue file. Full walkthrough and the design-region caveat:
+[`docs/running_a_test.md`](docs/running_a_test.md) and
 [`experiments/benchmarking/README.md`](experiments/benchmarking/README.md).
 
 ## Experiments

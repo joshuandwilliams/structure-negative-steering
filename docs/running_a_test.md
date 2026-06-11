@@ -11,8 +11,15 @@ What the engine **does** give you: it uses the complex as the **comparison basis
 the interface/design-region from a bare PDB — that's what the prepare step is for.
 
 > A real run needs a GPU + the Boltz-2 Singularity image (`boltz2_negsteer.img`).
-> **Prepare can run anywhere** (needs `pip install -e '.[experiments]'`); **the run
-> is HPC-only.**
+> **The run is HPC-only.** On the airgapped HPC nothing is installed on the host —
+> every Python step runs inside the container.
+
+> **Recommended path — config-driven.** Rather than the manual steps below, put a
+> `config.yml` next to the PDB under `experiments/benchmarking/<target>/` and use
+> `./scripts/run_from_config.sh <config>` on the HPC (it runs all Python via
+> `singularity exec`, needs nothing installed). See
+> [`../experiments/benchmarking/README.md`](../experiments/benchmarking/README.md).
+> The manual steps below show what it does under the hood.
 
 ## Step 1 — prepare inputs (laptop or HPC)
 
@@ -50,11 +57,18 @@ true_interface.txt, design_region.txt}`. For 6G10 that's receptor chain A
 
 - Chains default to **receptor = A, effector = B**; override with
   `--receptor-chain` / `--effector-chain`.
-- The **design region** (residues steering may mutate) defaults to the interface
-  residues. Use `--design-region all` for the whole receptor chain, or
-  `--design-region-file FILE` for an explicit 1-based list.
+- The **design region** is the receptor stretch steering must NOT mutate (it is
+  *protected*, not the mutation target — see
+  [`../experiments/benchmarking/README.md`](../experiments/benchmarking/README.md)).
+  For a native complex use `--design-region none`; `all` protects the whole chain,
+  `--design-region-file FILE` takes an explicit 1-based list.
 
 ## Step 2 — run the engine (HPC, GPU)
+
+`run_negative_steering.sh` runs on the host (only `bash` + `singularity`); the
+orchestrator it calls does its own `singularity exec --nv` for the engine, so no
+host Python packages are needed. (The config-driven `run_from_config.sh` generates
+exactly this call for you.)
 
 ```bash
 ./scripts/sync_to_hpc.sh           # push code up; then on the HPC:
