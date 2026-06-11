@@ -39,8 +39,9 @@
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PY_DRIVER="${REPO_ROOT}/scripts/run_from_config.py"
+# REPO_ROOT is resolved AFTER the config is known (see below): under `sbatch`
+# SLURM spools this script to /var/spool/slurmd/..., so ${BASH_SOURCE[0]} is NOT
+# the repo path. We walk up from the absolute config path to find scripts/ instead.
 
 CONFIG=""
 CONTAINER=""
@@ -65,6 +66,28 @@ fi
 CONFIG="$(realpath "$CONFIG")"
 [[ -f "$CONFIG" ]] || { echo "ERROR: config not found: $CONFIG" >&2; exit 2; }
 CFG_DIR="$(dirname "$CONFIG")"
+
+# Resolve REPO_ROOT robustly (sbatch spools this script, so BASH_SOURCE is
+# unreliable). Walk up from the config dir to the repo (contains scripts/), then
+# fall back to $SLURM_SUBMIT_DIR and finally the script's own dir.
+REPO_ROOT=""
+_d="$CFG_DIR"
+while [[ "$_d" != "/" ]]; do
+    if [[ -f "$_d/scripts/run_from_config.py" ]]; then REPO_ROOT="$_d"; break; fi
+    _d="$(dirname "$_d")"
+done
+if [[ -z "$REPO_ROOT" && -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/scripts/run_from_config.py" ]]; then
+    REPO_ROOT="$SLURM_SUBMIT_DIR"
+fi
+if [[ -z "$REPO_ROOT" ]]; then
+    _bs="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || true)"
+    [[ -n "$_bs" && -f "$_bs/scripts/run_from_config.py" ]] && REPO_ROOT="$_bs"
+fi
+if [[ -z "$REPO_ROOT" ]]; then
+    echo "ERROR: could not locate the repo root (scripts/run_from_config.py) from $CONFIG" >&2
+    exit 2
+fi
+PY_DRIVER="${REPO_ROOT}/scripts/run_from_config.py"
 
 # Resolve the container: --container override, else the boltz_container: line in
 # the YAML (plain text extraction — no parser, no install).
