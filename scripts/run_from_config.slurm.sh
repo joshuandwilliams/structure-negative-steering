@@ -5,7 +5,7 @@
 #SBATCH -n 1
 #SBATCH -c 4
 #SBATCH --mem=12G
-#SBATCH --time=06:00:00
+#SBATCH --time=48:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --output=negsteer_%j.out
 #SBATCH --error=negsteer_%j.err
@@ -14,11 +14,15 @@
 # ─────────────────────────────────────────────────────────────────────
 # run_from_config.slurm.sh — config-driven negative-steering run.
 #
-# The header above mirrors the pipeline's NEGSTEER_RUN_ONE process
-# (nextflow.config): queue jic-gpu, 4 CPUs, 12 GB, 6 h, --gres=gpu:1.
-# The GPU allocation is REQUIRED: the engine's `singularity exec --nv`
-# needs the host GPU driver libraries, and on a CPU node Boltz fails with
-# "No supported gpu backend found!".
+# The header mirrors the pipeline's NEGSTEER_RUN_ONE process (nextflow.config):
+# queue jic-gpu, 4 CPUs, 12 GB, --gres=gpu:1 — BUT with --time raised to 48 h.
+# The pipeline's 6 h is sized for small RFDiffusion design fragments; the
+# standalone benchmark runs full experimental complexes (up to ~1400 residues)
+# under a heavier n_designs×num_seeds×diffusion config, which can take >12 h.
+# jic-gpu has no walltime cap (TIMELIMIT=infinite), so don't let a short --time
+# kill a long structure. Raise it further for anything larger.
+# The GPU allocation is REQUIRED: the engine's `singularity exec --nv` needs the
+# host GPU driver libraries, or Boltz fails with "No supported gpu backend found!".
 #
 # NOTHING runs outside a container.  This host script uses only base-OS
 # tools (bash, grep, sed, realpath, singularity).  All Python — config
