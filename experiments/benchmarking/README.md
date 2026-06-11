@@ -20,16 +20,18 @@ test spec. Only the derived `inputs/` and the `run/` outputs are gitignored.
 
 ## Running a target
 
-On the **airgapped HPC**, everything runs in a container — use the bash entry
-point (`run_from_config.sh`), which execs all Python via `singularity exec` and
-needs nothing installed on the host:
+On the **airgapped HPC**, everything runs in a container. `sbatch` the SLURM
+entry point (`run_from_config.slurm.sh`) for the full GPU run; it execs all Python
+via `singularity exec` and needs nothing installed on the host:
 
 ```bash
 ./scripts/sync_to_hpc.sh                                       # from the Mac
 # then on the HPC:
-./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml --dry-run
-./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml --prepare-only
-./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml   # prepare + run
+sbatch scripts/run_from_config.slurm.sh experiments/benchmarking/6G10/config.yml   # full run (GPU)
+
+# CPU-only steps (no GPU node) — run interactively with bash:
+bash scripts/run_from_config.slurm.sh experiments/benchmarking/6G10/config.yml --dry-run
+bash scripts/run_from_config.slurm.sh experiments/benchmarking/6G10/config.yml --prepare-only
 ```
 
 On the **Mac** (optional, for prepping/inspecting — no GPU), the Python driver

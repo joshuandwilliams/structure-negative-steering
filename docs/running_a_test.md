@@ -16,8 +16,8 @@ the interface/design-region from a bare PDB — that's what the prepare step is 
 
 > **Recommended path — config-driven.** Rather than the manual steps below, put a
 > `config.yml` next to the PDB under `experiments/benchmarking/<target>/` and use
-> `./scripts/run_from_config.sh <config>` on the HPC (it runs all Python via
-> `singularity exec`, needs nothing installed). See
+> `sbatch scripts/run_from_config.slurm.sh <config>` on the HPC (it runs all Python
+> via `singularity exec`, needs nothing installed). See
 > [`../experiments/benchmarking/README.md`](../experiments/benchmarking/README.md).
 > The manual steps below show what it does under the hood.
 
@@ -67,8 +67,10 @@ true_interface.txt, design_region.txt}`. For 6G10 that's receptor chain A
 
 `run_negative_steering.sh` runs on the host (only `bash` + `singularity`); the
 orchestrator it calls does its own `singularity exec --nv` for the engine, so no
-host Python packages are needed. (The config-driven `run_from_config.sh` generates
-exactly this call for you.)
+host Python packages are needed. **It must run on a GPU node** — under `sbatch`/
+`salloc -p jic-gpu --gres=gpu:1`, or just use `sbatch run_from_config.slurm.sh`,
+which generates exactly this call inside the right allocation. On a CPU/login node
+Boltz fails with "No supported gpu backend found!".
 
 ```bash
 ./scripts/sync_to_hpc.sh           # push code up; then on the HPC:

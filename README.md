@@ -20,7 +20,7 @@ structure-negative-steering/
 │   ├── sync_from_pipeline.py     # pull/refresh engine/ from the pipeline (+ --check)
 │   ├── sync_to_hpc.sh            # rsync this repo up to the HPC (excludes experiments/)
 │   ├── sync_from_hpc.sh          # pull an experiment's results back down
-│   ├── run_from_config.sh        # airgapped-HPC entry point (everything in-container)
+│   ├── run_from_config.slurm.sh  # airgapped-HPC entry point (sbatch; everything in-container)
 │   ├── run_from_config.py        # the Python brain (runs IN the container)
 │   ├── prepare_inputs.py         # derive FASTAs + interface/design-region from a complex PDB
 │   └── run_negative_steering.sh  # drive the engine on a prepared complex (HPC, GPU)
@@ -93,17 +93,22 @@ e.g. [`experiments/benchmarking/6G10/config.yml`](experiments/benchmarking/6G10/
 
 ### On the HPC (airgapped — nothing installed, everything in a container)
 
-`run_from_config.sh` is the entry point. It uses only base-OS tools on the host
+`run_from_config.slurm.sh` is the entry point. `sbatch` it for the full run — its
+header mirrors the pipeline's `NEGSTEER_RUN_ONE` process (`jic-gpu`, 4 CPUs, 12 GB,
+6 h, `--gres=gpu:1`); the GPU allocation is required or Boltz fails with
+"No supported gpu backend found!". It uses only base-OS tools on the host
 (`bash`, `grep`, `singularity`); **all Python runs inside the Boltz image** (which
-ships `yaml`/`gemmi`/`biopython`/`numpy`), and the GPU run is launched on the host
-via a generated `launch.sh` whose orchestrator does its own `singularity exec --nv`:
+ships `yaml`/`gemmi`/`biopython`/`numpy`), and the engine run's orchestrator does
+its own `singularity exec --nv`.
 
 ```bash
 ./scripts/sync_to_hpc.sh                                       # from the Mac
 # then on the HPC:
-./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml --dry-run
-./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml --prepare-only
-./scripts/run_from_config.sh experiments/benchmarking/6G10/config.yml   # prepare + run
+sbatch scripts/run_from_config.slurm.sh experiments/benchmarking/6G10/config.yml   # full run (GPU)
+
+# CPU-only steps don't need a GPU node — run interactively with bash:
+bash scripts/run_from_config.slurm.sh experiments/benchmarking/6G10/config.yml --dry-run
+bash scripts/run_from_config.slurm.sh experiments/benchmarking/6G10/config.yml --prepare-only
 ```
 
 The container defaults to the config's `boltz_container:`; override with

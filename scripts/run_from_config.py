@@ -3,7 +3,7 @@
 
 This script is meant to run INSIDE a container (the Boltz image ships yaml +
 gemmi + biopython + numpy).  On the airgapped HPC nothing is installed on the
-host, so scripts/run_from_config.sh invokes this via `singularity exec`.
+host, so scripts/run_from_config.slurm.sh invokes this via `singularity exec`.
 
 It does the two things that need Python:
   1. parse the config;
@@ -16,7 +16,7 @@ singularity from inside a container.
 
 All config paths are resolved relative to the config file's directory.
 
-Usage (normally via run_from_config.sh, but also runnable directly on a Mac with
+Usage (normally via run_from_config.slurm.sh, but also runnable directly on a Mac with
 the [experiments] extras installed):
   run_from_config.py CONFIG                      # prepare + write launch.sh
   run_from_config.py CONFIG --prepare-only       # prepare only, no launch.sh
@@ -46,7 +46,7 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     except ImportError:
         raise SystemExit(
             "ERROR: PyYAML is required to read the config. It ships in the Boltz "
-            "container — run this via scripts/run_from_config.sh (singularity), "
+            "container — run this via scripts/run_from_config.slurm.sh (singularity), "
             "or on a Mac: pip install -e '.[test]'."
         )
     data = yaml.safe_load(path.read_text())
