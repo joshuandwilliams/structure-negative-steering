@@ -2,11 +2,22 @@
 # .gitignore for structure-negative-steering
 # ============================================================
 
-# ----- Experiments — run inputs/outputs are HPC-side, never pushed -----
-# The whole experiments/ tree (prior runs migrated from the HPC scratch folder
-# plus any future runs) is local/HPC-only. Only experiments/README.md is kept.
+# ----- Experiments — results are HPC-only; test DEFINITIONS are tracked -----
+# The experiments/ tree (prior runs migrated from the HPC scratch folder plus
+# future run outputs) is local/HPC-only. EXCEPTIONS that ARE tracked:
+#   - experiments/README.md
+#   - experiments/benchmarking/  test specs: config.yml + reference *.pdb + READMEs
+# Derived inputs/ and run/ outputs stay ignored even under benchmarking/.
 experiments/*
 !experiments/README.md
+!experiments/benchmarking/
+experiments/benchmarking/*
+!experiments/benchmarking/README.md
+!experiments/benchmarking/*/
+experiments/benchmarking/*/*
+!experiments/benchmarking/*/config.yml
+!experiments/benchmarking/*/*.pdb
+!experiments/benchmarking/*/README.md
 
 # ----- Nextflow -----
 .nextflow/

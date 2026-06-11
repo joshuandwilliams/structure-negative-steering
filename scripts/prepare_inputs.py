@@ -121,9 +121,11 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--contact-cutoff", type=float, default=5.0,
                     help="Heavy-atom contact cutoff in Angstroms for --derive (default 5.0).")
 
-    ap.add_argument("--design-region", choices=["interface", "all"], default="interface",
-                    help="Which receptor residues may mutate: the interface residues "
-                         "(default) or the whole chain. Overridden by --design-region-file.")
+    ap.add_argument("--design-region", choices=["none", "interface", "all"], default="interface",
+                    help="Receptor residues the engine PROTECTS from steering mutations: "
+                         "'none' (protect only the true interface — right for a native "
+                         "complex), 'interface', or 'all' (whole chain). Overridden by "
+                         "--design-region-file.")
     ap.add_argument("--design-region-file", type=Path, default=None,
                     help="Explicit 1-based design-region indices file (overrides --design-region).")
     args = ap.parse_args(argv)
@@ -190,6 +192,9 @@ def main(argv: List[str]) -> int:
     elif args.design_region == "all":
         design1 = list(range(1, len(rec_seq) + 1))
         dr_source = "whole receptor chain"
+    elif args.design_region == "none":
+        design1 = []
+        dr_source = "none (protect only the true interface)"
     else:  # interface
         design1 = [i + 1 for i in iface0]
         dr_source = "interface residues (1-based)"

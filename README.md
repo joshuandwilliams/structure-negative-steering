@@ -20,8 +20,10 @@ structure-negative-steering/
 │   ├── sync_from_pipeline.py     # pull/refresh engine/ from the pipeline (+ --check)
 │   ├── sync_to_hpc.sh            # rsync this repo up to the HPC (excludes experiments/)
 │   ├── sync_from_hpc.sh          # pull an experiment's results back down
+│   ├── run_from_config.py        # config-driven: prepare + run from one YAML
 │   ├── prepare_inputs.py         # derive FASTAs + interface/design-region from a complex PDB
 │   └── run_negative_steering.sh  # drive the engine on a prepared complex (HPC, GPU)
+├── experiments/benchmarking/     # tracked per-target test specs (config.yml + ref PDB)
 ├── docs/running_a_test.md        # end-to-end recipe (e.g. 6G10)
 ├── tests/
 │   ├── test_engine_integrity.py  # vendored files unchanged since last sync (runs anywhere)
@@ -82,31 +84,30 @@ pytest -m hpc                 # cluster tier: a real steering run (GPU + Boltz)
 The engine is a *mid-pipeline* component — it does **not** turn a bare PDB into
 results by itself. It needs the two chain sequences plus a true-interface and a
 design-region index file; it uses the complex as the **comparison basis** and
-outputs predicted structures + steering summary tables. Two scripts bridge the
-gap:
+outputs predicted structures + steering summary tables.
+
+The easiest path is **config-driven** — one YAML per target under
+`experiments/benchmarking/`, e.g. [`experiments/benchmarking/6G10/config.yml`](experiments/benchmarking/6G10/config.yml)
+(reference PDB, chains, interface mode, steering knobs):
 
 ```bash
-pip install -e '.[experiments]'        # numpy + gemmi + biopython (prepare step)
+pip install -e '.[experiments]'        # numpy + gemmi + biopython + pyyaml
 
-# 1. Derive inputs from the complex (runs anywhere):
-./scripts/prepare_inputs.py \
-    --complex experiments/6G10/6G10.pdb \
-    --outdir  experiments/6G10/inputs \
-    --derive --contact-cutoff 5.0      # or: --interface-file <your residues>
+# Print the prepare/run commands without executing (no GPU needed):
+./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml --dry-run
 
-# 2. Run the engine (HPC, GPU + Boltz container):
+# Prepare inputs locally, then run on the HPC (GPU + Boltz image):
+./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml --prepare-only
 ./scripts/sync_to_hpc.sh
-./scripts/run_negative_steering.sh \
-    --name 6G10_test \
-    --complex experiments/6G10/6G10.pdb \
-    --inputs-dir experiments/6G10/inputs \
-    --boltz-container /path/to/boltz2_negsteer.img \
-    --plan-extra-args "--mode mild --n-designs 5 --num-seeds 1"
+./scripts/run_from_config.py experiments/benchmarking/6G10/config.yml
 ```
 
-Chains default to receptor=A / effector=B (override with `--receptor-chain` /
-`--effector-chain`). The interface can be **derived** from heavy-atom contacts or
-**provided** as a residue file. Full walkthrough: [`docs/running_a_test.md`](docs/running_a_test.md).
+Under the hood `run_from_config.py` calls `prepare_inputs.py` (derive FASTAs +
+interface + design-region) then `run_negative_steering.sh` (drive the engine);
+you can also call those two directly. The interface can be **derived** from
+heavy-atom contacts or **provided** as a residue file. Full walkthrough and the
+design-region caveat: [`docs/running_a_test.md`](docs/running_a_test.md) and
+[`experiments/benchmarking/README.md`](experiments/benchmarking/README.md).
 
 ## Experiments
 

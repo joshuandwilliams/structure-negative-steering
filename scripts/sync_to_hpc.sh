@@ -51,6 +51,24 @@ rsync -av --delete $DRY_RUN -e ssh \
     --exclude='rsync_deletions*.txt' \
     "$REPO_ROOT/" "${HPC_USER_HOST}:${HPC_DEST}"
 
+# Push experiment DEFINITIONS additively (NO --delete): the benchmarking test
+# specs (config.yml + reference PDBs + READMEs) must reach the HPC, but the HPC
+# experiments/ tree (prior results + run outputs) is authoritative and must
+# never be pruned by a code sync. Derived inputs/ and run/ outputs are excluded.
+if [ -d "$REPO_ROOT/experiments/benchmarking" ]; then
+    rsync -av $DRY_RUN -e ssh \
+        --prune-empty-dirs \
+        --include='README.md' \
+        --include='benchmarking/' \
+        --include='benchmarking/**/' \
+        --include='benchmarking/**/config.yml' \
+        --include='benchmarking/**/*.pdb' \
+        --include='benchmarking/**/README.md' \
+        --exclude='*' \
+        "$REPO_ROOT/experiments/" "${HPC_USER_HOST}:${HPC_DEST}experiments/"
+fi
+
 echo
 echo "Sync complete -> ${HPC_USER_HOST}:${HPC_DEST}"
-echo "(experiments/ deliberately NOT pushed — it is HPC-authoritative.)"
+echo "(code pushed with --delete; experiments/ results untouched —"
+echo " only benchmarking/ test definitions are pushed, additively.)"
