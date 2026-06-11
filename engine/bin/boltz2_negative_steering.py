@@ -2804,6 +2804,24 @@ def cmd_predict_one(args: argparse.Namespace) -> int:
     d = Path(design["dir"])
     yaml_path = Path(design["yaml"])
 
+    # ── Resume (LOCAL PATCH — see engine/_LOCAL_PATCHES.md) ─────────────────
+    # Large standalone-benchmark complexes can outrun the SLURM walltime; on
+    # resubmit the plan stage re-derives the SAME (seeded-rng) designs, so a
+    # design already predicted on disk can be reused instead of re-run. Guard
+    # against any drift by confirming the on-disk prediction's receptor sequence
+    # matches THIS design's current sequence; on any mismatch/error, recompute.
+    _existing_pred = d / "prediction.pdb"
+    if (d / "result.json").exists() and _existing_pred.exists():
+        try:
+            _want = (d / "receptor.fasta").read_text().splitlines()[-1].strip()
+            _have = get_chain_sequence(_existing_pred, plan["pred_receptor_chain"])
+            if _want and _have == _want:
+                print(f"[predict-one] {name} (index {idx}) — already predicted, "
+                      f"skipping (resume)", flush=True)
+                return 0
+        except Exception:
+            pass
+
     print(f"[predict-one] {name} (index {idx})", flush=True)
 
     try:

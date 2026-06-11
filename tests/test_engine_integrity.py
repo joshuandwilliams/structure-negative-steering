@@ -59,7 +59,7 @@ def test_vendored_files_match_manifest(manifest: dict) -> None:
 @pytest.mark.local_unit
 def test_no_stray_files_under_engine(manifest: dict) -> None:
     """engine/ contains only the manifest plus exactly the vendored files."""
-    tracked = set(manifest["synced_files"]) | {"_UPSTREAM.json"}
+    tracked = set(manifest["synced_files"]) | {"_UPSTREAM.json", "_LOCAL_PATCHES.md"}
     actual = {
         str(p.relative_to(ENGINE_DIR))
         for p in ENGINE_DIR.rglob("*")
