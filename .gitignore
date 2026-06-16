@@ -90,6 +90,10 @@ dist/
 rsync_dryrun*.txt
 rsync_deletions*.txt
 
+# ----- Quarto render artifacts (figures/ PNGs+SVGs are committed separately) -----
+*_files/
+analysis/**/*.html
+
 # ----- OS / misc -----
 Thumbs.db
 desktop.ini

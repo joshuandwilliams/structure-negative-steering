@@ -37,6 +37,10 @@ Plots
 5. Grouped boxplot of representative ra_eff, one box per tier (1-4).
 6. Scatter of initial (cold start) vs representative ra_eff, coloured by tier;
    y=x diagonal marks no change (below = improved), y=5 marks the pass threshold.
+7. 2x2 transition matrix of cold start -> steered correctness, restricted to
+   Tier 1 (HMA decoy + AVR) targets: how many poses negative steering rescued /
+   held / missed / broke. Uses the pipeline's own cold start as the before state
+   (a true before->after), so "lost" is not confounded by run-to-run variance.
 
 Outputs
 -------
@@ -47,6 +51,7 @@ Outputs
    figures/plot4_ra_eff_vs_change_scatter.{png,svg}
    figures/plot5_ra_eff_by_tier_boxplot.{png,svg}
    figures/plot6_initial_vs_rep_scatter.{png,svg}
+   figures/plot7_steering_rescue_confusion.{png,svg}   (if baseline available)
 """
 from __future__ import annotations
 
@@ -76,6 +81,17 @@ TIERS = {
 }
 TIER_OF = {t: tier for tier, ts in TIERS.items() for t in ts}
 TIER_COLORS = {1: "#1f77b4", 2: "#2ca02c", 3: "#ff7f0e", 4: "#d62728"}
+
+# Biological category for each difficulty tier. The label names both parts of the
+# modelled complex (receptor + effector). Category 4 is flagged as a single
+# protomer to make clear it is one receptor/effector pair, not the full
+# oligomeric resistosome.
+CATEGORY_LABEL = {
+    1: "HMA decoy + AVR",            # isolated integrated HMA decoy domain / AVR
+    2: "NLR sensor + effector",      # single NLR sensor protomer, 1:1 binary
+    3: "Host target + effector",     # genuine host virulence target / effector
+    4: "Resistosome protomer + effector",  # one protomer of an NLR resistosome
+}
 
 RA_EFF_THRESHOLD = 5.0  # Angstrom; vertical reference line / pass cutoff
 
@@ -153,9 +169,11 @@ def collect(bench: Path) -> pd.DataFrame:
         )
 
         # Lead with our derived columns, then the full representative row.
+        tier = TIER_OF.get(target)
         row = {
             "target": target,
-            "tier": TIER_OF.get(target),
+            "tier": tier,
+            "category": CATEGORY_LABEL.get(tier),
             "status": status,
             "receptor_len": rlen,
             "effector_len": elen,
@@ -199,7 +217,7 @@ def plot_ra_eff_hist(df: pd.DataFrame, out: Path):
     counts = [len(v) for v in per_tier]
     ax.hist(per_tier, bins=bins, stacked=True,
             color=[TIER_COLORS[t] for t in tiers],
-            label=[f"Tier {t} (n = {c})" for t, c in zip(tiers, counts)],
+            label=[f"{CATEGORY_LABEL[t]} (n = {c})" for t, c in zip(tiers, counts)],
             edgecolor="white")
     ax.axvline(RA_EFF_THRESHOLD, color="black", linestyle="--", linewidth=1.5,
                label=f"x = {RA_EFF_THRESHOLD:g} Å (pass threshold)")
@@ -284,7 +302,7 @@ def plot_length_scatter(df: pd.DataFrame, out: Path):
         if g.empty:
             continue
         ax.scatter(g["combined_seq_len"], g["rep_ra_eff"],
-                   color=TIER_COLORS[tier], label=f"Tier {tier}",
+                   color=TIER_COLORS[tier], label=CATEGORY_LABEL[tier],
                    s=55, edgecolor="black", linewidth=0.4, alpha=0.9)
     ax.axhline(RA_EFF_THRESHOLD, color="black", linestyle="--", linewidth=1.2,
                label=f"ra_eff = {RA_EFF_THRESHOLD:g} Å")
@@ -309,7 +327,7 @@ def plot_ra_eff_vs_change(df: pd.DataFrame, out: Path):
         if g.empty:
             continue
         ax.scatter(g["rep_ra_eff"], g["change_ra_eff"],
-                   color=TIER_COLORS[tier], label=f"Tier {tier}",
+                   color=TIER_COLORS[tier], label=CATEGORY_LABEL[tier],
                    s=55, edgecolor="black", linewidth=0.4, alpha=0.9)
     ax.axhline(0, color="black", linewidth=1.2)
     ax.axvline(RA_EFF_THRESHOLD, color="black", linestyle="--", linewidth=1.2,
@@ -337,7 +355,7 @@ def plot_initial_vs_rep(df: pd.DataFrame, out: Path):
         if g.empty:
             continue
         ax.scatter(g["cold_start_ra_eff"], g["rep_ra_eff"],
-                   color=TIER_COLORS[tier], label=f"Tier {tier}",
+                   color=TIER_COLORS[tier], label=CATEGORY_LABEL[tier],
                    s=55, edgecolor="black", linewidth=0.4, alpha=0.9)
     # y = x diagonal spanning the full data range (square the axes so it reads
     # as a true 45° line).
@@ -353,8 +371,77 @@ def plot_initial_vs_rep(df: pd.DataFrame, out: Path):
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlabel("Initial ra_eff vs ground truth (Å)")
     ax.set_ylabel("Steered ra_eff vs ground truth (Å)")
-    ax.legend(**LEGEND_KW)
+    ax.legend(loc="upper left", frameon=True)
     save_tight(fig, out)
+
+
+def plot_steering_confusion(df: pd.DataFrame, out: Path,
+                            baseline_col: str = "cold_start_ra_eff",
+                            baseline_label: str = "Cold start (initial Boltz-2)",
+                            scope_label: str | None = None):
+    """2×2 transition matrix: the cold-start prediction vs negative steering.
+
+    Each target is classified by whether its pose is correct (ra_eff < 5 Å)
+    BEFORE steering (the cold-start initial prediction) and AFTER (the steered
+    representative). Both come from the SAME pipeline run, so this is a true
+    before→after and the four cells are unambiguous:
+        rescued        incorrect → correct   (the win condition)
+        both correct   correct   → correct   (steering held a good pose)
+        both incorrect incorrect → incorrect (steering didn't reach the cutoff)
+        lost           correct   → incorrect (steering broke a good pose)
+
+    (Using the cold start rather than an independent predictor avoids attributing
+    run-to-run prediction variance to steering — an external Boltz-2 run can pass
+    a target whose cold-start draw failed, which is not steering "losing" a pose.)
+    """
+    sub = df.dropna(subset=["rep_ra_eff", baseline_col]).copy()
+    n = len(sub)
+
+    base_ok = sub[baseline_col] < RA_EFF_THRESHOLD
+    steer_ok = sub["rep_ra_eff"] < RA_EFF_THRESHOLD
+    rescued        = int((~base_ok & steer_ok).sum())
+    both_correct   = int(( base_ok & steer_ok).sum())
+    both_incorrect = int((~base_ok & ~steer_ok).sum())
+    lost           = int(( base_ok & ~steer_ok).sum())
+
+    # (row, col) -> (label, count, colour). row 0 = steered correct (top);
+    # col 0 = baseline incorrect (left).
+    cells = {
+        (0, 0): ("Rescued\n(incorrect → correct)", rescued, "#2ca02c"),
+        (0, 1): ("Both correct", both_correct, "#6baed6"),
+        (1, 0): ("Both incorrect", both_incorrect, "#bdbdbd"),
+        (1, 1): ("Lost\n(correct → incorrect)", lost, "#d62728"),
+    }
+    fig, ax = plt.subplots(figsize=(6.2, 5.6))
+    for (r, c), (label, count, color) in cells.items():
+        y = 1 - r
+        ax.add_patch(plt.Rectangle((c, y), 1, 1, facecolor=color,
+                                   alpha=0.85 if count else 0.20,
+                                   edgecolor="white", linewidth=3))
+        ax.text(c + 0.5, y + 0.60, str(count), ha="center", va="center",
+                fontsize=30, fontweight="bold", color="black")
+        pct = f"{100 * count / n:.0f}%" if n else ""
+        ax.text(c + 0.5, y + 0.28, f"{label}\n{pct}", ha="center", va="center",
+                fontsize=10.5, color="black")
+
+    ax.set_xlim(0, 2)
+    ax.set_ylim(0, 2)
+    ax.set_aspect("equal")
+    ax.set_xticks([0.5, 1.5])
+    ax.set_xticklabels(["Incorrect", "Correct"])
+    ax.set_yticks([0.5, 1.5])
+    ax.set_yticklabels(["Incorrect", "Correct"], rotation=90, va="center")
+    ax.set_xlabel(f"{baseline_label} pose  (< {RA_EFF_THRESHOLD:g} Å = correct)")
+    ax.set_ylabel(f"After negative steering  (< {RA_EFF_THRESHOLD:g} Å = correct)")
+    scope = f"{scope_label}; " if scope_label else ""
+    ax.set_title(f"Pose rescue by negative steering vs {baseline_label}\n"
+                 f"({scope}n = {n} targets)")
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.tick_params(length=0)
+    save_tight(fig, out)
+    return dict(rescued=rescued, both_correct=both_correct,
+                both_incorrect=both_incorrect, lost=lost, n=n)
 
 
 def plot_tier_boxplot(df: pd.DataFrame, out: Path):
@@ -364,7 +451,9 @@ def plot_tier_boxplot(df: pd.DataFrame, out: Path):
     data = [sub.loc[sub["tier"] == t, "rep_ra_eff"].to_numpy() for t in tiers]
     counts = [len(v) for v in data]
     fig, ax = plt.subplots(figsize=(8, 5))
-    bp = ax.boxplot(data, patch_artist=True, showmeans=True,
+    # No mean marker (showmeans) and no outlier fliers (showfliers): every point
+    # is already drawn via the jittered overlay below.
+    bp = ax.boxplot(data, patch_artist=True, showmeans=False, showfliers=False,
                     medianprops=dict(color="black"))
     for patch, t in zip(bp["boxes"], tiers):
         patch.set_facecolor(TIER_COLORS[t])
@@ -378,12 +467,12 @@ def plot_tier_boxplot(df: pd.DataFrame, out: Path):
                    color=TIER_COLORS[t], edgecolor="black", linewidth=0.4,
                    s=28, alpha=0.9, zorder=3)
     ax.axhline(RA_EFF_THRESHOLD, color="black", linestyle="--", linewidth=1.2,
-               label=f"ra_eff = {RA_EFF_THRESHOLD:g} Å (pass threshold)")
+               label=f"ra_eff = {RA_EFF_THRESHOLD:g} Å")
     ax.set_xticks(range(1, len(tiers) + 1))
-    ax.set_xticklabels([f"Tier {t}\n(n = {c})" for t, c in zip(tiers, counts)])
+    ax.set_xticklabels([f"{CATEGORY_LABEL[t]}\n(n = {c})"
+                        for t, c in zip(tiers, counts)], fontsize=8)
     ax.set_ylabel("Representative ra_eff vs truth (Å)")
-    ax.set_title("Representative ra_eff by tier")
-    ax.legend(**LEGEND_KW)
+    ax.legend(loc="upper left", frameon=False)
     save_tight(fig, out)
 
 
@@ -420,6 +509,13 @@ def main():
     plot_tier_boxplot(df, figdir / "plot5_ra_eff_by_tier_boxplot.png")
     plot_initial_vs_rep(df, figdir / "plot6_initial_vs_rep_scatter.png")
 
+    # Plot 7: cold-start -> steered rescue, restricted to Tier 1 (HMA decoy + AVR).
+    # Baselines against the pipeline's OWN cold start (not an external predictor),
+    # so it is a true before->after and "lost" cannot be a run-to-run artefact.
+    confusion = plot_steering_confusion(
+        df[df["tier"] == 1], figdir / "plot7_steering_rescue_confusion.png",
+        scope_label="Tier 1 (HMA decoy + AVR)")
+
     # ── Console report ───────────────────────────────────────────────────────
     n_rep = (df["status"] == "representative").sum()
     n_none = (df["status"] == "none_passed").sum()
@@ -436,12 +532,19 @@ def main():
           f"{(rep['rep_ra_eff'] <= RA_EFF_THRESHOLD).sum()} / {n_rep}")
     print(f"improved (change<0): {(rep['change_ra_eff'] < 0).sum()}, "
           f"worsened (change>0): {(rep['change_ra_eff'] > 0).sum()}")
+    print(f"\nTier-1 rescue vs cold start (n={confusion['n']}): "
+          f"rescued={confusion['rescued']}, "
+          f"both_correct={confusion['both_correct']}, "
+          f"both_incorrect={confusion['both_incorrect']}, "
+          f"lost={confusion['lost']}")
+    figs = ["plot1_ra_eff_hist", "plot2_ra_eff_change_hist",
+            "plot3_length_vs_ra_eff_scatter",
+            "plot4_ra_eff_vs_change_scatter",
+            "plot5_ra_eff_by_tier_boxplot",
+            "plot6_initial_vs_rep_scatter",
+            "plot7_steering_rescue_confusion"]
     print(f"\nWrote:\n  {summary_path}")
-    for p in ["plot1_ra_eff_hist", "plot2_ra_eff_change_hist",
-              "plot3_length_vs_ra_eff_scatter",
-              "plot4_ra_eff_vs_change_scatter",
-              "plot5_ra_eff_by_tier_boxplot",
-              "plot6_initial_vs_rep_scatter"]:
+    for p in figs:
         print(f"  {figdir / p}.png / .svg")
 
 
