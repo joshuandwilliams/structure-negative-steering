@@ -64,7 +64,7 @@ quarto render analysis/negsteer_benchmark/negsteer_benchmark.qmd
 * `figures/plot5_ra_eff_by_tier_boxplot` — representative ra_eff per category.
 * `figures/plot6_initial_vs_rep_scatter` — cold-start vs representative ra_eff (y = x diagonal).
 
-Each figure is written as both `.png` and `.svg`.
+Each figure is written as a `.png`.
 
 ## Latest result (43/43 targets finished)
 

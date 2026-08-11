@@ -99,10 +99,9 @@ FIGDIR.mkdir(parents=True, exist_ok=True)
 
 
 def save_fig(fig, name):
-    """Save as both PNG and SVG with whitespace cropped tight (for Inkscape)."""
-    for ext in ("png", "svg"):
-        fig.savefig(FIGDIR / f"{name}.{ext}", dpi=200,
-                    bbox_inches="tight", pad_inches=0.02)
+    """Save as PNG with whitespace cropped tight."""
+    fig.savefig(FIGDIR / f"{name}.png", dpi=200,
+                bbox_inches="tight", pad_inches=0.02)
 
 
 # Finished runs that produced a representative steered design (used in the plots).

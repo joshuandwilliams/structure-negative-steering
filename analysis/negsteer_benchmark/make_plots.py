@@ -45,13 +45,13 @@ Plots
 Outputs
 -------
    benchmark_summary.csv                         (in --outdir)
-   figures/plot1_ra_eff_hist.{png,svg}
-   figures/plot2_ra_eff_change_hist.{png,svg}
-   figures/plot3_length_vs_ra_eff_scatter.{png,svg}
-   figures/plot4_ra_eff_vs_change_scatter.{png,svg}
-   figures/plot5_ra_eff_by_tier_boxplot.{png,svg}
-   figures/plot6_initial_vs_rep_scatter.{png,svg}
-   figures/plot7_steering_rescue_confusion.{png,svg}   (if baseline available)
+   figures/plot1_ra_eff_hist.png
+   figures/plot2_ra_eff_change_hist.png
+   figures/plot3_length_vs_ra_eff_scatter.png
+   figures/plot4_ra_eff_vs_change_scatter.png
+   figures/plot5_ra_eff_by_tier_boxplot.png
+   figures/plot6_initial_vs_rep_scatter.png
+   figures/plot7_steering_rescue_confusion.png   (if baseline available)
 """
 from __future__ import annotations
 
@@ -194,10 +194,9 @@ LEGEND_KW = dict(loc="center left", bbox_to_anchor=(1.01, 0.5),
 
 
 def save_tight(fig, out: Path):
-    """Save as both PNG and SVG with whitespace cropped tight (for Inkscape)."""
-    for ext in ("png", "svg"):
-        fig.savefig(out.with_suffix(f".{ext}"), dpi=200,
-                    bbox_inches="tight", pad_inches=0.02)
+    """Save as PNG with whitespace cropped tight."""
+    fig.savefig(out.with_suffix(".png"), dpi=200,
+                bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
 
 
@@ -545,7 +544,7 @@ def main():
             "plot7_steering_rescue_confusion"]
     print(f"\nWrote:\n  {summary_path}")
     for p in figs:
-        print(f"  {figdir / p}.png / .svg")
+        print(f"  {figdir / p}.png")
 
 
 if __name__ == "__main__":
