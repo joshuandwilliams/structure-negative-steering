@@ -15,6 +15,13 @@
 #   receptor_design/negative_steering scratch folder, plus new runs).  Those
 #   are HPC-only and gitignored.  This push EXCLUDES experiments/ entirely, so
 #   --delete can never wipe your results on the cluster.
+#
+# Also excluded:
+#   - analysis/  The Quarto report is authored and rendered on the Mac from
+#     results pulled down by sync_from_hpc.sh.  Nothing on the HPC reads it, and
+#     its rendered .html plus the *_files/ JS/CSS bundle are gitignored build
+#     artefacts that do not belong on the cluster.
+#   - .claude/  Local editor/agent config, Mac-side only.
 
 set -euo pipefail
 
@@ -33,6 +40,10 @@ cd "$REPO_ROOT"
 rsync -av --delete $DRY_RUN -e ssh \
     --exclude='.git/' \
     --exclude='experiments/' \
+    --exclude='analysis/' \
+    --exclude='.claude/' \
+    --exclude='.vscode/' \
+    --exclude='.idea/' \
     --exclude='__pycache__/' \
     --exclude='.pytest_cache/' \
     --exclude='.ruff_cache/' \

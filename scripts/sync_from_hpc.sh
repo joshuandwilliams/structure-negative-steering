@@ -17,6 +17,9 @@
 # where a full pull would be ~6 GB but the analysis only needs ~1 MB/target.
 #
 # Transport: rsync over SSH using the 'slurm' host alias in ~/.ssh/config.
+#
+# Safety: this script never passes --delete.  It can only add or update files on
+# the Mac, never remove them.
 
 set -euo pipefail
 
@@ -115,7 +118,12 @@ if [ -n "${RESULTS_ONLY}" ]; then
 fi
 
 echo "[${NAME}] rsync ${SRC} -> ${DST}"
-rsync -av ${DRY_RUN} -e ssh "${RSYNC_RULES[@]}" "${SRC}" "${DST}"
+# --no-perms/--no-owner/--no-group: the HPC filesystem reports every file as
+# mode 755, so plain `rsync -a` would rewrite the mode of tracked inputs
+# (config.yml, reference PDBs) and show them as modified in git with no content
+# change.  Let the local umask decide instead.
+rsync -av --no-perms --no-owner --no-group ${DRY_RUN} -e ssh \
+    "${RSYNC_RULES[@]}" "${SRC}" "${DST}"
 
 echo "Done."
 if [ -n "${DRY_RUN}" ]; then
