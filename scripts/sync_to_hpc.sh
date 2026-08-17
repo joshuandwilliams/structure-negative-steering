@@ -98,6 +98,8 @@ rsync -av --delete $DRY_RUN -e ssh \
     --exclude='analysis/' \
     --exclude='tests/smoke/inputs/' \
     --exclude='tests/smoke/run/' \
+    --exclude='tests/smoke/run_cli/' \
+    --exclude='tests/smoke/.cli_view*' \
     --exclude='.claude/' \
     --exclude='.vscode/' \
     --exclude='.idea/' \

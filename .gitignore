@@ -79,6 +79,8 @@ ENV/
 
 # ----- Smoke-run outputs. The config is tracked, the run is not -----
 tests/smoke/run/
+tests/smoke/run_cli/
+tests/smoke/.cli_view*
 tests/smoke/inputs/
 tests/smoke/*.out
 tests/smoke/*.err
