@@ -33,7 +33,6 @@ dependencies:
   - pandas=3.0.3
   - matplotlib-base=3.10.9
   - scipy=1.17.1              # spearmanr, wilcoxon, bootstrap CIs
-  - statsmodels=0.14.6        # paired tests in the confidence analyses
 
   # ----- Quarto's jupyter engine -----
   # Without these, `quarto render` cannot start a kernel for a .qmd.
