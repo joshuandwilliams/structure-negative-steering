@@ -127,10 +127,20 @@ def test_every_configured_design_and_seed_produced_a_row():
     initial = [r for r in rows if r.get("design") == "initial"]
     assert initial, "no cold-start rows, so there is no paired baseline"
 
-    seeds = {r["seed_index"] for r in rows}
-    assert len(seeds) == 1, f"config asked for 1 seed, table has {len(seeds)}: {seeds}"
+    # The cold-start row carries a BLANK seed_index, not "0". It is one
+    # prediction of the wild-type receptor rather than a per-seed sample of a
+    # design, and the engine records that by leaving the field empty. Counting
+    # distinct seed_index over every row therefore counts a seed that does not
+    # exist. Pinned because it is not obvious and reads like missing data.
+    assert all(r["seed_index"] == "" for r in initial), \
+        f"cold-start rows now carry a seed index: {[r['seed_index'] for r in initial]}"
 
-    designs = {r["design"] for r in rows if r.get("design") != "initial"}
+    steered = [r for r in rows if r.get("design") != "initial"]
+    seeds = {r["seed_index"] for r in steered}
+    assert len(seeds) <= 1, \
+        f"config asked for 1 seed, steered rows have {len(seeds)}: {seeds}"
+
+    designs = {r["design"] for r in steered}
     assert len(designs) <= 1, \
         f"config asked for 1 design, table has {len(designs)}: {designs}"
 
