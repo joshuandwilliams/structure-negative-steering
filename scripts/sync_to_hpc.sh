@@ -30,6 +30,13 @@
 #   --delete can never wipe your results on the cluster.
 #
 # Also excluded:
+#   - tests/smoke/inputs/ and tests/smoke/run/  The smoke run is a real engine
+#     output produced on a GPU node, and the only thing that reaches the plan,
+#     collect, cycle and reversion-harvest code. Only tests/smoke/config.yml is
+#     tracked; the derived inputs and the run tree are HPC-authoritative for
+#     exactly the same reason experiments/ is, and a code sync must not wipe
+#     them. This was found by reading a --dry run rather than by thinking about
+#     it, which is the argument for always reading one.
 #   - analysis/  The Quarto report is authored and rendered on the Mac from
 #     results pulled down by sync_from_hpc.sh.  Nothing on the HPC reads it, and
 #     its rendered .html plus the *_files/ JS/CSS bundle are gitignored build
@@ -89,6 +96,8 @@ rsync -av --delete $DRY_RUN -e ssh \
     --exclude='.git/' \
     --exclude='experiments/' \
     --exclude='analysis/' \
+    --exclude='tests/smoke/inputs/' \
+    --exclude='tests/smoke/run/' \
     --exclude='.claude/' \
     --exclude='.vscode/' \
     --exclude='.idea/' \
