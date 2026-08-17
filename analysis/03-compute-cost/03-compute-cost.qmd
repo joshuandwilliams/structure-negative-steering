@@ -1,0 +1,353 @@
+---
+title: "What does negative steering cost to run?"
+format:
+  html:
+    code-fold: true
+    toc: true
+jupyter: python3
+---
+
+Date: 12/8/26
+
+This document puts the cost of a negative-steering run next to the cost of the
+structure predictors in `structure-prediction-benchmarking`, on the same 18
+Tier-1 HMA decoy and AVR targets and the same cluster hardware.
+
+The comparison is not single-valued. A benchmark run is 5 seeds × 5
+diffusion samples = 25 predictions (ESMFold2 emits 5). A negative-steering run
+is a cold start plus, if the cold start fails, `negsteer_n_designs` steering
+sets × 3 seeds × 5 samples, with a re-prediction for every design whose
+mutations needed reverting. Cost per run therefore scales with the number of
+steering sets, and cost per prediction does not. The figure reports per-run cost
+and the prediction count that explains it, and the paired tests below report
+per-prediction cost.
+
+Two steering cohorts are shown, because the parameter that dominates cost was
+set differently in each.
+
+* 20 steering sets, the 18-target benchmark under `experiments/benchmarking/`.
+  A median of 305 predictions per run.
+* 3 steering sets, the 128 designed sequences of the AVR-PikF campaign
+  (`crystal_full_test_contig` in `receptor-resurfacing-pipeline`). A median of
+  50 predictions per run. This is the setting the pipeline ships with.
+
+They differ in more than the steering-set count, so read the gap between them as
+the effect of the configuration as a whole rather than of that one parameter.
+The campaign also used a smaller candidate pool (10 against 12), took its
+protected set from the design region rather than the true interface, ran with
+`negsteer_no_kernels: true`, and ran many sequences concurrently
+(`max_boltz2_parallel: 24`), which can inflate wall-clock through contention.
+The per-prediction figures are nonetheless close (20.5 s against 22.1 s), so the
+per-run gap is close to pure sampling depth.
+
+MSA search is counted. Benchmark wall-clock is `standalone_elapsed_s`, which
+folds in the shared ColabFold MSA search for the models that depend on it
+(Boltz-1 and Boltz-2 with an MSA, and ColabFold). Using the raw `elapsed_s`
+would hand those three a free MSA and understate them by roughly 35 min each.
+This is the same convention as that repo's own compute-cost analysis.
+
+Wall-clock for steering is every stage of the run summed (plan, predict-one,
+collect, reversion, harvest, finalize, aggregate, metrics), not just the GPU
+time. Both cohorts ran on the `jic-gpu` queue with `--gres=gpu:1`, so they are
+comparable.
+
+Regenerate the input CSV with:
+
+```bash
+python3 analysis/03-compute-cost/stage_runtime_comparison.py
+```
+
+## 1. Setup
+
+```{python}
+import math
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+HERE = Path.cwd()
+if not (HERE / "runtime_comparison.csv").exists():
+    HERE = Path("analysis/03-compute-cost")
+
+rt = pd.read_csv(HERE / "runtime_comparison.csv")
+
+NEGSTEER_20 = "Boltz-2 + negative steering (steering sets = 20)"
+NEGSTEER_3 = "Boltz-2 + negative steering (steering sets = 3)"
+# The variant is shown by colour, so the y axis carries the bare model name and the
+# same model can appear more than once.
+VARIANT_COLOR = {
+    "no_msa": "#4C72B0",
+    "msa": "#C44E52",
+    "restraints": "#8172B2",
+    "negsteer": "#55A868",
+}
+VARIANT_LABEL = {
+    "no_msa": "No MSA",
+    "msa": "MSA",
+    "restraints": "restraints from the reference",
+    "negsteer": "negative steering",
+}
+
+TIME_TICKS = [1, 2, 5, 10, 20, 50, 100, 200]        # minutes
+PER_PRED_TICKS = [2, 5, 10, 20, 50, 100, 200, 500]  # seconds
+
+FIGDIR = HERE / "thesis-figures"
+FIGDIR.mkdir(parents=True, exist_ok=True)
+
+
+def save_fig(fig, name):
+    fig.savefig(FIGDIR / f"{name}.png", dpi=200, bbox_inches="tight", pad_inches=0.05)
+
+
+def readable_log(axis, ticks):
+    axis.set_ticks(ticks)
+    axis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:g}"))
+    axis.set_minor_locator(plt.NullLocator())
+```
+
+## 2. Cost per run
+
+One point per model and variant, the median across the targets that model ran.
+Spread is small relative to the differences between models (the tightest combos
+vary by seconds, the widest by tens of minutes), and showing it obscured the
+comparison, so it is reported in the table rather than drawn.
+
+```{python}
+med = (rt.groupby(["model", "variant"])
+         .agg(elapsed_min=("elapsed_min", "median"),
+              sec_per_prediction=("sec_per_prediction", "median"),
+              n_predictions=("n_predictions", "median"),
+              n=("target", "size"))
+         .reset_index()
+         .sort_values("elapsed_min")
+         .reset_index(drop=True))
+
+ys = np.arange(len(med))
+fig, ax = plt.subplots(figsize=(7.0, 5.2))
+
+ax.scatter(med["elapsed_min"], ys, s=78,
+           color=[VARIANT_COLOR[a] for a in med["variant"]],
+           edgecolor="black", linewidth=0.7, zorder=3)
+
+# The two steering rows are far longer than any model name, so they wrap rather
+# than push the plotting area off the page.
+ax.set_yticks(ys)
+ax.set_yticklabels([m.replace(" (steering", "\n(steering") for m in med["model"]],
+                   fontsize=10)
+ax.set_ylim(-0.8, len(med) - 0.4)
+ax.invert_yaxis()   # fastest at the top
+ax.set_xscale("log")
+readable_log(ax.xaxis, TIME_TICKS)
+ax.tick_params(axis="x", labelsize=9.5)
+ax.set_xlabel("Median wall-clock per run (minutes, log scale)", fontsize=10)
+ax.grid(axis="x", ls=":", color="#CCCCCC", lw=0.6, zorder=0)
+ax.set_axisbelow(True)
+
+# Predictions per run, as a right-hand column. Without it the ranking invites
+# the wrong reading, since steering's run buys an order of magnitude more
+# predictions than any benchmark run does.
+trans = ax.get_yaxis_transform()
+for y, n in zip(ys, med["n_predictions"]):
+    ax.text(1.05, y, f"{int(n)}", transform=trans, ha="left", va="center",
+            fontsize=9.5, clip_on=False)
+ax.text(1.05, -0.85, "predictions\nper run", transform=trans, ha="left",
+        va="center", fontsize=9.5, style="italic", clip_on=False)
+
+handles = [plt.Line2D([], [], ls="none", marker="o", markersize=8,
+                      mfc=VARIANT_COLOR[a], mec="black", mew=0.7)
+           for a in ["no_msa", "msa", "restraints", "negsteer"]]
+ax.legend(handles, [VARIANT_LABEL[a] for a in ["no_msa", "msa", "restraints", "negsteer"]],
+          loc="lower center", bbox_to_anchor=(0.5, 1.01), ncol=2, frameon=False,
+          fontsize=9.5, borderaxespad=0.0)
+save_fig(fig, "compute_cost_comparison")
+plt.show()
+```
+
+```{python}
+spread = (rt.groupby(["model", "variant"])
+            .agg(n=("target", "size"),
+                 predictions=("n_predictions", "median"),
+                 median_min=("elapsed_min", "median"),
+                 min_min=("elapsed_min", "min"),
+                 max_min=("elapsed_min", "max"),
+                 median_s_per_pred=("sec_per_prediction", "median"),
+                 median_peak_rss_gb=("peak_rss_gb", "median"))
+            .round(1).sort_values("median_min").reset_index())
+spread
+```
+
+- At 20 steering sets, negative steering is the most expensive method here, at a
+  median of 111 min against 109 min for AlphaFold2-Multimer and 40 to 43 min for
+  Boltz-1, Boltz-2 and ColabFold once their MSA search is counted.
+- At 3 steering sets it is cheaper per run than every MSA-based combination, at
+  17.2 min against 22.8 min for AlphaFold3 with an MSA. Per run the claim depends
+  entirely on the steering-set count, and it holds at the shipped setting.
+- The difference between the two cohorts is sampling depth rather than
+  per-prediction overhead. 305 predictions per run against 50, at 22.1 s and
+  20.5 s per prediction.
+- The overhead of steering itself is modest. Steering runs at 22.1 s per
+  prediction against unsteered Boltz-2's 12.4 s, so planning, contact analysis,
+  reversion and final metrics add about 75% on top of the raw Boltz-2 call.
+- Some units never steer. Three of the 18 benchmark targets and 22 of the 128
+  campaign sequences had a cold start that passed on every seed, so the run
+  exited after 15 predictions. Cost is conditional on the cold start failing.
+
+## 3. Cost against memory
+
+The thesis figure. Wall-clock and peak memory on the same axes, so the two
+resources that actually bound throughput can be read together, with negative
+steering placed among the predictors rather than in a separate figure.
+
+Memory comes from different tooling per cohort (see
+`stage_runtime_comparison.py`), and the two measurements agree closely where
+they overlap, so the axis is comparable across every point. It is host RAM, not
+VRAM, which is usually the real constraint.
+
+Reference-restrained points share the No MSA colour, as they are a no-MSA variant,
+and carry `(constr)` in their label. The two steering points carry a bare
+steering-set count, which the legend spells out, because that count is what
+separates them.
+
+```{python}
+SCATTER_COLOR = {"no_msa": VARIANT_COLOR["no_msa"], "restraints": VARIANT_COLOR["no_msa"],
+                 "msa": VARIANT_COLOR["msa"], "negsteer": VARIANT_COLOR["negsteer"]}
+SCATTER_LEGEND = [("no_msa", "No MSA"), ("msa", "MSA"),
+                  ("negsteer", "Negative steering\n(steering sets)")]
+
+med2 = (rt.groupby(["model", "variant"])
+          .agg(runtime=("elapsed_min", "median"),
+               memory=("peak_rss_gb", "median"))
+          .reset_index())
+
+
+def scatter_label(model, variant):
+    if variant == "negsteer":
+        # Bare count; the legend says these are steering sets.
+        return "Boltz-2 (%s)" % model.split("= ")[1].rstrip(")")
+    return f"{model} (constr)" if variant == "restraints" else model
+
+
+med2["label"] = [scatter_label(m, a) for m, a in zip(med2["model"], med2["variant"])]
+
+fig, ax = plt.subplots(figsize=(8.4, 6.4))
+for variant in ["msa", "restraints", "no_msa", "negsteer"]:
+    sub = med2[med2["variant"] == variant]
+    ax.scatter(sub["runtime"], sub["memory"], s=90, color=SCATTER_COLOR[variant],
+               alpha=0.65, edgecolor="black", linewidth=0.6,
+               zorder=5 if variant == "negsteer" else 4)
+
+# Nudged so the near-coincident pairs (each Boltz model against its restrained
+# variant, and 20-set steering against AlphaFold2-Multimer) stay readable.
+LABEL_LEFT = {("ESMFold2", "no_msa"), ("Boltz-2", "no_msa"),
+              ("Boltz-1", "no_msa"), ("ColabFold", "no_msa"),
+              ("AlphaFold2-Multimer", "msa")}
+LABEL_BELOW = {("Boltz-2", "restraints"), ("Boltz-1", "restraints")}
+for _, r in med2.iterrows():
+    key = (r["model"], r["variant"])
+    if key in LABEL_BELOW:
+        dx, dy, ha, va = 0, -11, "center", "top"
+    elif key in LABEL_LEFT:
+        dx, dy, ha, va = -8, 0, "right", "center"
+    else:
+        dx, dy, ha, va = 8, 0, "left", "center"
+    ax.annotate(r["label"], (r["runtime"], r["memory"]), fontsize=7.5,
+                xytext=(dx, dy), textcoords="offset points", ha=ha, va=va,
+                zorder=6)
+
+ax.set_xscale("log")
+readable_log(ax.xaxis, TIME_TICKS)
+ax.set_xlabel("Median wall-clock per run (minutes, log scale)")
+ax.set_ylabel("Median peak resident memory (GB)")
+ax.set_xlim(right=260)   # room for the right-hand labels at ~110 min
+handles = [plt.Line2D([], [], ls="none", marker="o", markersize=8,
+                      mfc=SCATTER_COLOR[a], mec="black", mew=0.7, alpha=0.65)
+           for a, _ in SCATTER_LEGEND]
+ax.legend(handles, [lab for _, lab in SCATTER_LEGEND], loc="center left",
+          bbox_to_anchor=(1.01, 0.5), frameon=True, fontsize=10)
+save_fig(fig, "compute_cost_tradeoff")
+plt.show()
+```
+
+- Negative steering costs no more memory than the Boltz-2 it wraps, 4.6 to 5.1
+  GB against 5.0 GB unsteered. Memory is set by the prediction model, so the
+  engine's extra stages are not what bounds how many can run at once.
+- The two steering points sit an order of magnitude apart in wall-clock and on
+  top of each other in memory, which is the sampling-depth difference of the
+  previous section seen on a second axis.
+- At 20 steering sets it lands next to AlphaFold2-Multimer in wall-clock while
+  using roughly a fifth of the memory, so under a memory cap it parallelises far
+  better than that comparison alone suggests.
+
+## 4. Is the per-prediction cost of steering below the MSA models?
+
+Paired within target, since targets differ in size and the same targets are run
+by every method. The paired quantity is the ratio of negative steering's
+per-prediction cost to the other method's, so a ratio below 1 means steering is
+cheaper per prediction. Reported as the median ratio with a bootstrap 95%
+interval, plus an exact two-sided sign test on the paired differences.
+
+```{python}
+def sign_test(diffs):
+    """Exact two-sided sign test p-value. Ties dropped."""
+    d = np.asarray([x for x in diffs if x != 0])
+    n, k = len(d), int((np.asarray(d) > 0).sum())
+    if n == 0:
+        return float("nan")
+    tail = sum(math.comb(n, i) for i in range(min(k, n - k) + 1))
+    return min(1.0, 2 * tail / 2 ** n)
+
+
+def boot_median_ci(x, n_boot=10000, seed=0):
+    rng = np.random.default_rng(seed)
+    x = np.asarray(x, float)
+    draws = np.median(rng.choice(x, size=(n_boot, len(x)), replace=True), axis=1)
+    return np.percentile(draws, [2.5, 97.5])
+
+
+# Paired on target, so this uses the 20-set benchmark cohort. The 3-set campaign
+# runs 128 designed sequences against one effector rather than the 18 solved
+# complexes, so it shares no targets with the benchmark and cannot be paired
+# against it. It appears in the figure and the table above, not here.
+ns = rt[rt["model"] == NEGSTEER_20].set_index("target")["sec_per_prediction"]
+rows = []
+for _, r in med.iterrows():
+    if r["variant"] == "negsteer":
+        continue
+    other = rt[(rt["model"] == r["model"]) & (rt["variant"] == r["variant"])] \
+        .set_index("target")["sec_per_prediction"]
+    shared = ns.index.intersection(other.index)
+    ratio = (ns[shared] / other[shared]).values
+    lo, hi = boot_median_ci(ratio)
+    p = sign_test((ns[shared] - other[shared]).values)
+    rows.append({
+        "vs": f"{r['model']} ({VARIANT_LABEL[r['variant']]})",
+        "n paired": len(shared),
+        "median ratio": round(float(np.median(ratio)), 2),
+        "95% CI": f"{lo:.2f}–{hi:.2f}",
+        "p (sign test)": "<0.0001" if p < 1e-4 else f"{p:.4f}",
+        "verdict": ("steering cheaper" if hi < 1 else
+                    "steering costlier" if lo > 1 else "indistinguishable"),
+    })
+pd.DataFrame(rows)
+```
+
+- Steering is cheaper per prediction than every MSA-based combination, and the
+  intervals are well clear of 1 in each case. Against AlphaFold2-Multimer the
+  ratio is 0.08, against ColabFold, Boltz-1 and Boltz-2 with an MSA it is
+  0.21–0.24, and against AlphaFold3 with an MSA it is 0.41.
+- Among the no-MSA models it is cheaper only than ESMFold2 (0.38). It is 1.2 to
+  5.2 times more expensive per prediction than the other no-MSA combos, which is
+  the expected price of the extra Boltz-2 calls and the engine's own stages.
+- So the claim holds per prediction at either steering-set count, and it holds
+  per run as well at the 3 sets the pipeline ships with. It fails per run only
+  at the benchmark's 20 sets, where steering deliberately samples an order of
+  magnitude deeper than any single prediction does.
+
+Wall-clock is execution time rather than time-to-result, so queueing is
+excluded. One benchmark target has no usable trace row, so the benchmark combos
+cover 17 of 18 targets against steering's 18. Both cohorts ran on the same queue
+and GPU allocation, but not necessarily on identical nodes. The steering cost is
+dominated by a fixed sampling budget (20 designs × 3 seeds) that was not tuned,
+so it is a cost of this configuration rather than a floor for the method.

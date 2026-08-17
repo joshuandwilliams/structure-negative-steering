@@ -1,0 +1,203 @@
+---
+title: "Negative steering vs reference restraints"
+format:
+  html:
+    code-fold: true
+jupyter: python3
+---
+
+Date: 11/8/26
+
+This document compares negative steering against Boltz-2's reference-restraint
+positive control on the 18 HMA decoy and AVR targets. The reference-restraint
+numbers (`boltz2_unconstrained_ra_eff`, `boltz2_constrained_ra_eff`) are staged
+from `structure-prediction-benchmarking`'s `combined_metrics.csv` into
+`boltz2_benchmark_comparison.csv`.
+
+Both are scored the same way. `ra_eff` is the receptor-aligned effector RMSD in
+Å, lower is better, and ≤ 5 Å counts as a correct pose.
+
+Restraints are Boltz-2's contact and pocket constraints derived from the true
+interface. They are a positive control showing the model can be steered when
+told exactly where to go. They are not runnable on a novel target, since the
+answer has to be known already.
+Negative steering never sees the true interface: it only knocks out the
+*wrong* one the model chose, so it is the method the actual pipeline uses.
+
+```{python}
+import sys
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+HERE = Path.cwd()
+if not (HERE / "boltz2_benchmark_comparison.csv").exists():
+    HERE = Path("analysis/02-model-choice")
+HERE = HERE.resolve()
+ANALYSIS = HERE.parent
+POSE = ANALYSIS / "01-pose-rescue"   # owns benchmark_summary.csv and make_plots.py
+
+sys.path.insert(0, str(POSE))
+from make_plots import select_representative  # reuse the same representative-design selection
+
+ns = pd.read_csv(POSE / "benchmark_summary.csv").set_index("target")
+bench = pd.read_csv(HERE / "boltz2_benchmark_comparison.csv").set_index("target")
+
+RA_EFF_THRESHOLD = 5.0
+RA_TICKS = [0.5, 1, 2, 5, 10, 20, 40]
+
+cmp = pd.DataFrame({
+    "unconstrained": bench["boltz2_unconstrained_ra_eff"],
+    "constrained": bench["boltz2_constrained_ra_eff"],
+    "neg_steered": pd.to_numeric(ns["rep_ra_eff"], errors="coerce"),
+    "cold_start": pd.to_numeric(ns["cold_start_ra_eff"], errors="coerce"),
+})
+cmp = cmp.reindex(bench.index)
+
+# Reference-restrained + negative-steered: the engine's --boltz-constraints
+# lever combines both, applying benchmark-style pocket + contact restraints
+# to every Boltz-2 call during steering. Staged for all 18 targets under
+# experiments/benchmarking/<target>_constrained/; targets whose run has not
+# landed yet simply drop out of this series (select_representative -> None).
+REPO_ROOT = ANALYSIS.parent
+CONSTRAINED_STEERED_TARGETS = list(bench.index)
+constrained_and_steered = {}
+for t in CONSTRAINED_STEERED_TARGETS:
+    rundir = REPO_ROOT / "experiments" / "benchmarking" / "constrained" / t / "run"
+    sel = select_representative(rundir)
+    if sel is not None:
+        constrained_and_steered[t] = sel["rep_ra_eff"]
+cmp["constrained_and_steered"] = pd.Series(constrained_and_steered)
+
+FIGDIR = HERE / "thesis-figures"
+FIGDIR.mkdir(parents=True, exist_ok=True)
+
+
+def save_fig(fig, name):
+    fig.savefig(FIGDIR / f"{name}.png", dpi=200, bbox_inches="tight", pad_inches=0.05)
+
+
+def readable_log(axis, ticks):
+    axis.set_ticks(ticks)
+    axis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:g}"))
+```
+
+## Restraints and steering fail on different targets
+
+```{python}
+fails = cmp[cmp["constrained"] >= RA_EFF_THRESHOLD].sort_values(
+    "constrained", ascending=False)
+fails.round(2)
+```
+
+```{python}
+either = (cmp["constrained"] < RA_EFF_THRESHOLD) | (cmp["neg_steered"] < RA_EFF_THRESHOLD)
+pd.DataFrame([
+    {"method": "Boltz-2 unconstrained",
+     "solves": int((cmp["unconstrained"] < RA_EFF_THRESHOLD).sum())},
+    {"method": "Boltz-2 + reference restraints",
+     "solves": int((cmp["constrained"] < RA_EFF_THRESHOLD).sum())},
+    {"method": "Boltz-2 + negative steering",
+     "solves": int((cmp["neg_steered"] < RA_EFF_THRESHOLD).sum())},
+    {"method": "either of the two methods", "solves": int(either.sum())},
+    {"method": "neither", "solves": int((~either).sum())},
+])
+```
+
+- The restraint failures are concentrated on the recognition-evading effectors:
+  told exactly where the true interface is, Boltz-2 still declines to go there on
+  several of them.
+- Negative steering does better than reference restraints on some targets the
+  restraints fail on, which inverts the expected ordering. Being handed the
+  correct contacts is strictly more information than being told which surface to
+  avoid, yet the weaker signal wins on the hardest targets.
+- The two approaches are complementary rather than redundant. Between them they
+  solve more targets than either alone.
+
+## The comparison figure
+
+Four ways of getting a pose out of Boltz-2 without an MSA, on the same targets.
+They do not share a selection rule, which matters for how the gaps should be
+read. The unconstrained and constrained columns are each the oracle best of 25
+samples. The two negative-steering columns report the top-ranked design's median
+across its seeds, ranked by seed-pass-count then by median. The cold start is a
+single prediction. Only the restraint columns are oracle selections, and the
+steering rule never sees the truth, so it is the only one that could be applied
+prospectively.
+
+```{python}
+# Selection rules differ per series and are spelled out in the prose above,
+# not crammed into the legend. The two restraint columns are an oracle min
+# over 25 samples, the two steering columns are the top-ranked design's
+# across-seed median under a rule that never sees the truth.
+SERIES = [
+    ("unconstrained", "unrestrained", "#999999"),
+    ("constrained", "reference-restrained", "#D55E00"),
+    ("neg_steered", "negative-steered", "#0072B2"),
+    ("constrained_and_steered", "reference-restrained + negative-steered", "#009E73"),
+]
+
+# Order rows by each target's best result across the four series, so the
+# targets some method solves cleanly sit at the top and the ones nothing
+# handles well sit at the bottom.  Descending, because matplotlib puts
+# y=0 at the bottom of the axes.
+best_any = cmp[[c for c, _, _ in SERIES]].min(axis=1)
+o = cmp.loc[best_any.sort_values(ascending=False).index]
+y = np.arange(len(o))
+
+fig, ax = plt.subplots(figsize=(9.5, 6.8))
+for yi, (_, r) in zip(y, o.iterrows()):
+    vals = [r[c] for c, _, _ in SERIES if pd.notna(r[c])]
+    ax.plot([min(vals), max(vals)], [yi, yi], color="#DDDDDD", lw=1.4, zorder=1)
+for col, lab, colour in SERIES:
+    ax.scatter(o[col], y, s=48, color=colour, edgecolor="black",
+               linewidth=0.5, label=lab, zorder=3)
+ax.axvline(RA_EFF_THRESHOLD, ls="--", color="grey", lw=1)
+ax.set_xscale("log")
+readable_log(ax.xaxis, RA_TICKS)
+ax.set_yticks(y); ax.set_yticklabels(o.index, fontsize=8)
+ax.set_ylim(-0.8, len(o) - 0.2)
+ax.set_xlabel("Receptor-aligned effector RMSD (Å, log scale)")
+h, l = ax.get_legend_handles_labels()
+ax.legend(h, l, loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=2,
+          frameon=False, fontsize=9, borderaxespad=0.0)
+save_fig(fig, "model_choice_comparison")
+plt.show()
+
+summary_rows = []
+for col, lab, _ in SERIES:
+    n = int(o[col].notna().sum())
+    summary_rows.append({
+        "method": lab,
+        f"correct /{n}": int((o[col] < RA_EFF_THRESHOLD).sum()),
+        "median ra_eff": round(float(o[col].median()), 2) if n else None,
+    })
+n_cold = int(o["cold_start"].notna().sum())
+summary_rows.append({
+    "method": "cold start (single prediction)",
+    f"correct /{n_cold}": int((o["cold_start"] < RA_EFF_THRESHOLD).sum()),
+    "median ra_eff": round(float(o["cold_start"].median()), 2),
+})
+pd.DataFrame(summary_rows)
+```
+
+- On a like-for-like oracle baseline, negative steering sits between the
+  unrestrained and restrained columns: it clears more targets than the
+  unrestrained baseline without the reference restraints' requirement that the
+  true interface already be known.
+- The gap between the cold-start row and negative-steered is mostly sampling
+  rather than steering. The cold start is a single draw and negative steering
+  reports the best of 10.
+- Restraints fail on exactly the targets steering does best on, so taking the
+  better of the two per target solves more than either alone.
+- Combining both covers all 18 targets and passes on every one. That is 18/18,
+  against 14/18 for reference restraints alone, 12/18 for negative steering
+  alone and 9/18 unrestrained. It clears all six targets steering alone misses
+  (5A6W, 6FUB, 7A8X, 7BNT, 7QPX, 7QZD), including the three neither lever solves
+  on its own (7A8X, 7QPX, 7QZD).
+- Read that column as a ceiling rather than as a method. Reference restraints are
+  derived from the true interface, so the combined variant cannot be run on a
+  novel target. What 18/18 establishes is that the remaining failures are not
+  intrinsic to Boltz-2, since a sufficiently informed prior fixes all of them.

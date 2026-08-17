@@ -1,0 +1,205 @@
+---
+title: "Confidence cost of negative steering at campaign scale (n = 128)"
+format:
+  html:
+    code-fold: true
+    toc: true
+    toc-depth: 3
+jupyter: python3
+---
+
+Date: 11/8/26
+
+## The question
+
+The same two figures on the 18-target solved-structure benchmark found a small but
+statistically consistent pLDDT cost that scaled with mutation budget. This document
+repeats them on a much larger sample to see whether those trends hold.
+
+Data is the 128 designed sequences of the `crystal_full_test_contig` run of the
+`pikp1_avrpikf` campaign in `receptor-resurfacing-pipeline`, one negative-steering run
+each. The two `input_control_*` runs (polyA and scrambled) are excluded.
+
+Two differences from the benchmark matter for interpretation.
+
+* The comparison basis is not an experimental structure. In pipeline mode the engine is
+  passed `--ground-truth <parent RFDiffusion design PDB>`, so `ra_eff` measures deviation
+  from the *intended designed pose* rather than from a crystal structure.
+* The receptors are already de novo designed sequences, not natural ones. The cold start
+  is therefore a prediction of an already-unusual sequence, which is a different starting
+  point from a wild-type Pik HMA.
+
+Everything else (metrics, representative-design selection, statistics, figures) is
+shared with the benchmark document via `confidence_common.py`, so the two are directly
+comparable.
+
+---
+
+## 1. Setup
+
+```{python}
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+HERE = Path.cwd()
+if not (HERE / "campaign_data").exists():
+    HERE = Path("analysis/05-campaign-confidence")
+HERE = HERE.resolve()
+ANALYSIS = HERE.parent
+REPO = ANALYSIS.parent
+CONF = ANALYSIS / "04-confidence-cost"        # owns confidence_common.py
+CAMPAIGN = ANALYSIS / "05-campaign-confidence"  # owns campaign_data/
+OUTDIR = HERE
+sys.path.insert(0, str(CONF))
+
+import confidence_common as cc  # noqa: E402
+
+FIGDIR = OUTDIR / "supplementary-figures"
+FIGDIR.mkdir(parents=True, exist_ok=True)
+cc.apply_style()
+```
+
+The campaign results live on the HPC. `campaign_data/campaign_per_seed.csv` is the
+trimmed per-prediction table pulled from
+`.../runs/crystal_full_test_contig/results/negative_steering/runs/*/raw_per_seed_results.csv`,
+committed so this document renders without HPC access. See the README for the refresh
+command.
+
+```{python}
+CAMPAIGN_RUNS = None   # set to a local path to rebuild from raw run directories
+
+if CAMPAIGN_RUNS:
+    paths = {p.parent.name: p
+             for p in sorted(Path(CAMPAIGN_RUNS).glob("*/raw_per_seed_results.csv"))
+             if "control" not in p.parent.name}
+    pred = cc.load_per_seed(paths)
+    pred.to_csv(OUTDIR / "campaign_data" / "campaign_per_seed.csv", index=False)
+else:
+    pred = pd.read_csv(OUTDIR / "campaign_data" / "campaign_per_seed.csv")
+
+cold, steered = cc.split(pred)
+repdf = cc.build_representative_table(pred)
+steered_only = repdf[~repdf.steering_skipped]
+
+print(f"{len(cold)} sequences, {len(steered)} steered predictions")
+print(f"{len(steered_only)} actually steered, "
+      f"{int(repdf.steering_skipped.sum())} short-circuited (cold start already passed)")
+repdf.outcome.value_counts().rename("units")
+```
+
+---
+
+## 2. Does confidence drop after steering?
+
+One line per designed sequence, cold start to representative steered design. Panel titles
+quote the 83 sequences that were actually steered.
+
+```{python}
+#| label: fig-before-after
+#| fig-cap: "Cold-start versus representative steered confidence, paired within designed sequence (n = 128). pLDDT is on the 0-100 scale."
+_ = cc.fig_before_after(
+    repdf, steered_only,
+    FIGDIR / "campaign_confidence_before_after_steering.png",
+    alpha=0.30, lw=0.9)
+```
+
+```{python}
+cc.effect_table([(name, m, sub[f"d_{m}"].values)
+                 for m in cc.METRICS
+                 for sub, name in [(repdf, "all 128 sequences"),
+                                   (steered_only, "83 actually steered")]])
+```
+
+* The drop does not replicate. Complex pLDDT loses a median of 0.6 points (p = 0.17)
+  against 3.2 points at p = 0.001 in the benchmark, and interface pLDDT is flat at 0.1
+  points (p = 0.87) against 6.0 points there.
+* ipTM is unchanged, exactly as in the benchmark (median −0.009, p = 0.66). No confidence
+  metric shows a cost that survives this sample size.
+
+---
+
+## 3. Does the cost scale with mutation budget?
+
+Mutation budget per sequence, as before. The benchmark's dose response was its main
+evidence that the cost is a sequence-perturbation effect, so this is the figure that
+tests whether that explanation survives.
+
+```{python}
+#| label: fig-dose
+#| fig-cap: "Confidence change against the sequence's mutation budget, coloured by whether steering rescued the pose (n = 83)."
+_ = cc.fig_dose(steered_only,
+                FIGDIR / "campaign_confidence_vs_mutation_budget.png",
+                jitter=0.22, size=34)
+```
+
+```{python}
+cc.dose_table(steered_only)
+```
+
+```{python}
+pd.DataFrame([{"metric": cc.METRICS[m],
+               "Spearman ρ (Δ vs mutation budget)":
+                   round(cc.spearman(steered_only.n_mutations,
+                                     steered_only[f"d_{m}"]), 3)}
+              for m in cc.METRICS])
+```
+
+* The dose response is gone. ρ against mutation budget is +0.09 for complex pLDDT and
+  +0.04 for interface pLDDT, against −0.41 and −0.49 in the benchmark, so the sign has
+  flipped and the magnitude has collapsed.
+* The two well-populated budgets behave alike. 3-mutation and 6-mutation sequences have
+  near-identical median changes, and rescued and still-wrong sequences remain interleaved
+  at both.
+
+---
+
+## 4. What this means
+
+* Neither trend replicates. At n = 128 the pLDDT cost of steering is not
+  distinguishable from zero and does not scale with mutation count. The benchmark's
+  effect was real within its own 15 targets but does not generalise, so no systematic
+  confidence cost should be claimed.
+* The one result that does replicate is the null. ipTM is unmoved in both datasets,
+  which is the more useful claim anyway. Negative steering costs no interface confidence.
+
+The two datasets might differ for the reasons below. These are hypotheses rather than
+tested results.
+
+* The campaign's cold start is already a de novo designed sequence, predicted at a lower
+  baseline than the benchmark's wild-type cold starts (see the comparison below). Adding
+  3–6 more mutations to an already-unusual sequence plausibly costs less than mutating a
+  natural sequence the model predicts well.
+```{python}
+#| code-fold: true
+bench_cache = CONF / "confidence_per_prediction.csv"
+rows = [{"dataset": "campaign (this document)", "n units": len(cold),
+         "median cold-start complex pLDDT": round(cold.complex_plddt.median(), 2),
+         "median cold-start interface pLDDT": round(cold.interface_plddt.median(), 2)}]
+if bench_cache.is_file():
+    b = pd.read_csv(bench_cache)
+    bc, _ = cc.split(b)
+    rows.append({"dataset": "18-target benchmark", "n units": len(bc),
+                 "median cold-start complex pLDDT": round(bc.complex_plddt.median(), 2),
+                 "median cold-start interface pLDDT": round(bc.interface_plddt.median(), 2)})
+pd.DataFrame(rows)
+```
+
+* `ra_eff` is measured against the intended RFDiffusion pose rather than a crystal
+  structure, so "correct" means something different and the outcome categories are not
+  strictly the same quantity across the two documents.
+* 45 of 128 sequences short-circuited, a much larger fraction than the benchmark's 3 of
+  18, which changes the composition of the steered subset.
+
+Caveats.
+
+* The budget axis is still dominated by two levels (43 sequences at 3 mutations, 32 at 6),
+  with 1–5 sequences at each of 0, 2, 4 and 5. It is a better dose axis than the
+  benchmark's but still not a controlled titration.
+* All 128 sequences come from one campaign against one effector, so they are not
+  independent in the way 18 different solved complexes are. The larger n buys precision,
+  not breadth.
+* Interface pLDDT is measured over whichever residues the prediction actually contacts,
+  so before and after cover partly different residue sets.

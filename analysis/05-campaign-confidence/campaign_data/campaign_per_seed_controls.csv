@@ -1,0 +1,9 @@
+unit,design,base,status,kind,seed_index,n_mutations,ra_eff,reverted_ra_eff_vs_truth,reversion_verdict,steered_n_contacts_on_mutated_positions,steered_receptor_intact,complex_plddt,interface_plddt,iptm,ptm,ipsae_min,true_jaccard
+input_control_polyA,initial,initial,initial,cold_start,,0,36.212,,,0,0,72.92999999999999,61.09,0.3351,0.6035,0.0,0.15
+input_control_polyA,design_00_s0,design_00,ok,steered,0.0,6,7.037,,,4,0,64.27000000000001,60.980000000000004,0.4264,0.6322,0.0,0.3142857142857143
+input_control_polyA,design_00_s2,design_00,ok,steered,2.0,6,17.616,,,4,0,62.86000000000001,57.50999999999999,0.3881,0.574,0.0,0.1219512195121951
+input_control_polyA,design_00_s1,design_00,ok,steered,1.0,6,20.899,,,5,0,65.44,59.24,0.5016,0.6468,0.0077,0.1666666666666666
+input_control_scrambled,initial,initial,initial,cold_start,,0,23.392,,,0,0,61.19,53.63,0.8034,0.8657,0.4009,0.375
+input_control_scrambled,design_00_s2,design_00,ok,steered,2.0,3,12.9,,,0,0,80.4,78.06,0.4148,0.618,0.0028,0.3333333333333333
+input_control_scrambled,design_00_s1,design_00,ok,steered,1.0,3,22.857,,,0,0,74.48,71.82,0.2873,0.5084,0.0,0.2352941176470588
+input_control_scrambled,design_00_s0,design_00,ok,steered,0.0,3,27.521,,,2,0,70.09,64.81,0.7261,0.8128,0.2592,0.4

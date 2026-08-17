@@ -1,0 +1,370 @@
+model,variant,target,elapsed_min,n_predictions,steered,peak_rss_gb,sec_per_prediction
+AlphaFold2-Multimer,msa,5ZNG,106.55,25,False,20.9,255.72
+AlphaFold2-Multimer,msa,6FU9,108.76666666666667,25,False,28.7,261.04
+AlphaFold2-Multimer,msa,6FUB,125.05,25,False,28.7,300.12
+AlphaFold2-Multimer,msa,6FUD,100.3,25,False,20.7,240.72
+AlphaFold2-Multimer,msa,6G10,101.75,25,False,20.8,244.2
+AlphaFold2-Multimer,msa,6G11,148.7,25,False,35.9,356.88
+AlphaFold2-Multimer,msa,6Q76,182.26666666666668,25,False,23.5,437.44
+AlphaFold2-Multimer,msa,6R8K,102.7,25,False,20.8,246.48
+AlphaFold2-Multimer,msa,6R8M,129.08333333333334,25,False,21.1,309.8
+AlphaFold2-Multimer,msa,7A8W,132.4,25,False,36.0,317.76
+AlphaFold2-Multimer,msa,7A8X,137.58333333333334,25,False,35.5,330.2
+AlphaFold2-Multimer,msa,7BNT,102.35,25,False,20.9,245.64
+AlphaFold2-Multimer,msa,7QPX,141.81666666666666,25,False,35.2,340.36
+AlphaFold2-Multimer,msa,7QZD,144.36666666666667,25,False,35.9,346.48
+AlphaFold2-Multimer,msa,8B2R,95.23333333333333,25,False,20.9,228.56
+AlphaFold2-Multimer,msa,9IMU,97.43333333333334,25,False,20.8,233.84
+AlphaFold2-Multimer,msa,9IP6,89.75,25,False,21.0,215.4
+AlphaFold3,msa,5ZNG,24.1,25,False,7.8,57.84
+AlphaFold3,msa,6FU9,27.516666666666666,25,False,7.8,66.04
+AlphaFold3,msa,6FUB,22.766666666666666,25,False,7.8,54.64
+AlphaFold3,msa,6FUD,22.566666666666666,25,False,7.8,54.16
+AlphaFold3,msa,6G10,24.9,25,False,7.8,59.76
+AlphaFold3,msa,6G11,22.016666666666666,25,False,7.8,52.84
+AlphaFold3,msa,6Q76,24.566666666666666,25,False,7.8,58.96
+AlphaFold3,msa,6R8K,25.216666666666665,25,False,7.8,60.52
+AlphaFold3,msa,6R8M,25.216666666666665,25,False,7.8,60.52
+AlphaFold3,msa,7A8W,23.566666666666666,25,False,7.8,56.56
+AlphaFold3,msa,7A8X,22.783333333333335,25,False,7.8,54.68
+AlphaFold3,msa,7BNT,22.133333333333333,25,False,7.8,53.12
+AlphaFold3,msa,7QPX,21.216666666666665,25,False,7.8,50.92
+AlphaFold3,msa,7QZD,19.933333333333334,25,False,7.8,47.84
+AlphaFold3,msa,8B2R,20.533333333333335,25,False,7.8,49.28
+AlphaFold3,msa,9IMU,21.983333333333334,25,False,7.8,52.76
+AlphaFold3,msa,9IP6,23.566666666666666,25,False,7.8,56.56
+AlphaFold3,no_msa,5ZNG,1.9666666666666666,25,False,7.8,4.72
+AlphaFold3,no_msa,6FU9,1.7833333333333334,25,False,7.8,4.28
+AlphaFold3,no_msa,6FUB,1.8166666666666667,25,False,7.8,4.36
+AlphaFold3,no_msa,6FUD,1.75,25,False,7.8,4.2
+AlphaFold3,no_msa,6G10,1.7166666666666666,25,False,7.8,4.12
+AlphaFold3,no_msa,6G11,1.7166666666666666,25,False,7.8,4.12
+AlphaFold3,no_msa,6Q76,1.7333333333333334,25,False,7.8,4.16
+AlphaFold3,no_msa,6R8K,1.7833333333333334,25,False,7.8,4.28
+AlphaFold3,no_msa,6R8M,1.8166666666666667,25,False,7.8,4.36
+AlphaFold3,no_msa,7A8W,1.7833333333333334,25,False,7.8,4.28
+AlphaFold3,no_msa,7A8X,1.7666666666666666,25,False,7.8,4.24
+AlphaFold3,no_msa,7BNT,1.7666666666666666,25,False,7.8,4.24
+AlphaFold3,no_msa,7QPX,1.7333333333333334,25,False,7.8,4.16
+AlphaFold3,no_msa,7QZD,1.7666666666666666,25,False,7.8,4.24
+AlphaFold3,no_msa,8B2R,1.7833333333333334,25,False,7.8,4.28
+AlphaFold3,no_msa,9IMU,1.75,25,False,7.8,4.2
+AlphaFold3,no_msa,9IP6,1.75,25,False,7.8,4.2
+Boltz-1,msa,5ZNG,53.93333333333333,25,False,7.0,129.44
+Boltz-1,msa,6FU9,31.366666666666667,25,False,6.6,75.28
+Boltz-1,msa,6FUB,54.43333333333333,25,False,6.6,130.64
+Boltz-1,msa,6FUD,66.0,25,False,6.6,158.4
+Boltz-1,msa,6G10,59.833333333333336,25,False,6.6,143.6
+Boltz-1,msa,6G11,70.95,25,False,7.0,170.28
+Boltz-1,msa,6Q76,46.71666666666667,25,False,6.6,112.12
+Boltz-1,msa,6R8K,57.06666666666667,25,False,6.6,136.96
+Boltz-1,msa,6R8M,28.933333333333334,25,False,7.0,69.44
+Boltz-1,msa,7A8W,52.1,25,False,7.0,125.04
+Boltz-1,msa,7A8X,41.96666666666667,25,False,7.0,100.72
+Boltz-1,msa,7BNT,39.53333333333333,25,False,6.6,94.88
+Boltz-1,msa,7QPX,37.083333333333336,25,False,7.0,89.0
+Boltz-1,msa,7QZD,28.716666666666665,25,False,6.6,68.92
+Boltz-1,msa,8B2R,32.13333333333333,25,False,7.0,77.12
+Boltz-1,msa,9IMU,27.7,25,False,7.0,66.48
+Boltz-1,msa,9IP6,28.683333333333334,25,False,7.0,68.84
+Boltz-1,no_msa,5ZNG,7.716666666666667,25,False,6.6,18.52
+Boltz-1,no_msa,6FU9,7.883333333333334,25,False,6.6,18.92
+Boltz-1,no_msa,6FUB,7.35,25,False,6.6,17.64
+Boltz-1,no_msa,6FUD,7.016666666666667,25,False,6.6,16.84
+Boltz-1,no_msa,6G10,7.033333333333333,25,False,6.6,16.88
+Boltz-1,no_msa,6G11,7.116666666666666,25,False,6.6,17.08
+Boltz-1,no_msa,6Q76,6.916666666666667,25,False,6.6,16.6
+Boltz-1,no_msa,6R8K,7.116666666666666,25,False,6.6,17.08
+Boltz-1,no_msa,6R8M,7.05,25,False,6.6,16.92
+Boltz-1,no_msa,7A8W,6.966666666666667,25,False,6.6,16.72
+Boltz-1,no_msa,7A8X,6.966666666666667,25,False,6.6,16.72
+Boltz-1,no_msa,7BNT,7.083333333333333,25,False,6.6,17.0
+Boltz-1,no_msa,7QPX,6.966666666666667,25,False,6.6,16.72
+Boltz-1,no_msa,7QZD,7.033333333333333,25,False,6.6,16.88
+Boltz-1,no_msa,8B2R,7.066666666666666,25,False,6.6,16.96
+Boltz-1,no_msa,9IMU,6.983333333333333,25,False,6.6,16.76
+Boltz-1,no_msa,9IP6,6.8,25,False,6.6,16.32
+Boltz-1,restraints,5A6W,8.483333333333333,25,False,6.6,20.36
+Boltz-1,restraints,5ZNG,7.033333333333333,25,False,6.6,16.88
+Boltz-1,restraints,6FU9,7.283333333333333,25,False,6.6,17.48
+Boltz-1,restraints,6FUB,7.366666666666666,25,False,6.6,17.68
+Boltz-1,restraints,6FUD,8.566666666666666,25,False,6.6,20.56
+Boltz-1,restraints,6G10,7.333333333333333,25,False,6.6,17.6
+Boltz-1,restraints,6G11,7.25,25,False,6.6,17.4
+Boltz-1,restraints,6Q76,7.266666666666667,25,False,6.6,17.44
+Boltz-1,restraints,6R8K,7.333333333333333,25,False,6.6,17.6
+Boltz-1,restraints,6R8M,7.933333333333334,25,False,6.6,19.04
+Boltz-1,restraints,7A8W,7.15,25,False,6.6,17.16
+Boltz-1,restraints,7A8X,8.133333333333333,25,False,6.6,19.52
+Boltz-1,restraints,7BNT,7.816666666666666,25,False,6.6,18.76
+Boltz-1,restraints,7QPX,8.466666666666667,25,False,6.6,20.32
+Boltz-1,restraints,7QZD,7.133333333333334,25,False,6.6,17.12
+Boltz-1,restraints,8B2R,7.75,25,False,6.6,18.6
+Boltz-1,restraints,9IMU,7.183333333333334,25,False,6.6,17.24
+Boltz-1,restraints,9IP6,7.116666666666666,25,False,6.6,17.08
+Boltz-2,msa,5ZNG,51.766666666666666,25,False,5.0,124.24
+Boltz-2,msa,6FU9,28.916666666666668,25,False,5.0,69.4
+Boltz-2,msa,6FUB,51.88333333333333,25,False,5.0,124.52
+Boltz-2,msa,6FUD,63.666666666666664,25,False,5.0,152.8
+Boltz-2,msa,6G10,57.65,25,False,5.0,138.36
+Boltz-2,msa,6G11,68.6,25,False,5.0,164.64
+Boltz-2,msa,6Q76,44.3,25,False,5.0,106.32
+Boltz-2,msa,6R8K,54.88333333333333,25,False,5.0,131.72
+Boltz-2,msa,6R8M,26.566666666666666,25,False,5.0,63.76
+Boltz-2,msa,7A8W,49.733333333333334,25,False,5.0,119.36
+Boltz-2,msa,7A8X,39.56666666666667,25,False,5.0,94.96
+Boltz-2,msa,7BNT,37.25,25,False,5.0,89.4
+Boltz-2,msa,7QPX,34.833333333333336,25,False,5.0,83.6
+Boltz-2,msa,7QZD,26.3,25,False,5.0,63.12
+Boltz-2,msa,8B2R,29.85,25,False,5.0,71.64
+Boltz-2,msa,9IMU,25.4,25,False,5.0,60.96
+Boltz-2,msa,9IP6,26.566666666666666,25,False,5.0,63.76
+Boltz-2,no_msa,5ZNG,5.15,25,False,5.0,12.36
+Boltz-2,no_msa,6FU9,5.166666666666667,25,False,5.0,12.4
+Boltz-2,no_msa,6FUB,5.316666666666666,25,False,5.0,12.76
+Boltz-2,no_msa,6FUD,5.15,25,False,5.0,12.36
+Boltz-2,no_msa,6G10,5.183333333333334,25,False,5.0,12.44
+Boltz-2,no_msa,6G11,5.15,25,False,5.0,12.36
+Boltz-2,no_msa,6Q76,5.15,25,False,5.0,12.36
+Boltz-2,no_msa,6R8K,5.3,25,False,5.0,12.72
+Boltz-2,no_msa,6R8M,5.333333333333333,25,False,5.0,12.8
+Boltz-2,no_msa,7A8W,5.15,25,False,5.0,12.36
+Boltz-2,no_msa,7A8X,5.15,25,False,5.0,12.36
+Boltz-2,no_msa,7BNT,5.216666666666667,25,False,5.0,12.52
+Boltz-2,no_msa,7QPX,5.133333333333334,25,False,5.0,12.32
+Boltz-2,no_msa,7QZD,5.1,25,False,5.0,12.24
+Boltz-2,no_msa,8B2R,5.15,25,False,5.0,12.36
+Boltz-2,no_msa,9IMU,5.166666666666667,25,False,5.0,12.4
+Boltz-2,no_msa,9IP6,5.1,25,False,5.0,12.24
+Boltz-2,restraints,5A6W,6.183333333333334,25,False,5.0,14.84
+Boltz-2,restraints,5ZNG,5.183333333333334,25,False,5.0,12.44
+Boltz-2,restraints,6FU9,5.183333333333334,25,False,5.0,12.44
+Boltz-2,restraints,6FUB,5.266666666666667,25,False,5.0,12.64
+Boltz-2,restraints,6FUD,6.183333333333334,25,False,5.0,14.84
+Boltz-2,restraints,6G10,5.283333333333333,25,False,5.0,12.68
+Boltz-2,restraints,6G11,5.166666666666667,25,False,5.0,12.4
+Boltz-2,restraints,6Q76,5.2,25,False,5.0,12.48
+Boltz-2,restraints,6R8K,5.416666666666667,25,False,5.0,13.0
+Boltz-2,restraints,6R8M,5.216666666666667,25,False,5.0,12.52
+Boltz-2,restraints,7A8W,5.216666666666667,25,False,5.0,12.52
+Boltz-2,restraints,7A8X,5.4,25,False,5.0,12.96
+Boltz-2,restraints,7BNT,5.733333333333333,25,False,5.0,13.76
+Boltz-2,restraints,7QPX,5.583333333333333,25,False,5.0,13.4
+Boltz-2,restraints,7QZD,5.15,25,False,5.0,12.36
+Boltz-2,restraints,8B2R,5.966666666666667,25,False,5.0,14.32
+Boltz-2,restraints,9IMU,5.166666666666667,25,False,5.0,12.4
+Boltz-2,restraints,9IP6,5.316666666666666,25,False,5.0,12.76
+Boltz-2 + negative steering (steering sets = 20),negsteer,5A6W,111.5,305,True,4.614,21.934426229508198
+Boltz-2 + negative steering (steering sets = 20),negsteer,5ZNG,5.866666666666666,15,False,4.597,23.466666666666665
+Boltz-2 + negative steering (steering sets = 20),negsteer,6FU9,97.11666666666666,260,True,4.599,22.411538461538463
+Boltz-2 + negative steering (steering sets = 20),negsteer,6FUB,118.5,310,True,4.638,22.93548387096774
+Boltz-2 + negative steering (steering sets = 20),negsteer,6FUD,152.31666666666666,375,True,4.61,24.370666666666665
+Boltz-2 + negative steering (steering sets = 20),negsteer,6G10,120.8,325,True,4.633,22.301538461538463
+Boltz-2 + negative steering (steering sets = 20),negsteer,6G11,147.88333333333333,345,True,4.641,25.718840579710147
+Boltz-2 + negative steering (steering sets = 20),negsteer,6Q76,29.116666666666667,100,True,4.645,17.47
+Boltz-2 + negative steering (steering sets = 20),negsteer,6R8K,120.71666666666667,325,True,4.649,22.286153846153844
+Boltz-2 + negative steering (steering sets = 20),negsteer,6R8M,111.36666666666666,305,True,4.553,21.908196721311477
+Boltz-2 + negative steering (steering sets = 20),negsteer,7A8W,108.73333333333333,305,True,4.637,21.39016393442623
+Boltz-2 + negative steering (steering sets = 20),negsteer,7A8X,120.6,315,True,4.636,22.97142857142857
+Boltz-2 + negative steering (steering sets = 20),negsteer,7BNT,111.38333333333334,305,True,4.619,21.911475409836065
+Boltz-2 + negative steering (steering sets = 20),negsteer,7QPX,106.05,305,True,4.643,20.862295081967215
+Boltz-2 + negative steering (steering sets = 20),negsteer,7QZD,106.4,305,True,4.61,20.931147540983606
+Boltz-2 + negative steering (steering sets = 20),negsteer,8B2R,4.283333333333333,15,False,3.626,17.133333333333333
+Boltz-2 + negative steering (steering sets = 20),negsteer,9IMU,124.23333333333333,330,True,4.627,22.587878787878786
+Boltz-2 + negative steering (steering sets = 20),negsteer,9IP6,4.25,15,False,3.629,17.0
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_0_seq_0,22.116666666666667,55,True,5.1,24.12727272727273
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_0_seq_1,16.966666666666665,50,True,5.1,20.36
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_10_seq_0,25.783333333333335,60,True,5.1,25.783333333333335
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_10_seq_1,30.533333333333335,75,True,5.1,24.426666666666666
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_11_seq_0,26.05,80,True,5.1,19.5375
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_11_seq_1,17.166666666666668,50,True,5.1,20.6
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_12_seq_0,17.233333333333334,50,True,5.1,20.68
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_12_seq_1,17.15,50,True,5.1,20.58
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_13_seq_0,25.633333333333333,65,True,5.1,23.661538461538463
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_13_seq_1,16.933333333333334,50,True,5.1,20.32
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_14_seq_0,39.43333333333333,90,True,5.1,26.288888888888888
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_14_seq_1,26.033333333333335,80,True,5.1,19.525
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_15_seq_0,17.033333333333335,50,True,5.1,20.44
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_15_seq_1,3.816666666666667,15,False,5.1,15.266666666666667
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_16_seq_0,17.183333333333334,50,True,5.1,20.62
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_16_seq_1,21.483333333333334,55,True,5.1,23.436363636363637
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_17_seq_0,3.8666666666666667,15,False,5.1,15.466666666666667
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_17_seq_1,21.4,55,True,5.1,23.345454545454544
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_18_seq_0,21.666666666666668,65,True,5.1,20.0
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_18_seq_1,25.716666666666665,60,True,5.1,25.716666666666665
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_19_seq_0,16.966666666666665,50,True,5.1,20.36
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_19_seq_1,16.85,50,True,5.1,20.220000000000002
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_1_seq_0,17.05,50,True,5.1,20.46
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_1_seq_1,17.133333333333333,50,True,5.1,20.56
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_20_seq_0,17.0,50,True,5.1,20.4
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_20_seq_1,17.0,50,True,5.1,20.4
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_21_seq_0,17.133333333333333,50,True,5.1,20.56
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_21_seq_1,26.216666666666665,65,True,5.1,24.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_22_seq_0,22.083333333333332,60,True,5.1,22.083333333333332
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_22_seq_1,25.866666666666667,60,True,5.1,25.866666666666667
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_23_seq_0,21.433333333333334,55,True,5.1,23.381818181818183
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_23_seq_1,17.166666666666668,50,True,5.1,20.6
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_24_seq_0,17.666666666666668,50,True,5.1,21.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_24_seq_1,30.55,65,True,5.1,28.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_25_seq_0,17.066666666666666,50,True,5.1,20.48
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_25_seq_1,17.05,50,True,5.1,20.46
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_26_seq_0,26.0,60,True,5.1,26.0
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_26_seq_1,30.516666666666666,75,True,5.1,24.413333333333334
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_27_seq_0,26.0,65,True,5.1,24.0
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_27_seq_1,21.45,60,True,5.1,21.45
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_28_seq_0,17.116666666666667,50,True,5.1,20.54
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_28_seq_1,16.916666666666668,50,True,5.1,20.3
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_29_seq_0,3.8333333333333335,15,False,5.1,15.333333333333334
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_29_seq_1,26.183333333333334,65,True,5.1,24.16923076923077
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_2_seq_0,3.7666666666666666,15,False,5.1,15.066666666666666
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_2_seq_1,21.45,60,True,5.1,21.45
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_30_seq_0,17.566666666666666,50,True,5.1,21.08
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_30_seq_1,16.9,50,True,5.1,20.279999999999998
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_31_seq_0,30.3,65,True,5.1,27.96923076923077
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_31_seq_1,26.133333333333333,60,True,5.1,26.133333333333333
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_32_seq_0,31.1,65,True,5.1,28.70769230769231
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_32_seq_1,16.866666666666667,50,True,5.1,20.24
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_33_seq_0,17.616666666666667,50,True,5.1,21.14
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_33_seq_1,17.116666666666667,50,True,5.1,20.54
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_34_seq_0,34.733333333333334,85,True,5.1,24.51764705882353
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_34_seq_1,17.15,50,True,5.1,20.58
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_35_seq_0,3.8,15,False,5.1,15.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_35_seq_1,17.1,50,True,5.1,20.52
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_36_seq_0,17.066666666666666,50,True,5.1,20.48
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_36_seq_1,17.05,50,True,5.1,20.46
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_37_seq_0,17.05,50,True,5.1,20.46
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_37_seq_1,3.7666666666666666,15,False,5.1,15.066666666666666
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_38_seq_0,21.433333333333334,55,True,5.1,23.381818181818183
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_38_seq_1,25.916666666666668,60,True,5.1,25.916666666666668
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_39_seq_0,3.816666666666667,15,False,5.1,15.266666666666667
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_39_seq_1,39.7,95,True,5.1,25.073684210526316
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_3_seq_0,21.55,55,True,5.1,23.509090909090908
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_3_seq_1,16.983333333333334,50,True,5.1,20.38
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_40_seq_0,3.783333333333333,15,False,5.1,15.133333333333333
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_40_seq_1,3.783333333333333,15,False,5.1,15.133333333333333
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_41_seq_0,17.233333333333334,50,True,5.1,20.68
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_41_seq_1,17.033333333333335,50,True,5.1,20.44
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_42_seq_0,3.9166666666666665,15,False,5.1,15.666666666666666
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_42_seq_1,26.133333333333333,70,True,5.1,22.4
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_43_seq_0,21.45,55,True,5.1,23.4
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_43_seq_1,21.266666666666666,55,True,5.1,23.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_44_seq_0,17.216666666666665,50,True,5.1,20.66
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_44_seq_1,21.416666666666668,60,True,5.1,21.416666666666668
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_45_seq_0,17.066666666666666,50,True,5.1,20.48
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_45_seq_1,30.166666666666668,65,True,5.1,27.846153846153847
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_46_seq_0,17.016666666666666,50,True,5.1,20.42
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_46_seq_1,26.016666666666666,60,True,5.1,26.016666666666666
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_47_seq_0,3.8,15,False,5.1,15.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_47_seq_1,3.783333333333333,15,False,5.1,15.133333333333333
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_48_seq_0,17.316666666666666,50,True,5.1,20.78
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_48_seq_1,17.1,50,True,5.1,20.52
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_49_seq_0,3.8,15,False,5.1,15.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_49_seq_1,3.8,15,False,5.1,15.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_4_seq_0,17.05,50,True,5.1,20.46
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_4_seq_1,16.916666666666668,50,True,5.1,20.3
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_50_seq_0,16.916666666666668,50,True,5.1,20.3
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_50_seq_1,16.866666666666667,50,True,5.1,20.24
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_51_seq_0,3.7666666666666666,15,False,5.1,15.066666666666666
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_51_seq_1,3.783333333333333,15,False,5.1,15.133333333333333
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_52_seq_0,17.0,50,True,5.1,20.4
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_52_seq_1,3.9,15,False,5.1,15.6
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_53_seq_0,17.266666666666666,50,True,5.1,20.72
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_53_seq_1,30.566666666666666,80,True,5.1,22.925
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_54_seq_0,17.05,50,True,5.1,20.46
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_54_seq_1,17.066666666666666,50,True,5.1,20.48
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_55_seq_0,30.283333333333335,80,True,5.1,22.7125
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_55_seq_1,17.1,50,True,5.1,20.52
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_56_seq_0,25.966666666666665,65,True,5.1,23.96923076923077
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_56_seq_1,21.516666666666666,65,True,5.1,19.861538461538462
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_57_seq_0,17.15,50,True,5.1,20.58
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_57_seq_1,17.433333333333334,50,True,5.1,20.92
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_58_seq_0,17.083333333333332,50,True,5.1,20.5
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_58_seq_1,17.233333333333334,50,True,5.1,20.68
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_59_seq_0,16.983333333333334,50,True,5.1,20.38
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_59_seq_1,3.75,15,False,5.1,15.0
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_5_seq_0,3.783333333333333,15,False,5.1,15.133333333333333
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_5_seq_1,3.8,15,False,5.1,15.2
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_60_seq_0,17.133333333333333,50,True,5.1,20.56
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_60_seq_1,17.083333333333332,50,True,5.1,20.5
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_61_seq_0,17.1,50,True,5.1,20.52
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_61_seq_1,21.466666666666665,70,True,5.1,18.4
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_62_seq_0,17.6,50,True,5.1,21.12
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_62_seq_1,17.6,50,True,5.1,21.12
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_63_seq_0,25.783333333333335,65,True,5.1,23.8
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_63_seq_1,16.883333333333333,50,True,5.1,20.26
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_6_seq_0,3.7666666666666666,15,False,5.1,15.066666666666666
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_6_seq_1,3.7666666666666666,15,False,5.1,15.066666666666666
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_7_seq_0,30.25,65,True,5.1,27.923076923076923
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_7_seq_1,25.9,60,True,5.1,25.9
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_8_seq_0,30.183333333333334,75,True,5.1,24.14666666666667
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_8_seq_1,17.016666666666666,50,True,5.1,20.42
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_9_seq_0,21.666666666666668,55,True,5.1,23.636363636363637
+Boltz-2 + negative steering (steering sets = 3),negsteer,design_9_seq_1,17.316666666666666,50,True,5.1,20.78
+Chai-1,no_msa,5ZNG,6.6,25,False,10.5,15.84
+Chai-1,no_msa,6FU9,6.4,25,False,10.7,15.36
+Chai-1,no_msa,6FUB,6.383333333333334,25,False,11.7,15.32
+Chai-1,no_msa,6FUD,6.383333333333334,25,False,10.5,15.32
+Chai-1,no_msa,6G10,6.4,25,False,10.4,15.36
+Chai-1,no_msa,6G11,6.35,25,False,11.4,15.24
+Chai-1,no_msa,6Q76,6.566666666666666,25,False,11.4,15.76
+Chai-1,no_msa,6R8K,6.283333333333333,25,False,11.7,15.08
+Chai-1,no_msa,6R8M,6.366666666666666,25,False,11.4,15.28
+Chai-1,no_msa,7A8W,6.433333333333334,25,False,10.4,15.44
+Chai-1,no_msa,7A8X,6.516666666666667,25,False,10.5,15.64
+Chai-1,no_msa,7BNT,6.366666666666666,25,False,10.5,15.28
+Chai-1,no_msa,7QPX,6.516666666666667,25,False,10.5,15.64
+Chai-1,no_msa,7QZD,6.366666666666666,25,False,11.4,15.28
+Chai-1,no_msa,8B2R,6.25,25,False,11.5,15.0
+Chai-1,no_msa,9IMU,6.366666666666666,25,False,11.2,15.28
+Chai-1,no_msa,9IP6,6.416666666666667,25,False,10.5,15.4
+ColabFold,msa,5ZNG,53.166666666666664,25,False,2.8,127.6
+ColabFold,msa,6FU9,33.233333333333334,25,False,2.9,79.76
+ColabFold,msa,6FUB,57.43333333333333,25,False,2.8,137.84
+ColabFold,msa,6FUD,69.0,25,False,2.8,165.6
+ColabFold,msa,6G10,59.96666666666667,25,False,2.8,143.92
+ColabFold,msa,6G11,71.16666666666667,25,False,2.8,170.8
+ColabFold,msa,6Q76,47.13333333333333,25,False,2.8,113.12
+ColabFold,msa,6R8K,57.68333333333333,25,False,2.8,138.44
+ColabFold,msa,6R8M,29.5,25,False,2.8,70.8
+ColabFold,msa,7A8W,54.083333333333336,25,False,2.8,129.8
+ColabFold,msa,7A8X,42.75,25,False,2.8,102.6
+ColabFold,msa,7BNT,39.2,25,False,2.8,94.08
+ColabFold,msa,7QPX,38.483333333333334,25,False,2.8,92.36
+ColabFold,msa,7QZD,28.75,25,False,2.8,69.0
+ColabFold,msa,8B2R,34.13333333333333,25,False,2.8,81.92
+ColabFold,msa,9IMU,27.75,25,False,2.8,66.6
+ColabFold,msa,9IP6,27.816666666666666,25,False,2.8,66.76
+ColabFold,no_msa,5ZNG,5.95,25,False,2.5,14.28
+ColabFold,no_msa,6FU9,6.466666666666667,25,False,2.6,15.52
+ColabFold,no_msa,6FUB,7.683333333333334,25,False,2.6,18.44
+ColabFold,no_msa,6FUD,5.866666666666666,25,False,2.5,14.08
+ColabFold,no_msa,6G10,6.7,25,False,2.6,16.08
+ColabFold,no_msa,6G11,6.3,25,False,2.6,15.12
+ColabFold,no_msa,6Q76,5.45,25,False,2.5,13.08
+ColabFold,no_msa,6R8K,5.883333333333334,25,False,2.5,14.12
+ColabFold,no_msa,6R8M,5.95,25,False,2.5,14.28
+ColabFold,no_msa,7A8W,6.083333333333333,25,False,2.5,14.6
+ColabFold,no_msa,7A8X,6.316666666666666,25,False,2.5,15.16
+ColabFold,no_msa,7BNT,5.916666666666667,25,False,2.6,14.2
+ColabFold,no_msa,7QPX,5.95,25,False,2.5,14.28
+ColabFold,no_msa,7QZD,6.266666666666667,25,False,2.6,15.04
+ColabFold,no_msa,8B2R,6.016666666666667,25,False,2.5,14.44
+ColabFold,no_msa,9IMU,5.866666666666666,25,False,2.5,14.08
+ColabFold,no_msa,9IP6,5.7,25,False,2.6,13.68
+ESMFold2,no_msa,5ZNG,5.266666666666667,5,False,16.9,63.2
+ESMFold2,no_msa,6FU9,5.35,5,False,17.1,64.2
+ESMFold2,no_msa,6FUB,4.666666666666667,5,False,16.9,56.0
+ESMFold2,no_msa,6FUD,10.466666666666667,5,False,17.0,125.6
+ESMFold2,no_msa,6G10,4.616666666666666,5,False,16.9,55.4
+ESMFold2,no_msa,6G11,10.416666666666666,5,False,16.9,125.0
+ESMFold2,no_msa,6Q76,4.55,5,False,17.0,54.6
+ESMFold2,no_msa,6R8K,4.616666666666666,5,False,17.0,55.4
+ESMFold2,no_msa,6R8M,10.1,5,False,17.0,121.2
+ESMFold2,no_msa,7A8W,4.616666666666666,5,False,16.9,55.4
+ESMFold2,no_msa,7A8X,4.6,5,False,17.0,55.2
+ESMFold2,no_msa,7BNT,4.616666666666666,5,False,17.0,55.4
+ESMFold2,no_msa,7QPX,4.583333333333333,5,False,16.9,55.0
+ESMFold2,no_msa,7QZD,4.65,5,False,16.9,55.8
+ESMFold2,no_msa,8B2R,4.616666666666666,5,False,17.0,55.4
+ESMFold2,no_msa,9IMU,4.6,5,False,17.0,55.2
+ESMFold2,no_msa,9IP6,4.583333333333333,5,False,16.9,55.0

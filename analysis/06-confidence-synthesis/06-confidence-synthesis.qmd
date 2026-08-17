@@ -1,0 +1,418 @@
+---
+title: "Does negative steering settle for a worse interface?"
+format:
+  html:
+    code-fold: true
+    toc: true
+    toc-depth: 3
+jupyter: python3
+---
+
+Date: 12/8/26
+
+## The question
+
+Two earlier analyses each ask whether steering costs confidence, and they disagree. The benchmark finds a pLDDT drop, the campaign does not. Asking
+which cohort is right is the wrong question, because the underlying worry is mechanistic
+rather than statistical.
+
+The worry is that negative steering works by knocking out the model's preferred interface
+and forcing out a lower-confidence runner-up. That makes two predictions that can be
+tested directly, and neither depends on resolving the disagreement:
+
+1. The cost should be interface-shaped. A worse interface should show up in ipTM,
+   which scores the interface specifically, and not only in pLDDT, which is dominated by
+   local backbone confidence across the whole complex.
+2. The cost should follow rescue. Units whose pose actually moved to the true
+   interface should pay it. Units left at the wrong interface should not, because for
+   them nothing was traded away.
+
+This document tests both across the two cohorts together.
+
+---
+
+## 1. Setup
+
+```{python}
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+HERE = Path.cwd()
+if not (HERE / "confidence_per_prediction_constrained.csv").exists():
+    HERE = Path("analysis/06-confidence-synthesis")
+HERE = HERE.resolve()
+ANALYSIS = HERE.parent
+REPO = ANALYSIS.parent
+CONF = ANALYSIS / "04-confidence-cost"        # owns confidence_common.py
+CAMPAIGN = ANALYSIS / "05-campaign-confidence"  # owns campaign_data/
+OUTDIR = HERE
+sys.path.insert(0, str(CONF))
+
+import confidence_common as cc  # noqa: E402
+
+FIGDIR = OUTDIR / "supplementary-figures"
+THESISDIR = OUTDIR / "thesis-figures"
+for d in (FIGDIR, THESISDIR):
+    d.mkdir(parents=True, exist_ok=True)
+cc.apply_style()
+```
+
+Both cohorts are read from the caches the other two documents write, so this document
+renders without the benchmarking tree or HPC access and cannot drift from them.
+
+```{python}
+COHORT_FILES = {
+    "benchmark (negsteer)": CONF / "confidence_per_prediction.csv",
+    "benchmark (negsteer + constraints)":
+        HERE / "confidence_per_prediction_constrained.csv",
+    "campaign (negsteer)": CAMPAIGN / "campaign_data" / "campaign_per_seed.csv",
+    "campaign (negsteer + constraints)":
+        CAMPAIGN / "campaign_data" / "campaign_per_seed_constrained.csv",
+}
+
+cohorts = {lab: cc.build_representative_table(pd.read_csv(p))
+           for lab, p in COHORT_FILES.items()}
+
+pd.DataFrame([{"cohort": lab, "units": len(df),
+               "actually steered": int((~df.steering_skipped).sum()),
+               "rescued": int((df.outcome == "rescued").sum()),
+               "still wrong": int((df.outcome == "still wrong").sum())}
+              for lab, df in cohorts.items()])
+```
+
+The two `+ constraints` variants are the same inputs run with Boltz-2's constraint mechanism
+on top of negative steering. They are included here as a diagnostic on the metrics,
+not as a method variant. Constraints are derived from the intended interface, and the polyA
+and scrambled controls pass under them too, so their pose success is not evidence that
+the method works. What they are good for is showing what constraints do to a confidence
+score, which is section 4.
+
+---
+
+## 2. Is the cost interface-shaped?
+
+Paired differences for both cohorts on one axis per metric. A drop is only evidence of a
+worse interface if it appears in ipTM.
+
+```{python}
+#| label: fig-cohort-effects
+#| fig-cap: "Paired confidence change from cold start to representative steered design, for both cohorts. Points are units, the diamond is the median and the bar the bootstrap 95% CI."
+_ = cc.fig_cohort_effects(
+    cohorts,
+    FIGDIR / "cohort_confidence_effects.png")
+```
+
+Split into one thesis figure per variant. Read side by side they make the point that the
+constraints change the *level* of every metric (previous section) without changing what
+steering costs, which is what the two figures have in common.
+
+```{python}
+#| output: false
+# The unconstrained variant is the thesis figure. The constrained variant is a
+# supplementary companion to it, since constraints are a diagnostic here rather
+# than a method variant.
+VARIANTS = {"negsteer": ("negsteer", THESISDIR),
+        "negsteer_constraints": ("negsteer + constraints", FIGDIR)}
+for stem, (variant, outdir) in VARIANTS.items():
+    cc.fig_cohort_effects(
+        {c.split(" (")[0]: cohorts[c] for c in cohorts if c.endswith(f"({variant})")},
+        outdir / f"steering_cost_{stem}.png",
+        stats_in_title=False, legend="top", figsize=(8.4, 5.6))
+```
+
+```{python}
+cc.effect_table([(lab, m, df[~df.steering_skipped][f"d_{m}"].values)
+                 for m in cc.METRICS for lab, df in cohorts.items()])
+```
+
+* ipTM is flat in both cohorts. Median −0.011 at n = 15 and −0.009 at n = 83, with
+  intervals spanning zero in both. The metric that scores the interface specifically shows
+  no cost at either sample size, which is the opposite of what a runner-up interface
+  predicts.
+* The pLDDT drop is confined to the benchmark. It is a real effect within those 15
+  targets, but the campaign's much tighter interval sits on zero, so it cannot be quoted
+  as a property of the method.
+
+---
+
+## 3. Does the cost follow rescue?
+
+The same differences, split by whether steering moved the pose to the true interface. If
+the confidence bought the pose, the blue rows should sit below the orange ones.
+
+```{python}
+#| label: fig-outcome-contrast
+#| fig-cap: "Paired confidence change split by outcome. Rescued units had their pose corrected by steering, still-wrong units did not."
+_ = cc.fig_outcome_contrast(
+    cohorts, FIGDIR / "confidence_by_rescue_outcome.png")
+```
+
+Rescue and mutation budget are not independent, so the pooled contrast is repeated within
+each of the two well-populated budgets. In the benchmark this matters: the pooled contrast
+and the 3-mutation contrast point in opposite directions.
+
+```{python}
+cc.outcome_contrast_table(cohorts)
+```
+
+```{python}
+#| code-fold: true
+# Sanity check on the confound: are the two outcome groups drawn from
+# comparable budgets in the first place?
+pd.DataFrame([{"cohort": lab, "outcome": o,
+               "n": int((sub.outcome == o).sum()),
+               "median mutations": sub[sub.outcome == o].n_mutations.median()}
+              for lab, df in cohorts.items()
+              for sub in [df[~df.steering_skipped]]
+              for o in cc.CONTRAST_OUTCOMES])
+```
+
+---
+
+## 4. What do constraints do to the metrics?
+
+Boltz-2 constraints are supplied to the model, so any confidence score computed from the
+prediction has partly been told the answer. This compares the two variants on the units whose
+representative design is correctly posed under both, so the pose is held fixed and the
+only thing varying is whether constraints were used. Points above the identity line are
+units the constraints made the model more confident about at unchanged pose.
+
+```{python}
+#| label: fig-constraint-scatter
+#| fig-cap: "Steered confidence with constraints against without, on pose-matched units. The dashed line is identity."
+CONSTRAINT_PAIRS = {
+    "benchmark": ("benchmark (negsteer)", "benchmark (negsteer + constraints)",
+                  cc.OUTCOME_COLOR["rescued"]),
+    "campaign": ("campaign (negsteer)", "campaign (negsteer + constraints)",
+                 cc.OUTCOME_COLOR["still wrong"]),
+}
+CONSTRAINT_ARGS = {lab: (cohorts[u], cohorts[c], col)
+                   for lab, (u, c, col) in CONSTRAINT_PAIRS.items()}
+
+_ = cc.fig_constraint_scatter(
+    CONSTRAINT_ARGS,
+    FIGDIR / "constraint_inflation_all_metrics.png")
+```
+
+The thesis version of the same figure. The statistics move to the caption, and the
+metric name is carried by the panel title alone rather than repeated on both axes.
+
+```{python}
+#| output: false
+_ = cc.fig_constraint_scatter(
+    CONSTRAINT_ARGS,
+    THESISDIR / "constraint_metric_inflation.png",
+    stats_in_title=False, metric_in_axes=False, legend="top")
+```
+
+Inflating every score does not on its own make a metric useless for ranking designs,
+which only needs the order to survive. This ranks the same pose-matched units under each
+variant, within cohort, for the two interface metrics.
+
+```{python}
+#| label: fig-rank-agreement
+#| fig-cap: "Within-cohort rank of each pose-matched unit under negative steering alone against negative steering with constraints, for the two interface metrics. The dashed line is identity."
+_ = cc.fig_rank_agreement(
+    CONSTRAINT_ARGS,
+    THESISDIR / "constraint_rank_agreement.png")
+```
+
+---
+
+## 5. Validity checks
+
+The sections above characterise what steering costs. These three ask the prior question
+of whether it works for the reason claimed. All three are built from the same per-seed
+tables, loaded raw rather than through the representative-design reduction.
+
+```{python}
+raw = {lab: pd.read_csv(p) for lab, p in COHORT_FILES.items()}
+CTRL = OUTDIR / "campaign_data" / "campaign_per_seed_controls.csv"
+controls = pd.read_csv(CTRL) if CTRL.is_file() else None
+```
+
+### 5a. Do the sequence controls fail?
+
+Steering that improved the pose of anything it was pointed at would be worthless. The
+polyA and scrambled controls are the same pipeline run on sequences that should not be
+rescuable. Every usable steered seed is a point, since collapsing the controls to one
+representative each would discard the only spread they have.
+
+```{python}
+#| label: fig-controls
+#| fig-cap: "Per-seed pose error and interface Jaccard for real steered designs, split by whether the seed passed, against the polyA and scrambled sequence controls. The dashed line is the 5 Å pass threshold."
+camp = raw["campaign (negsteer)"]
+cs = camp[(camp.kind == "steered") & (camp.status == "ok")]
+passing = cs[cs.ra_eff <= cc.RA_EFF_THRESHOLD]
+failing = cs[cs.ra_eff > cc.RA_EFF_THRESHOLD]
+
+groups = {"steered: passing": (passing, cc.OUTCOME_COLOR["already correct"]),
+          "steered: failing": (failing, cc.OUTCOME_COLOR["still wrong"])}
+if controls is not None:
+    for name in sorted(controls.unit.unique()):
+        sub = controls[(controls.kind == "steered") & (controls.status == "ok")
+                       & (controls.unit == name)]
+        groups[name.replace("input_control_", "ctrl: ")] = (sub, cc.MUTED)
+
+_ = cc.fig_controls_diagnostic(groups, FIGDIR / "sequence_controls_diagnostic.png")
+```
+
+Note the denominator. Every steered seed of every candidate design is a point here, so a
+sequence that produced more candidates contributes more points, and the counts are not
+comparable with the rest of this document. The next figure repeats it at the representative
+level used everywhere else, one point per sequence, which is the honest comparison but
+reduces each control to a single point.
+
+```{python}
+#| label: fig-controls-rep
+#| fig-cap: "The sequence-control diagnostic with one point per sequence, using the same representative-design selection as the rest of this document."
+rep_groups = {}
+rc = cohorts["campaign (negsteer)"]
+rc = rc[~rc.steering_skipped]
+rep_groups["steered: passing"] = (rc[rc.rep_ra_eff <= cc.RA_EFF_THRESHOLD],
+                                  cc.OUTCOME_COLOR["already correct"])
+rep_groups["steered: failing"] = (rc[rc.rep_ra_eff > cc.RA_EFF_THRESHOLD],
+                                  cc.OUTCOME_COLOR["still wrong"])
+if controls is not None:
+    ctrl_rep = cc.build_representative_table(controls)
+    for name in sorted(ctrl_rep.unit.unique()):
+        short = name.replace("input_control_", "")
+        rep_groups[f"ctrl: {short}"] = (ctrl_rep[ctrl_rep.unit == name],
+                                        cc.CONTROL_COLOR[short])
+
+_ = cc.fig_controls_diagnostic(
+    rep_groups, FIGDIR / "sequence_controls_representative.png",
+    panels=("rep_ra_eff", "rep_true_jaccard"),
+    labels={"rep_ra_eff": "receptor-aligned effector RMSD (Å)",
+            "rep_true_jaccard": "interface Jaccard vs true interface"},
+    unit_name="sequences")
+```
+
+Both of the above split the two quantities across panels, which hides how they relate.
+The same representative-level data as one scatter:
+
+```{python}
+#| label: fig-controls-joint
+#| fig-cap: "Interface Jaccard against pose error for representative steered designs and the two sequence controls. The dashed line is the 5 Å pass threshold."
+_ = cc.fig_controls_joint(
+    rep_groups, FIGDIR / "sequence_controls_joint.png")
+```
+
+```{python}
+#| output: false
+_ = cc.fig_controls_joint(rep_groups, THESISDIR / "controls_joint.png")
+```
+
+### 5b. How reliable is a steered design across seeds?
+
+The representative-design rule ranks on how many of a design's seeds cleanly pass, so the
+shape of that distribution is what the ranking is built on. A cohort of designs that each
+pass on one lucky seed is a different object from one where designs pass on all of them.
+
+```{python}
+#| label: fig-seed-reliability
+#| fig-cap: "Number of seeds passing per steered design, for the two unconstrained cohorts."
+_ = cc.fig_seed_reliability(
+    {"benchmark": (raw["benchmark (negsteer)"], cc.OUTCOME_COLOR["rescued"]),
+     "campaign": (raw["campaign (negsteer)"], cc.OUTCOME_COLOR["still wrong"])},
+    FIGDIR / "seed_reliability.png")
+```
+
+### 5c. What does reversion do?
+
+Reversion runs only on seeds whose steering mutations themselves contact the effector,
+because the wet-lab construct will not carry them. This is the step the Methods flowchart
+describes and no result yet quantifies.
+
+```{python}
+#| label: fig-reversion
+#| fig-cap: "Steered seeds that did and did not need reversion, and how many of each are correctly posed."
+_ = cc.fig_reversion_cascade(
+    {"benchmark": (raw["benchmark (negsteer)"], None),
+     "campaign": (raw["campaign (negsteer)"], None)},
+    FIGDIR / "reversion_cascade.png")
+```
+
+As with the controls figure, the seed-level version counts every candidate design the
+engine generated, most of which were never selected. The next figure restricts to the design
+each unit was actually represented by, so the counts are comparable with the rest of this
+document.
+
+```{python}
+#| label: fig-reversion-rep
+#| fig-cap: "Representative designs that did and did not go through reversion, and how many of each are correctly posed. A unit counts as reverted when at least half of its representative design's seeds carry a reversion verdict."
+REVERSION_GROUPS = {
+    "benchmark": (raw["benchmark (negsteer)"], cohorts["benchmark (negsteer)"]),
+    "campaign": (raw["campaign (negsteer)"], cohorts["campaign (negsteer)"]),
+}
+_ = cc.fig_reversion_representative(
+    REVERSION_GROUPS, FIGDIR / "reversion_by_representative_design.png")
+```
+
+```{python}
+#| output: false
+_ = cc.fig_reversion_representative(
+    REVERSION_GROUPS, THESISDIR / "reversion_representative.png")
+```
+
+```{python}
+st = raw["campaign (negsteer)"]
+st = st[(st.kind == "steered") & (st.status == "ok")]
+st.reversion_verdict.fillna("(none needed)").value_counts().rename("seeds")
+```
+
+---
+
+## 6. What this means
+
+* Both predictions of the runner-up-interface explanation fail, and the second fails
+  backwards. ipTM does not move in either cohort. In the campaign, rescued sequences
+  gain confidence relative to those left at the wrong interface (+1.29 against −0.69
+  complex pLDDT at p = 0.043, and +2.00 against −1.19 interface pLDDT at p = 0.047). Stratified,
+  the gap sits entirely at the 6-mutation budget (p = 0.015 and 0.023) and is absent at
+  3 mutations (p = 0.55 and 0.36), so it rests on 8 rescued sequences. The direction is
+  consistent across all three metrics and both strata. Correcting the pose buys
+  confidence rather than spending it.
+* The benchmark's apparent contrast is a budget artefact. Pooled, its rescued targets
+  look like they pay more (−6.22 against −2.62). Within the 3-mutation stratum the sign
+  flips (−3.24 against −6.00), because rescued targets are concentrated at the larger
+  budget. This is exactly why the pooled comparison cannot be quoted on its own.
+* The safe claim is the null, stated on ipTM. Negative steering costs no interface
+  confidence, in a 15-target benchmark and in an 83-sequence campaign that agree on this
+  even though they disagree on pLDDT.
+* The pLDDT drop should be reported as cohort-specific and mutation-linked, not as a
+  cost of steering. Within the benchmark it scales with mutation budget and is paid by
+  rescued and still-wrong targets alike, which points at sequence perturbation. That
+  explanation is itself unconfirmed, since the dose response does not replicate either.
+
+Caveats.
+
+* The outcome contrast is an association rather than a causal test. Splitting on outcome
+  conditions on the thing being explained, and a model that is confident about a complex
+  is plausibly also more likely to place it correctly. The direction is the usable result.
+  The effect size is not, and it should not be read as steering *causing* a confidence
+  gain. `ra_eff` is measured geometrically and never sees pLDDT or ipTM, so the split is
+  not circular, but it is still selected on the outcome.
+* The campaign p-values are nominal. The contrast table runs 18 tests with no
+  correction, and 0.043 and 0.047 would not survive one. They are quoted as directional
+  evidence against the runner-up explanation, not as a positive finding in their own right.
+* The two cohorts differ in selection depth as well as in size. The benchmark generates
+  20 candidate steered designs per target (13 of 15 targets at 20), the campaign only 3
+  per sequence. That is deliberate, since spreading the budget over more sequences with
+  fewer steering attempts each gave better hit rates than the reverse. It does mean the
+  benchmark's representative design is the best of 20 and the campaign's the best of 3,
+  so every cross-cohort comparison here carries a selection-depth difference on top of the
+  sample-size difference, and it is a candidate explanation for the benchmark-only pLDDT
+  effect.
+* The rescued group is small in the benchmark (8 units, 3 and 4 at the two populated
+  budgets), so the benchmark contrast is underpowered on its own. The campaign contrast
+  carries the weight, and it is one campaign against one effector.
+* Absence of a difference is not evidence of equivalence. These tests can exclude an
+  effect the size of the benchmark's pLDDT drop, not an arbitrarily small one.
+* "Rescued" means different things in the two cohorts. The benchmark measures the pose
+  against a crystal structure, the campaign against the intended RFDiffusion pose.
+* Interface pLDDT is measured over whichever residues the prediction actually contacts,
+  so before and after cover partly different residue sets when the pose moves.

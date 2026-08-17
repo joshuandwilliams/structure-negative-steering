@@ -1,0 +1,179 @@
+---
+title: "What does negative steering cost Boltz-2 in confidence?"
+format:
+  html:
+    code-fold: true
+    toc: true
+    toc-depth: 3
+jupyter: python3
+---
+
+Date: 11/8/26
+
+## The question
+
+Negative steering mutates the receptor's wrong-interface residues so Boltz-2 can no
+longer place the effector there. Does that cost confidence, and if so, is the cost about
+the pose or about the mutations?
+
+Neither trend reported below replicates on a larger sample of 128 designed
+sequences. Treat both as specific to these 18 targets rather than as properties
+of negative steering.
+
+Metrics are complex pLDDT and interface pLDDT, both on the conventional 0 to 100 scale, and
+ipTM on its native 0–1 scale. `ra_eff` is receptor-aligned effector RMSD in Å, and ≤ 5 Å
+counts as a correct pose.
+
+Scope is the 18 HMA decoy and AVR targets `make_plots.py` uses. Reference-restrained
+(`*_constrained`) variants are excluded. Three targets (5ZNG, 9IP6, 8B2R) had a cold start
+that already passed on every seed, so the engine short-circuited and produced no steered
+designs. They appear as dashed lines in the before/after figure and are excluded from the dose figure and from
+every headline number, which are quoted on the 15 targets that were actually steered.
+
+---
+
+## 1. Setup
+
+Loading, selection, statistics and both figures come from `confidence_common.py`, shared
+with the campaign document so the two are directly comparable.
+
+```{python}
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+HERE = Path.cwd()
+if not (HERE / "confidence_common.py").exists():
+    HERE = Path("analysis/04-confidence-cost")
+HERE = HERE.resolve()
+ANALYSIS = HERE.parent
+REPO = ANALYSIS.parent
+CONF = ANALYSIS / "04-confidence-cost"        # owns confidence_common.py
+CAMPAIGN = ANALYSIS / "05-campaign-confidence"  # owns campaign_data/
+OUTDIR = HERE
+sys.path.insert(0, str(CONF))
+
+import confidence_common as cc  # noqa: E402
+
+FIGDIR = OUTDIR / "supplementary-figures"
+FIGDIR.mkdir(parents=True, exist_ok=True)
+cc.apply_style()
+
+sys.path.insert(0, str(ANALYSIS / "01-pose-rescue"))
+TARGETS = cc.restore_inline_backend(
+    lambda: __import__("make_plots").TARGETS)   # see restore_inline_backend's docstring
+BENCH = REPO / "experiments" / "benchmarking"
+print(f"repo: {REPO}\nbenchmarking tree present: {BENCH.is_dir()}")
+```
+
+Every prediction lives in `run/raw_per_seed_results.csv`, one row per (design, seed). The
+row whose `design` is `initial` is the cold start, the unsteered wild-type prediction
+made by the same engine with the same settings as every steered design, which makes this
+a genuine paired before/after. The benchmarking tree is gitignored, so this cell caches a
+trimmed copy and falls back to it when the tree is absent.
+
+```{python}
+CACHE = OUTDIR / "confidence_per_prediction.csv"
+
+paths = {t: BENCH / "unconstrained" / t / "run" / "raw_per_seed_results.csv" for t in TARGETS}
+paths = {t: p for t, p in paths.items() if p.is_file()}
+
+if paths:
+    pred = cc.load_per_seed(paths)
+    pred.to_csv(CACHE, index=False)
+    print(f"built from {BENCH} and cached to {CACHE.name}")
+else:
+    pred = pd.read_csv(CACHE)
+    print(f"benchmarking tree absent, loaded cached {CACHE.name}")
+
+cold, steered = cc.split(pred)
+repdf = cc.build_representative_table(pred)
+repdf.to_csv(OUTDIR / "confidence_representative.csv", index=False)
+steered_only = repdf[~repdf.steering_skipped]
+
+print(f"{len(cold)} cold starts, {len(steered)} steered predictions "
+      f"across {steered.unit.nunique()} targets")
+repdf[["unit", "outcome", "steering_skipped", "n_mutations",
+       "cold_ra_eff", "rep_ra_eff", "cold_complex_plddt", "rep_complex_plddt",
+       "cold_interface_plddt", "rep_interface_plddt", "cold_iptm", "rep_iptm"]].round(3)
+```
+
+---
+
+## 2. Does confidence drop after steering?
+
+One line per target, cold start to representative steered design. Panel titles quote the
+15 actually-steered targets.
+
+```{python}
+#| label: fig-before-after
+#| fig-cap: "Cold-start versus representative steered confidence, paired within target. pLDDT is on the 0-100 scale."
+_ = cc.fig_before_after(repdf, steered_only,
+                        FIGDIR / "confidence_before_after_steering.png")
+```
+
+```{python}
+cc.effect_table([(name, m, sub[f"d_{m}"].values)
+                 for m in cc.METRICS
+                 for sub, name in [(repdf, "all 18 targets"),
+                                   (steered_only, "15 actually steered")]])
+```
+
+* pLDDT drops, and the drop is too small to matter. The median steered target loses 3.2
+  points of complex pLDDT and 6.0 of interface pLDDT, which is consistent enough to
+  reject at p < 0.01 but leaves both values in the same confident band.
+* ipTM does not move (median −0.011, p = 0.93). Steering costs no interface confidence
+  at all.
+
+---
+
+## 3. What is the drop a function of?
+
+Each target has one mutation budget, set by the engine from how much the two interfaces
+overlap, which gives a dose axis. A pose cost should not scale with it, a
+sequence-perturbation cost should. Colour shows whether steering rescued the pose.
+
+```{python}
+#| label: fig-dose
+#| fig-cap: "Confidence change against the target's mutation budget, coloured by whether steering rescued the pose."
+_ = cc.fig_dose(steered_only, FIGDIR / "confidence_vs_mutation_budget.png")
+```
+
+```{python}
+cc.dose_table(steered_only)
+```
+
+* The loss is a dose response. 3-mutation targets lose a median of 3.2 points of complex
+  pLDDT against 8.8 for 6-mutation targets, with ρ = −0.41 for complex pLDDT and −0.49
+  for interface pLDDT.
+* Rescue does not predict the loss. Rescued and still-wrong targets are interleaved at
+  both budgets, so the confidence is spent on mutating the receptor rather than on where
+  the effector ended up.
+
+---
+
+## 4. What this means
+
+* Steering costs a few pLDDT points and no ipTM. The drop is statistically consistent
+  here but far too small to change how a prediction would be treated, and it does not
+  reproduce at n = 128, so it should not be presented as a
+  general property of the method.
+* The cost tracks the number of receptor mutations, not the pose. That argues against the
+  worry that steering merely knocks out the model's favourite answer and forces out a
+  lower-confidence runner-up. A separate pose-matched check, comparing steered designs
+  that landed at the true interface against those left at the wrong one within the same
+  target, also found no difference on any metric (p > 0.35), and is not shown here. The
+  dose response behind this bullet also fails to reproduce at campaign scale.
+
+Caveats.
+
+* The dose axis has only two well-populated levels (3 and 6 mutations), each a
+  different set of targets, so the dose response is suggestive rather than a controlled
+  titration. A within-target budget sweep would settle it.
+* Interface pLDDT is measured over whichever residues the prediction actually contacts,
+  so before and after cover partly different residue sets. That is unavoidable when the
+  pose moves, and is why complex pLDDT is reported alongside.
+* Three targets never produced a steered design, and pooling per-target medians gives
+  each target one vote regardless of how many predictions it contributed.

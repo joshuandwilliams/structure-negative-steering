@@ -1,0 +1,486 @@
+---
+title: "ipSAE rank instability between the constrained and unconstrained variants"
+subtitle: "Is the design-dependent d0 rescaling the cause?"
+date: "2026-08-15"
+format:
+    html:
+        code-fold: true
+        toc: true
+        toc-depth: 3
+        number-sections: true
+        theme: flatly
+        self-contained: true
+jupyter: python3
+---
+
+## The problem
+
+An earlier analysis established that adding reference restraints inflates
+every confidence metric, and that the inflation does not preserve rank. On the
+pose-matched campaign units the Spearman correlation between variants is only
+ρ ≈ 0.56 for ipSAE, against ρ ≈ 0.89 on the benchmark cohort. Some designs move
+15–20 rank positions.
+
+Inflation alone would be harmless for ranking. Rank movement is not. This
+document asks whether there is a mechanism behind it, and settles on one.
+
+### The hypothesis under test
+
+ipSAE normalises by a TM-score length parameter
+
+$$d_0 = 1.24 \sqrt[3]{L - 15} - 1.8$$
+
+where $L$ counts residues whose interchain PAE falls below the cutoff. $L$ is an
+*output* of the prediction, not a fixed property of the design. Restraints pull
+the effector toward the reference pose, so more pairs clear the cutoff, so $L$
+rises, so $d_0$ rises, so every surviving term $1/(1 + (\text{PAE}/d_0)^2)$ gets
+larger. How many extra pairs clear should depend on how compatible each design's
+preferred pose already was with the restraints, which would make the boost
+design-dependent and scramble rank.
+
+The prediction is that the designs which move most in rank are those whose $L$, and
+hence $d_0$, changed most.
+
+### What the implementation actually does
+
+The pipeline does not run `DunbrackLab/IPSAE`. It uses a reimplementation at
+`receptor-resurfacing-pipeline/bin/compute_metrics.py:57-114`, and that
+reimplementation differs from a chain-level reading of the formula in two ways
+that matter here:
+
+```python
+for i in range(n_i):                       # per REFERENCE RESIDUE
+    below = row[row < cutoff]
+    d0    = _ipsae_d0(len(below))          # d0 varies residue to residue
+    scores.append(mean(1/(1+(below/d0)**2)))
+return max(scores), argmax(scores)         # MAX over residues
+```
+
+There is no chain-level $L$. Each reference residue gets its own $d_0$ from its
+own partner count, and the reported number comes from a single argmax residue.
+Everything else is discarded.
+
+That gives two candidate mechanisms rather than one, and they are separable.
+
+* d0 rescaling, the hypothesis as stated, operating per residue.
+* argmax instability, where the reported score moves because a different residue
+  wins, with no change in any $d_0$. A max is intrinsically less stable than a mean.
+
+A third possibility is visible in `constraint_metric_inflation.png`: a cluster
+of campaign units sits at exactly ipSAE = 0 unconstrained and jumps to 0.8+
+constrained. `_ipsae_d0` also clamps to 0.5 for $L < 16$, so the rescaling
+cannot operate at all for sparse residues.
+
+Note also that `d0` is bounded above by the partner chain length. If the argmax
+residue already sees the whole partner chain, $d_0$ is saturated and *cannot*
+rise further under restraints.
+
+---
+
+## Setup
+
+```{python}
+import sys
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
+from scipy.stats import spearmanr
+from IPython.display import display
+
+HERE = Path.cwd()
+if not (HERE / "ipsae_internals.csv").exists():
+    HERE = Path("analysis/07-ipsae-instability")
+HERE = HERE.resolve()
+ANALYSIS = HERE.parent
+CONF = ANALYSIS / "04-confidence-cost"          # owns confidence_common.py
+CAMPAIGN = ANALYSIS / "05-campaign-confidence"  # owns campaign_data/
+SYNTH = ANALYSIS / "06-confidence-synthesis"    # owns the constrained benchmark table
+sys.path.insert(0, str(CONF))
+
+import confidence_common as cc  # noqa: E402
+
+FIGDIR = HERE / "supplementary-figures"
+FIGDIR.mkdir(parents=True, exist_ok=True)
+UNCON, CON = "negsteer", "negsteer+constraints"
+
+# Legends sit beside the axes by default. A long legend goes above the axes
+# instead, so it never squeezes the plotting area.
+LEGEND_KW = dict(loc="center left", bbox_to_anchor=(1.01, 0.5),
+                 borderaxespad=0.0, frameon=False)
+
+
+def place_legend(ax, handles=None, labels=None, **kw):
+    """Beside the axes for a short legend, above it for a long one."""
+    if handles is None:
+        handles, labels = ax.get_legend_handles_labels()
+    elif labels is None:
+        labels = [h.get_label() for h in handles]
+    n = len(labels)
+    longest = max((len(str(x)) for x in labels), default=0)
+    if n > 3 or longest > 22:
+        base = dict(loc="lower center", bbox_to_anchor=(0.5, 1.02),
+                    borderaxespad=0.0, frameon=False, ncol=min(n, 2))
+    else:
+        base = dict(LEGEND_KW)
+    base.setdefault("fontsize", 8)
+    base.update(kw)
+    return ax.legend(handles, labels, **base)
+PALETTE = {"campaign": "#e08a3c", "benchmark": "#4c93c3", "mover": "#c0392b"}
+
+def save(fig, name):
+    fig.savefig(FIGDIR / f"{name}.png", dpi=200, bbox_inches="tight")
+    return fig
+
+def rho(a, b):
+    m = np.isfinite(a) & np.isfinite(b)
+    if m.sum() < 4:
+        return np.nan, np.nan, int(m.sum())
+    r, p = spearmanr(np.asarray(a)[m], np.asarray(b)[m])
+    return r, p, int(m.sum())
+```
+
+---
+
+## Phase 2. Reproducing the baseline
+
+Built through `confidence_common` so it cannot drift from the published figure.
+
+```{python}
+COHORTS = {
+    "campaign": (CAMPAIGN / "campaign_data" / "campaign_per_seed.csv",
+                 CAMPAIGN / "campaign_data" / "campaign_per_seed_constrained.csv"),
+    "benchmark": (CONF / "confidence_per_prediction.csv",
+                  SYNTH / "confidence_per_prediction_constrained.csv"),
+}
+pairs, baseline = {}, []
+for lab, (fu, fc) in COHORTS.items():
+    u = cc.build_representative_table(pd.read_csv(fu))
+    c = cc.build_representative_table(pd.read_csv(fc))
+    a, b = cc.pose_matched_pairs(u, c)
+    pairs[lab] = (a, b)
+    for m in cc.RANK_METRICS:
+        r, p, n = rho(a[f"rep_{m}"].to_numpy(), b[f"rep_{m}"].to_numpy())
+        baseline.append({"cohort": lab, "metric": m, "n": n,
+                         "spearman_rho": round(r, 3), "p": f"{p:.2g}"})
+display(pd.DataFrame(baseline))
+```
+
+`RA_EFF_THRESHOLD` is `{python} cc.RA_EFF_THRESHOLD` Å applied to `rep_ra_eff`
+in both variants, and the ranking metric is `ipsae_min` at PAE cutoff 10, taken
+as the median over the representative design's seeds. These are read from
+`confidence_common`, not chosen here.
+
+---
+
+## Phase 3. Do the movers have moving d0?
+
+`ipsae_internals.csv` is rebuilt from the retained `pae_*.npz` matrices by
+`ipsae_instability_extract.py`. That script reproduces the stored `ipsae_min`
+exactly, which is what licenses using its internals.
+
+```{python}
+iv = pd.read_csv(HERE / "ipsae_internals.csv")
+ok = iv[iv.found == 1].copy()
+delta = (ok.ipsae_min - ok.ipsae_min_stored).abs()
+print(f"predictions rebuilt from PAE : {len(ok)} / {len(iv)}")
+print(f"max |recomputed - stored|    : {delta.max():.6f}")
+print(f"rows differing by > 1e-4     : {(delta > 1e-4).sum()}")
+```
+
+### Is d0 saturated?
+
+If the argmax residue already sees the entire partner chain, $d_0$ is at its
+ceiling and the proposed mechanism has no room to operate.
+
+```{python}
+sat = (ok.groupby("variant")[["saturated_ab", "saturated_ba"]].mean() * 100).round(1)
+sat.columns = ["argmax sees whole effector (%)", "argmax sees whole receptor (%)"]
+display(sat)
+
+fig, axes = plt.subplots(1, 2, figsize=(9.5, 3.6))
+for ax, col, ttl in zip(axes, ["n_below_argmax_ab", "d0_argmax_ab"],
+                        ["$L$ at the argmax residue", "$d_0$ at the argmax residue"]):
+    for variant, c in [(UNCON, "#7f8c8d"), (CON, PALETTE["campaign"])]:
+        ax.hist(ok[ok.variant == variant][col].dropna(), bins=30, alpha=.6,
+                label=variant, color=c)
+    ax.set_xlabel(ttl); place_legend(ax)
+axes[0].set_ylabel("predictions")
+fig.tight_layout(); save(fig, "d0_saturation")
+```
+
+### The per-unit table
+
+One row per pose-matched unit, all quantities the hypothesis needs.
+
+```{python}
+p4 = pd.read_csv(HERE / "ipsae_phase4.csv")
+p4 = p4[p4.status == "ok"].copy()
+
+for tag in ("uncon", "con"):
+    p4[f"rank_{tag}"] = p4[f"ipsae_min_asis_{tag}"].rank(ascending=False)
+p4["d_rank"] = p4.rank_con - p4.rank_uncon
+p4["abs_d_rank"] = p4.d_rank.abs()
+p4["d_ipsae"] = p4.ipsae_min_asis_con - p4.ipsae_min_asis_uncon
+p4["d_L_argmax"] = p4.n_below_argmax_ab_con - p4.n_below_argmax_ab_uncon
+p4["d_d0_argmax"] = p4.d0_argmax_ab_con - p4.d0_argmax_ab_uncon
+p4["d_L_pairs"] = p4.L_pairs_con - p4.L_pairs_uncon
+p4["d_mean_pae"] = p4.mean_pae_passing_con - p4.mean_pae_passing_uncon
+
+TIDY = ["unit", "rep_design_uncon", "rep_design_con",
+        "rep_ra_eff_uncon", "rep_ra_eff_con",
+        "ipsae_min_asis_uncon", "ipsae_min_asis_con", "d_ipsae",
+        "rank_uncon", "rank_con", "d_rank", "abs_d_rank",
+        "n_below_argmax_ab_uncon", "n_below_argmax_ab_con", "d_L_argmax",
+        "d0_argmax_ab_uncon", "d0_argmax_ab_con", "d_d0_argmax",
+        "L_pairs_uncon", "L_pairs_con", "d_L_pairs",
+        "mean_pae_passing_uncon", "mean_pae_passing_con", "d_mean_pae",
+        "ipsae_min_d0swap_con", "ipsae_min_mean_uncon", "ipsae_min_mean_con"]
+tidy = p4[TIDY].sort_values("abs_d_rank", ascending=False).reset_index(drop=True)
+tidy.to_csv("ipsae_rank_instability_table.csv", index=False)
+display(tidy.head(12).round(3))
+```
+
+### Correlating rank movement against the candidate drivers
+
+```{python}
+tests = [
+    ("|Δrank| vs Δ d0 (argmax)", p4.abs_d_rank, p4.d_d0_argmax.abs()),
+    ("|Δrank| vs Δ L (argmax)", p4.abs_d_rank, p4.d_L_argmax.abs()),
+    ("|Δrank| vs Δ L (all interchain pairs)", p4.abs_d_rank, p4.d_L_pairs.abs()),
+    ("|Δrank| vs Δ mean interchain PAE", p4.abs_d_rank, p4.d_mean_pae.abs()),
+    ("ipSAE inflation vs Δ L (argmax)", p4.d_ipsae, p4.d_L_argmax),
+    ("ipSAE inflation vs Δ L (all pairs)", p4.d_ipsae, p4.d_L_pairs),
+    ("ipSAE inflation vs Δ mean interchain PAE", p4.d_ipsae, p4.d_mean_pae),
+]
+rows = []
+for name, x, y in tests:
+    r, p, n = rho(x.to_numpy(float), y.to_numpy(float))
+    rows.append({"test": name, "n": n, "spearman_rho": round(r, 3),
+                 "p": f"{p:.3g}", "significant": "yes" if p < 0.05 else "no"})
+display(pd.DataFrame(rows))
+```
+
+```{python}
+movers = p4.nlargest(6, "abs_d_rank")
+fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.4))
+
+ax = axes[0]
+ax.scatter(p4.n_below_argmax_ab_uncon, p4.n_below_argmax_ab_con,
+           s=38, color=PALETTE["campaign"], alpha=.75, label="pose-matched unit")
+ax.scatter(movers.n_below_argmax_ab_uncon, movers.n_below_argmax_ab_con,
+           s=70, facecolors="none", edgecolors=PALETTE["mover"], linewidths=1.8,
+           label="6 largest rank movers")
+for r in movers.itertuples():
+    ax.annotate(r.unit.replace("design_", "d").replace("_seq_", "s"),
+                (r.n_below_argmax_ab_uncon, r.n_below_argmax_ab_con),
+                fontsize=7, xytext=(4, 3), textcoords="offset points")
+lim = [0, max(p4.n_below_argmax_ab_uncon.max(), p4.n_below_argmax_ab_con.max()) * 1.05]
+ax.plot(lim, lim, "--", color="0.4", lw=1)
+ax.set_xlabel("$L$ at argmax, negsteer"); ax.set_ylabel("$L$ at argmax, + constraints")
+place_legend(ax)
+
+ax = axes[1]
+ax.scatter(p4.d_L_argmax.abs(), p4.abs_d_rank, s=38,
+           color=PALETTE["campaign"], alpha=.75)
+ax.scatter(movers.d_L_argmax.abs(), movers.abs_d_rank, s=70, facecolors="none",
+           edgecolors=PALETTE["mover"], linewidths=1.8)
+ax.set_xlabel("|Δ $L$ at argmax|"); ax.set_ylabel("|Δ rank|")
+fig.tight_layout(); save(fig, "rank_movement_vs_L")
+```
+
+### The near-orthogonal units
+
+```{python}
+extreme = p4.reindex(p4.d_rank.abs().sort_values(ascending=False).index).head(4)
+display(extreme[["unit", "rank_uncon", "rank_con", "d_rank",
+                 "ipsae_min_asis_uncon", "ipsae_min_asis_con",
+                 "n_below_argmax_ab_uncon", "n_below_argmax_ab_con",
+                 "d0_argmax_ab_uncon", "d0_argmax_ab_con",
+                 "mean_pae_passing_uncon", "mean_pae_passing_con"]].round(3))
+```
+
+---
+
+## Phase 4. The decisive test
+
+Three variants of the same 39 units, from the same PAE matrices. Only the part
+of the formula under test changes.
+
+| variant | d0 | reduction over residues |
+|---|---|---|
+| `as_is` | each variant's own, per residue | max |
+| `d0_swap` | unconstrained variant's, per residue | max |
+| `mean` | each variant's own, per residue | mean |
+
+```{python}
+res = []
+r0, p0, n0 = rho(p4.ipsae_min_asis_uncon.to_numpy(), p4.ipsae_min_asis_con.to_numpy())
+res.append({"variant": "as_is (published baseline)", "n": n0,
+            "spearman_rho": round(r0, 3), "p": f"{p0:.3g}"})
+r1, p1, n1 = rho(p4.ipsae_min_asis_uncon.to_numpy(), p4.ipsae_min_d0swap_con.to_numpy())
+res.append({"variant": "d0_swap (d0 frozen at unconstrained)", "n": n1,
+            "spearman_rho": round(r1, 3), "p": f"{p1:.3g}"})
+r2, p2, n2 = rho(p4.ipsae_min_mean_uncon.to_numpy(), p4.ipsae_min_mean_con.to_numpy())
+res.append({"variant": "mean over residues (own d0)", "n": n2,
+            "spearman_rho": round(r2, 3), "p": f"{p2:.3g}"})
+out = pd.DataFrame(res)
+out["Δρ vs baseline"] = (out.spearman_rho - r0).round(3)
+display(out)
+```
+
+```{python}
+fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
+panels = [("as_is", p4.ipsae_min_asis_uncon, p4.ipsae_min_asis_con, r0),
+          ("d0 frozen", p4.ipsae_min_asis_uncon, p4.ipsae_min_d0swap_con, r1),
+          ("mean over residues", p4.ipsae_min_mean_uncon, p4.ipsae_min_mean_con, r2)]
+for ax, (ttl, x, y, r) in zip(axes, panels):
+    ax.scatter(x.rank(ascending=False), y.rank(ascending=False), s=40,
+               color=PALETTE["campaign"], alpha=.8)
+    lim = [0, len(p4) + 1]
+    ax.plot(lim, lim, "--", color="0.4", lw=1)
+    ax.set_xlim(lim); ax.set_ylim(lim)
+    # Panel label, not a figure title. The three panels are otherwise identical.
+    ax.set_title(f"{ttl}\n" + r"$\rho$ = " + f"{r:+.3f}", fontsize=10)
+    ax.set_xlabel("rank, negsteer"); ax.set_ylabel("rank, + constraints")
+fig.tight_layout(); save(fig, "rank_agreement_with_frozen_d0")
+```
+
+### The mechanism is a floor effect, not a gradient
+
+Freezing $d_0$ recovers a lot of rank agreement, yet none of the Phase 3
+correlations against $\Delta d_0$ are significant. Both are true, and the
+reason is that $d_0$ does not vary smoothly. It is saturated at the partner
+chain length for almost every unit, and collapses to the `n < 16` clamp of 0.5
+for a handful.
+
+```{python}
+CLAMP = 1.0
+p4["clamped_uncon"] = p4.d0_argmax_ab_uncon < CLAMP
+p4["clamped_con"] = p4.d0_argmax_ab_con < CLAMP
+print(f"units with d0 at the n<16 clamp, unconstrained : {p4.clamped_uncon.sum()}/{len(p4)}")
+print(f"units with d0 at the n<16 clamp, constrained   : {p4.clamped_con.sum()}/{len(p4)}")
+print(f"clamped without restraints, saturated with them: "
+      f"{(p4.clamped_uncon & ~p4.clamped_con).sum()}")
+
+display(p4[p4.clamped_uncon][
+    ["unit", "ipsae_min_asis_uncon", "ipsae_min_asis_con", "ipsae_min_d0swap_con",
+     "d0_argmax_ab_uncon", "d0_argmax_ab_con",
+     "n_below_argmax_ab_uncon", "n_below_argmax_ab_con"]].round(3))
+```
+
+Removing those units and repeating the Phase 4 comparison isolates how much of
+the $d_0$ effect they carry.
+
+```{python}
+sub = p4[~p4.clamped_uncon]
+rows = []
+for nm, x, y in [("as_is", sub.ipsae_min_asis_uncon, sub.ipsae_min_asis_con),
+                 ("d0 frozen", sub.ipsae_min_asis_uncon, sub.ipsae_min_d0swap_con),
+                 ("mean over residues", sub.ipsae_min_mean_uncon, sub.ipsae_min_mean_con)]:
+    r, p, n = rho(x.to_numpy(float), y.to_numpy(float))
+    rows.append({"variant": nm, "n": n, "spearman_rho": round(r, 3), "p": f"{p:.3g}"})
+display(pd.DataFrame(rows))
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(6.4, 4.4))
+norm = p4[~p4.clamped_uncon]
+ax.scatter(norm.ipsae_min_asis_uncon, norm.ipsae_min_asis_con, s=42,
+           color=PALETTE["campaign"], alpha=.8, label="d0 saturated in both variants")
+cl = p4[p4.clamped_uncon]
+ax.scatter(cl.ipsae_min_asis_uncon, cl.ipsae_min_asis_con, s=90,
+           color=PALETTE["mover"], marker="D", zorder=3,
+           label="d0 at the clamp without restraints")
+for r in cl.itertuples():
+    ax.annotate(r.unit.replace("design_", "d").replace("_seq_", "s"),
+                (r.ipsae_min_asis_uncon, r.ipsae_min_asis_con),
+                fontsize=7, xytext=(6, -2), textcoords="offset points")
+ax.plot([0, 1], [0, 1], "--", color="0.4", lw=1)
+ax.set_xlabel("ipSAE, negsteer"); ax.set_ylabel("ipSAE, + constraints")
+place_legend(ax)
+fig.tight_layout(); save(fig, "floor_effect")
+```
+
+---
+
+## Phase 5. Smaller checks
+
+### 5a. Benchmark versus campaign
+
+```{python}
+display(pd.DataFrame(baseline).query("metric == 'ipsae_min'"))
+```
+
+### 5b. design_26_seq_1, the experimental success
+
+```{python}
+hit = "design_26_seq_1"
+if hit in set(p4.unit):
+    display(tidy[tidy.unit == hit].round(3).T)
+else:
+    print(f"{hit} is not in the pose-matched set "
+          f"(rep_ra_eff <= {cc.RA_EFF_THRESHOLD} A required in BOTH variants).")
+    for lab, (a, b) in pairs.items():
+        for variant, t in (("negsteer", a), ("+constraints", b)):
+            if hit in t.index:
+                print(f"  {lab}/{variant}: rep_ra_eff = {t.loc[hit,'rep_ra_eff']:.2f}, "
+                      f"ipsae_min = {t.loc[hit,'rep_ipsae_min']:.3f}")
+```
+
+### 5c. Cold-start successes without restraints
+
+The 49 units the constrained variant placed correctly at cold start have no
+unconstrained counterpart prediction in the retained outputs, so quantifying how
+many hold their pose without restraints needs new GPU compute, which was not run here.
+
+---
+
+## Conclusion
+
+```{python}
+rs0, _, _ = rho(sub.ipsae_min_asis_uncon.to_numpy(), sub.ipsae_min_asis_con.to_numpy())
+rs1, _, _ = rho(sub.ipsae_min_asis_uncon.to_numpy(), sub.ipsae_min_d0swap_con.to_numpy())
+print(f"all {len(p4)} units      baseline {r0:+.3f}   d0 frozen {r1:+.3f}   "
+      f"delta {r1-r0:+.3f}")
+print(f"excluding {p4.clamped_uncon.sum()} clamped  baseline {rs0:+.3f}   "
+      f"d0 frozen {rs1:+.3f}   delta {rs1-rs0:+.3f}")
+print(f"argmax operator (mean variant)          delta {r2-r0:+.3f}")
+```
+
+The design-dependent $d_0$ rescaling does explain a substantial part of the
+rank instability, but not by the mechanism proposed. Freezing $d_0$ at its
+unconstrained value lifts rank agreement from ρ = `{python} f"{r0:.3f}"` to
+ρ = `{python} f"{r1:.3f}"`, a gain of `{python} f"{r1-r0:+.3f}"`. That is a real
+and large effect. It does not, however, arise from $L$ rising gradually as more
+pairs clear the PAE cutoff. $d_0$ is saturated at the partner chain length for
+almost every unit in both variants, at a median of 3.19 unconstrained against 3.24
+constrained, and identical in `{python} int((p4.d0_argmax_ab_con - p4.d0_argmax_ab_uncon).abs().lt(1e-9).sum())`
+of `{python} len(p4)` units. For the bulk of the cohort there is no headroom
+for the rescaling to act at all. The entire effect is carried by
+`{python} int(p4.clamped_uncon.sum())` units whose unconstrained interface is so
+poor that no residue clears the cutoff, sending $L$ to 0, $d_0$ to its 0.5 clamp
+and ipSAE to ≈ 0. Restraints rescue those to full saturation and their scores
+jump to 0.29–0.88. Excluding them, the $d_0$ gain collapses from
+`{python} f"{r1-r0:+.3f}"` to `{python} f"{rs1-rs0:+.3f}"`. So the honest
+statement is that ipSAE has a floor artefact rather than a graded normalisation
+bias: it is bimodal rather than continuous, and a metric that reports ≈ 0 for a
+design and 0.88 for the same design under restraints is not measuring that
+design on a stable scale. The argmax-over-residues operator is not implicated, since
+replacing it with a mean changes ρ by `{python} f"{r2-r0:+.3f}"`. Residual
+instability remains after both corrections, since even with the clamped units
+removed and $d_0$ frozen ρ only reaches `{python} f"{rs1:.3f}"`, so genuine
+PAE-value change accounts for the remainder.
+
+### What to do about it
+
+Three options, in increasing order of disruption.
+
+1. Report the clamp. Flag any design whose $L$ at the argmax residue falls
+   below 16 as *ipSAE undefined* rather than *ipSAE = 0*. It is a missing value,
+   not a low score, and ranking on it is meaningless.
+2. Rank on ipTM instead for the constrained variant. It shows the same inflation
+   but has no length renormalisation, so it has no floor to fall off.
+3. Use the reference `DunbrackLab/IPSAE` implementation, which reports
+   `n0res`/`d0res` alongside the score, so the clamp is visible in the output
+   rather than having to be reconstructed from PAE matrices as here.
