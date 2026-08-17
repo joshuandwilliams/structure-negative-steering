@@ -1,0 +1,271 @@
+BootStrap: yum
+OSVersion: 9
+MirrorURL: http://yum-repos.hpccluster/AlmaLinux/9/os/$basearch/
+Include: yum
+
+# =============================================================================
+# pytest_runner.img
+#
+# Slim container for the characterisation test suite under
+# tests/characterization/.  Runs every local-tier test on Linux/HPC without
+# any of the pipeline runtime: no PyTorch, no CUDA, no Boltz/RFDiffusion/
+# ProteinMPNN/Rosetta — just the Python packages the comparators import.
+#
+# Contents:
+#   - Python 3.11 (compiled from source, matching boltz2_negsteer.def's
+#     toolchain so test code that imports 3.11-only typing features works
+#     identically inside both containers)
+#   - pytest                (test runner — markers wired up in pyproject.toml)
+#   - pandas                (CSV comparators — tests/characterization/helpers/csv_compare.py)
+#   - numpy                 (PNG SSIM math + helper unit tests)
+#   - Pillow (provides `PIL`)
+#                           (PNG decode/resize — helpers/png_compare.py;
+#                            ImageDraw is used by helper unit tests to
+#                            synthesise small fixture PNGs)
+#   - scikit-image (provides `skimage`)
+#                           (skimage.metrics.structural_similarity — SSIM
+#                            for PNG-PERCEPTUAL strategy in png_compare.py)
+#   - gemmi                 (mmCIF/PDB coordinate parsing — the
+#                            structure-prediction-benchmarking hpc tier drives
+#                            bin/classify_predicted_interface.py and
+#                            bin/common_wrong_interface.py, which read
+#                            published best_models/ trees)
+#   - matplotlib            (imported at module scope by that repo's
+#                            bin/_analysis_common.py.  Nothing here renders a
+#                            figure, so the Agg backend via MPLCONFIGDIR is
+#                            sufficient)
+#   - PyYAML (provides `yaml`)
+#                           (bin/validate_boltz_yaml.py parses the generated
+#                            Boltz input YAML.  Its tests importorskip yaml, so
+#                            omitting it makes 5 tests skip silently rather
+#                            than fail loudly)
+#   - biopython (provides `Bio`)
+#                           (Bio.SVDSuperimposer and Bio.Align back the Kabsch
+#                            fit and the Needleman-Wunsch pairing in that
+#                            repo's bin/_structure.py.  common_wrong_interface
+#                            exits immediately if it is absent)
+#
+# This image serves the characterisation suites of two repositories.  The
+# receptor-resurfacing-pipeline tests diff CSVs and PNGs.  The
+# structure-prediction-benchmarking tests parse coordinates and superpose
+# structures, which is what gemmi, biopython and matplotlib are here for.
+# Those tests build their own poses from committed reference structures, so
+# they do not need a finished benchmark run.
+#
+# The package set above is derived directly from the imports in
+# tests/characterization/{conftest.py,test_*.py,helpers/*.py,helpers/tests/*.py}
+# and matches the [project.optional-dependencies] "test" extra in
+# pyproject.toml.  Any new third-party import added to those files MUST be
+# added both here and in pyproject.toml — the final %post verification
+# block fails the build if any installed package is missing or unimportable.
+#
+# NOT included (and why):
+#   - PyTorch / CUDA / cuEquivariance / trifast — no characterisation test
+#     loads a model or executes a CUDA kernel; the comparators read files
+#     produced by upstream pipeline runs and diff them.
+#   - Boltz-2, RFDiffusion, ProteinMPNN, Rosetta, HADDOCK3, MMseqs2 —
+#     pipeline runtime; characterisation tests only consume their *outputs*.
+#   - esm / ESMFold2 — the one benchmarking test that folds a sequence needs a
+#     40 GB GPU and skips itself via pytest.importorskip when esm is absent.
+#     Run it in esmfold2.img instead.
+#   - DockQ / freesasa / MDAnalysis — none are imported by either
+#     characterisation suite.
+#   - Boltz-2 weights, RFDiffusion checkpoints, model caches — not needed:
+#     no inference happens inside this container.
+#
+# Build command (HPC software node, Singularity 3.8 / Apptainer):
+#   sudo singularity build pytest_runner.img pytest_runner.def
+#
+# Runtime example (run the local-tier characterisation suite):
+#   singularity exec pytest_runner.img \
+#       pytest tests/characterization -m "local_unit or local_integration"
+# =============================================================================
+
+%files
+
+%environment
+    export PATH=/usr/local/bin:$PATH
+    # matplotlib is imported by the benchmarking suite and needs a writable
+    # config dir on a read-only image.  NUMBA_CACHE_DIR covers any transitive
+    # importer and is harmless when unused.
+    export MPLCONFIGDIR=/tmp
+    export NUMBA_CACHE_DIR=/tmp
+    export MPLBACKEND=Agg
+
+%post
+    export MPLCONFIGDIR=/tmp
+    export NUMBA_CACHE_DIR=/tmp
+
+    # =========================================================================
+    # Minimal bootstrap packages needed for pre-flight checks
+    # =========================================================================
+    yum install -y wget ca-certificates 2>/dev/null || yum install -y wget 2>/dev/null
+
+    # =========================================================================
+    # PRE-FLIGHT URL CHECKS
+    #
+    # Verify every URL is reachable BEFORE spending time compiling Python
+    # and installing packages.  Same pattern as boltz2_negsteer.def.
+    # =========================================================================
+    echo ""
+    echo "=== PRE-FLIGHT URL CHECKS ==="
+    echo "Verifying all download URLs are reachable before building..."
+    echo ""
+
+    URL_FAIL=0
+
+    check_url() {
+        local label="$1"
+        local url="$2"
+        if wget --timeout=15 --tries=2 --no-check-certificate \
+                --header="Range: bytes=0-0" \
+                -O /dev/null "$url" 2>/dev/null; then
+            echo "  OK   $label"
+        else
+            echo "  FAIL $label"
+            echo "       $url"
+            URL_FAIL=$((URL_FAIL + 1))
+        fi
+    }
+
+    # Python source
+    check_url "Python 3.11.9 source" \
+        "https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz"
+
+    # PyPI reachability + per-package JSON metadata for the test extras
+    check_url "PyPI index" \
+        "https://pypi.org/simple/"
+    check_url "pytest (PyPI)"        "https://pypi.org/pypi/pytest/json"
+    check_url "pandas (PyPI)"        "https://pypi.org/pypi/pandas/json"
+    check_url "numpy (PyPI)"         "https://pypi.org/pypi/numpy/json"
+    check_url "Pillow (PyPI)"        "https://pypi.org/pypi/Pillow/json"
+    check_url "scikit-image (PyPI)"  "https://pypi.org/pypi/scikit-image/json"
+    check_url "gemmi (PyPI)"         "https://pypi.org/pypi/gemmi/json"
+    check_url "matplotlib (PyPI)"    "https://pypi.org/pypi/matplotlib/json"
+    check_url "biopython (PyPI)"     "https://pypi.org/pypi/biopython/json"
+    check_url "PyYAML (PyPI)"        "https://pypi.org/pypi/PyYAML/json"
+
+    echo ""
+    if [ $URL_FAIL -gt 0 ]; then
+        echo "PRE-FLIGHT FAILED: $URL_FAIL URL(s) unreachable."
+        echo "Fix the URLs above before building. Aborting."
+        exit 1
+    fi
+    echo "All URLs verified. Proceeding with build."
+    echo ""
+
+    # =========================================================================
+    # System dependencies for the Python source build.
+    # =========================================================================
+    yum update -y
+    yum install -y openssl-devel bzip2-devel libffi-devel epel-release binutils wget
+    yum install -y git unzip tar gzip bzip2 which zlib-devel
+    yum groupinstall -y "Development Tools"
+
+    # =========================================================================
+    # Install Python 3.11 (matches boltz2_negsteer.def)
+    # =========================================================================
+    wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
+    tar -xzf Python-3.11.9.tgz
+    cd Python-3.11.9
+    ./configure --enable-optimizations
+    make altinstall
+    cd /
+    rm -rf Python-3.11.9 Python-3.11.9.tgz
+
+    rm -f /usr/bin/python
+    ln -s /usr/local/bin/python3.11 /usr/bin/python
+    ln -s /usr/local/bin/pip3.11 /usr/bin/pip
+
+    python -V
+    pip install --upgrade setuptools pip
+
+    # =========================================================================
+    # Install ONLY the test-suite dependencies, with version floors that
+    # match pyproject.toml's [project.optional-dependencies] "test" extra.
+    # No CUDA, no ML framework, no pipeline runtime libs.
+    # =========================================================================
+    pip install \
+        'pytest>=7.0' \
+        'pandas>=2.0' \
+        'numpy>=1.24' \
+        'Pillow>=10.0' \
+        'scikit-image>=0.21' \
+        'gemmi>=0.6.0' \
+        'matplotlib>=3.7' \
+        'biopython>=1.80' \
+        'PyYAML>=6.0'
+
+    # =========================================================================
+    # Fix permissions
+    # =========================================================================
+    cd /usr/local/lib/
+    chmod 755 python3.11
+    chmod 755 python3.11/site-packages
+    cd /usr/local/lib/python3.11/site-packages/
+    find . -mount -type d -exec chmod 755 {} \;
+    find . -mount -type f -exec chmod 775 {} \;
+
+    # =========================================================================
+    # FINAL VERIFICATION
+    #
+    # Import every installed third-party package the characterisation suite
+    # touches.  Any failure increments MISSING and aborts the build.
+    # =========================================================================
+    echo ""
+    echo "=== FINAL VERIFICATION ==="
+
+    MISSING=0
+
+    echo "--- Python ---"
+    python -c "import sys; print(f'Python: {sys.version}')"
+
+    echo ""
+    echo "--- Test-suite dependencies ---"
+    python -c "import pytest;       print(f'  pytest:       {pytest.__version__}')" \
+        || { echo "  FAIL: pytest";       MISSING=$((MISSING + 1)); }
+    python -c "import pandas;       print(f'  pandas:       {pandas.__version__}')" \
+        || { echo "  FAIL: pandas";       MISSING=$((MISSING + 1)); }
+    python -c "import numpy;        print(f'  numpy:        {numpy.__version__}')" \
+        || { echo "  FAIL: numpy";        MISSING=$((MISSING + 1)); }
+    # Pillow → import name is `PIL`.  The characterisation helpers import
+    # both `Image` (and `UnidentifiedImageError`) from PIL, plus `ImageDraw`
+    # in the helper unit tests; verify both submodules.
+    python -c "import PIL; from PIL import Image, ImageDraw, UnidentifiedImageError; print(f'  Pillow:       {PIL.__version__}')" \
+        || { echo "  FAIL: Pillow / PIL"; MISSING=$((MISSING + 1)); }
+    # scikit-image → import name is `skimage`.  The PNG comparator imports
+    # `structural_similarity` from `skimage.metrics`; verify that exact path.
+    python -c "import skimage; from skimage.metrics import structural_similarity; print(f'  scikit-image: {skimage.__version__}')" \
+        || { echo "  FAIL: scikit-image / skimage.metrics"; MISSING=$((MISSING + 1)); }
+    # gemmi ships as a compiled extension, so a plain import is the only real
+    # check that the wheel matches this Python.  read_structure is the entry
+    # point both benchmarking scripts use.
+    python -c "import gemmi; assert hasattr(gemmi, 'read_structure'); print(f'  gemmi:        {gemmi.__version__}')" \
+        || { echo "  FAIL: gemmi";        MISSING=$((MISSING + 1)); }
+    # matplotlib must import headless.  Force Agg explicitly so the build fails
+    # here rather than at test time if no usable backend is present.
+    python -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot; print(f'  matplotlib:   {matplotlib.__version__}')" \
+        || { echo "  FAIL: matplotlib / Agg backend"; MISSING=$((MISSING + 1)); }
+    # biopython -> import name is `Bio`.  Verify the two submodules the
+    # structure helpers actually use, not just the top-level package.
+    python -c "import Bio; from Bio.SVDSuperimposer import SVDSuperimposer; from Bio.Align import PairwiseAligner; print(f'  biopython:    {Bio.__version__}')" \
+        || { echo "  FAIL: biopython / Bio.SVDSuperimposer / Bio.Align"; MISSING=$((MISSING + 1)); }
+    # PyYAML -> import name is `yaml`.  safe_load is the only entry point used.
+    python -c "import yaml; yaml.safe_load('a: 1'); print(f'  PyYAML:       {yaml.__version__}')" \
+        || { echo "  FAIL: PyYAML";       MISSING=$((MISSING + 1)); }
+
+    echo ""
+    if [ $MISSING -gt 0 ]; then
+        echo "BUILD ABORTED: $MISSING test dependency import(s) failed."
+        exit 1
+    fi
+
+    echo "=== All checks passed — pytest_runner container ready ==="
+    echo ""
+    echo "Contents:"
+    echo "  - Python 3.11"
+    echo "  - pytest, pandas, numpy, Pillow, scikit-image, gemmi, matplotlib,"
+    echo "    biopython, PyYAML"
+    echo ""
+    echo "Run the characterisation suite with:"
+    echo "  singularity exec pytest_runner.img pytest tests/characterization"

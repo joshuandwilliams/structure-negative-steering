@@ -1,0 +1,218 @@
+{
+  "cycle": 0,
+  "parent_pathway": null,
+  "n_checked": 6,
+  "n_contaminated": 4,
+  "contaminated": [
+    {
+      "label": "design_11_s0",
+      "design_idx": 33,
+      "seed_index": 0,
+      "design_workdir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_11_s0",
+      "cumulative_mutations": [
+        [
+          6,
+          "V",
+          "R"
+        ],
+        [
+          22,
+          "A",
+          "K"
+        ],
+        [
+          25,
+          "A",
+          "E"
+        ]
+      ],
+      "positions_to_revert": [
+        6
+      ],
+      "steered_ra_eff_vs_truth": 3.053,
+      "steered_contact_residues": [
+        4,
+        6,
+        8,
+        31,
+        32,
+        33,
+        34,
+        36,
+        37,
+        38,
+        39,
+        40,
+        42,
+        44,
+        46,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76
+      ]
+    },
+    {
+      "label": "design_14_s0",
+      "design_idx": 42,
+      "seed_index": 0,
+      "design_workdir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s0",
+      "cumulative_mutations": [
+        [
+          6,
+          "V",
+          "R"
+        ],
+        [
+          25,
+          "A",
+          "K"
+        ],
+        [
+          48,
+          "Y",
+          "E"
+        ]
+      ],
+      "positions_to_revert": [
+        6
+      ],
+      "steered_ra_eff_vs_truth": 2.51,
+      "steered_contact_residues": [
+        4,
+        6,
+        8,
+        32,
+        34,
+        36,
+        37,
+        38,
+        39,
+        42,
+        44,
+        46,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76
+      ]
+    },
+    {
+      "label": "design_14_s1",
+      "design_idx": 43,
+      "seed_index": 1,
+      "design_workdir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s1",
+      "cumulative_mutations": [
+        [
+          6,
+          "V",
+          "R"
+        ],
+        [
+          25,
+          "A",
+          "K"
+        ],
+        [
+          48,
+          "Y",
+          "E"
+        ]
+      ],
+      "positions_to_revert": [
+        6
+      ],
+      "steered_ra_eff_vs_truth": 2.617,
+      "steered_contact_residues": [
+        4,
+        6,
+        8,
+        32,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        42,
+        44,
+        46,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76
+      ]
+    },
+    {
+      "label": "design_14_s2",
+      "design_idx": 44,
+      "seed_index": 2,
+      "design_workdir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s2",
+      "cumulative_mutations": [
+        [
+          6,
+          "V",
+          "R"
+        ],
+        [
+          25,
+          "A",
+          "K"
+        ],
+        [
+          48,
+          "Y",
+          "E"
+        ]
+      ],
+      "positions_to_revert": [
+        6
+      ],
+      "steered_ra_eff_vs_truth": 3.106,
+      "steered_contact_residues": [
+        4,
+        6,
+        8,
+        32,
+        34,
+        36,
+        37,
+        38,
+        39,
+        40,
+        42,
+        44,
+        46,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76
+      ]
+    }
+  ]
+}

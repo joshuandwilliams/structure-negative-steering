@@ -1,0 +1,56 @@
+# =============================================================================
+# Smoke run: the whole engine end to end, as cheaply as it will go.
+# =============================================================================
+# Consumed by tests/run_smoke_negative_steering.slurm.sh, which drives the same
+# scripts/negative_steering.slurm.sh entry point a real benchmark target uses.
+# The point is to exercise the code paths that need a GPU and the Boltz image,
+# so the hpc tier has something real to assert against.
+#
+# 6Q76 was chosen deliberately:
+#   - smallest complex whose cold start FAILS (7.4 A against the 5 A threshold),
+#     so the steering path actually runs rather than short-circuiting. The three
+#     smaller targets all pass at cold start and would skip the interesting half
+#     of the engine.
+#   - 141 combined residues, the shortest of the targets that steer.
+#
+# Everything that multiplies GPU time is at its floor. One design, one seed, one
+# diffusion sample, against the shipped 20 x 3 x 5. That is roughly 3 Boltz calls
+# instead of ~305. The full 6Q76 benchmark run took 1747 s.
+#
+# This is NOT a benchmark configuration. Its numbers are not comparable with
+# anything under experiments/benchmarking/ and must never be pooled with them.
+# =============================================================================
+
+name: "6Q76_smoke"
+
+# The tracked reference for 6Q76, reused rather than duplicated.
+reference_pdb:   "../../experiments/benchmarking/unconstrained/6Q76/6Q76.pdb"
+receptor_chain:  "A"
+effector_chain:  "B"
+
+interface_mode:           "derive"
+interface_contact_cutoff: 5.0
+
+design_region: "none"
+
+# ── Everything below is at its cheapest setting ──────────────────────────────
+negsteer_mode:                 "mild"
+negsteer_n_designs:            1     # benchmark uses 20
+negsteer_num_seeds:            1     # benchmark uses 3
+negsteer_diffusion_samples:    1     # benchmark uses 5
+negsteer_recycling_steps:      1     # benchmark uses 3
+negsteer_max_mutations:        3
+negsteer_candidate_pool_size:  6
+negsteer_protected_set_source: "true_interface"
+negsteer_effector_template:    true
+negsteer_seed:                 0
+negsteer_rmsd_threshold:       5.0
+negsteer_contact_cutoff:       5.0
+negsteer_no_kernels:           false
+negsteer_boltz_constraints:    false
+
+negsteer_postprocess_rmsd_threshold:  5.0
+negsteer_postprocess_metric_column:   "steered_ra_eff_vs_truth"
+negsteer_postprocess_contact_cutoff:  5.0
+
+boltz_container: "/hpc-home/jowillia/receptor_design/receptor-resurfacing-pipeline/containers/boltz2_negsteer.img"

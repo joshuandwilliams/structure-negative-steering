@@ -1,0 +1,849 @@
+BootStrap: yum
+OSVersion: 9
+MirrorURL: http://yum-repos.hpccluster/AlmaLinux/9/os/$basearch/
+Include: yum
+
+# =============================================================================
+# boltz2_negsteer.img
+#
+# Slim container for the resurfacing / negative-steering NextFlow pipeline.
+#
+# Contents:
+#   - Python 3.11 (compiled from source, WITH sqlite support)
+#   - CUDA 12.8 runtime libraries (installed via NVIDIA yum repo at system
+#     level; NOT via pip's nvidia-*-cu12 wheels — see NVIDIA approach below)
+#   - PyTorch 2.6.0+cu124 (installed with --no-deps; non-CUDA deps added
+#     manually.  +cu124 torch is ABI-compatible with 12.8 runtime libraries)
+#   - Boltz-2 (plain install; cuEquivariance kernels installed separately)
+#   - cuEquivariance 0.9.1 (cu12, pinned — provides Boltz CUDA kernels)
+#   - pynvml (required by cuequivariance_ops triton autotune cache)
+#   - trifast (Boltz accelerated kernels)
+#   - DockQ, freesasa, MDAnalysis (orthogonal-metrics analysis — P0-29, P0-31)
+#   - numpy, pandas, scipy, biopython, matplotlib, gemmi, scikit-learn
+#
+# WHY system-level CUDA instead of pip nvidia-*-cu12 wheels:
+#   torch 2.6 declares HARD == pins on nvidia-cublas-cu12==12.4.127 etc.
+#   cuequivariance-ops 0.9.1 needs cuBLAS ≥12.5 (for cublasGemmGroupedBatchedEx).
+#   These are irreconcilable via pip: any attempt to upgrade the pip nvidia
+#   wheels produces a ResolutionImpossible once pip re-evaluates the tree.
+#   The NVIDIA NGC PyTorch container sidesteps this by putting CUDA at the
+#   system level and installing torch with --no-deps — so pip never manages
+#   the CUDA runtime at all.  This .def replicates that approach.
+#
+# Version-pinning strategy:
+#   A constraints file under /opt/build_scratch/ locks torch, numpy, pandas,
+#   the cuEquivariance stack for every subsequent pip install, guarding
+#   against the silent version drift that previous builds exhibited.  All
+#   pinned versions are checked at install time AND in final verification
+#   — any drift aborts the build.
+#
+# NOT included (vs benchmark_models.def):
+#   - Boltz-1 (not used by resurfacing pipeline)
+#   - Chai-1 (not used; saves ~6.6 GB of weights + install complexity)
+#   - ESM-2 embeddings (Chai-1-specific, 5.3 GB)
+#
+# Build-node caveats (expected warnings that DO NOT indicate a broken build):
+#   - `trifast` import fails on build nodes without a GPU
+#   - `cuequivariance_ops_torch` import fails on build nodes without CUDA
+#     runtime libraries (libnvrtc.so.12, libcuda.so.1).  Both work at runtime
+#     on a GPU node.  The final verification marks these as INFO, not FAIL.
+# =============================================================================
+
+%files
+
+%environment
+    export PATH=/usr/local/bin:$PATH
+    export BOLTZ_CACHE=/opt/boltz_cache
+    export NUMBA_CACHE_DIR=/tmp
+    export MPLCONFIGDIR=/tmp
+    # Prevent HuggingFace / torch hub from trying to download at runtime
+    export HF_HUB_OFFLINE=1
+    export TORCH_HOME=/opt/torch_hub
+    # -------------------------------------------------------------------------
+    # Point dynamic linker at system-level CUDA 12.8 runtime libraries
+    # installed via dnf from the NVIDIA yum repo (see %post).  These live
+    # under /usr/local/cuda/lib64/ which is the canonical location and is
+    # NOT bind-mounted from the host by singularity --nv — so the
+    # container's 12.8 libraries win over any older host libraries that
+    # --nv injects.  libcuda.so.1 (kernel-tied driver library) still comes
+    # from --nv because it's in a separate host path we don't shadow.
+    # -------------------------------------------------------------------------
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}
+    export CUDA_HOME=/usr/local/cuda
+    export PATH=/usr/local/cuda/bin:$PATH
+
+%post
+    export NUMBA_CACHE_DIR=/tmp
+    export MPLCONFIGDIR=/tmp
+
+    # =========================================================================
+    # Minimal bootstrap packages needed for pre-flight checks
+    # =========================================================================
+    yum install -y wget ca-certificates 2>/dev/null || yum install -y wget 2>/dev/null
+
+    # =========================================================================
+    # PRE-FLIGHT URL CHECKS
+    #
+    # Verify every URL is reachable BEFORE spending 30+ minutes compiling
+    # Python and installing packages.
+    # =========================================================================
+    echo ""
+    echo "=== PRE-FLIGHT URL CHECKS ==="
+    echo "Verifying all download URLs are reachable before building..."
+    echo ""
+
+    URL_FAIL=0
+
+    check_url() {
+        local label="$1"
+        local url="$2"
+        if wget --timeout=15 --tries=2 --no-check-certificate \
+                --header="Range: bytes=0-0" \
+                -O /dev/null "$url" 2>/dev/null; then
+            echo "  OK   $label"
+        else
+            echo "  FAIL $label"
+            echo "       $url"
+            URL_FAIL=$((URL_FAIL + 1))
+        fi
+    }
+
+    # Python source
+    check_url "Python 3.11.9 source" \
+        "https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz"
+
+    # Boltz-2 weights
+    check_url "Boltz-2 conf checkpoint" \
+        "https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_conf.ckpt"
+    check_url "Boltz-2 affinity checkpoint" \
+        "https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_aff.ckpt"
+    check_url "Boltz-2 CCD mols.tar" \
+        "https://huggingface.co/boltz-community/boltz-2/resolve/main/mols.tar"
+
+    # PyPI reachability
+    check_url "PyPI index" \
+        "https://pypi.org/simple/"
+    check_url "PyTorch cu124 index" \
+        "https://download.pytorch.org/whl/cu124/"
+    # NVIDIA CUDA yum repo (for system-level CUDA 12.8 runtime libraries)
+    check_url "NVIDIA CUDA rhel9 repo" \
+        "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo"
+
+    # -------------------------------------------------------------------------
+    # cuEquivariance (NVIDIA CUDA-accelerated triangle attention kernels)
+    #
+    # Installed explicitly at version 0.9.1 (cu12 variant), pinned via the
+    # constraints file written in %post.  NOT via `boltz[cuda]` — that
+    # extra was observed to silently upgrade torch to 2.11+cu130 on a
+    # previous build.  We install the four cuEquivariance packages
+    # ourselves, with --no-deps on the kernel packages, so torch and
+    # friends stay locked.
+    # -------------------------------------------------------------------------
+    check_url "cuequivariance (frontend)" \
+        "https://pypi.org/pypi/cuequivariance/json"
+    check_url "cuequivariance-torch (frontend)" \
+        "https://pypi.org/pypi/cuequivariance-torch/json"
+    check_url "cuequivariance-ops-torch-cu12 (kernels)" \
+        "https://pypi.org/pypi/cuequivariance-ops-torch-cu12/json"
+    check_url "cuequivariance-ops-cu12 (kernels)" \
+        "https://pypi.org/pypi/cuequivariance-ops-cu12/json"
+
+    # -------------------------------------------------------------------------
+    # Orthogonal-metrics analysis packages (P0-29, P0-31)
+    # -------------------------------------------------------------------------
+    check_url "DockQ (interface quality)" \
+        "https://pypi.org/pypi/DockQ/json"
+    check_url "freesasa (BSA)" \
+        "https://pypi.org/pypi/freesasa/json"
+    check_url "MDAnalysis (H-bond / interface)" \
+        "https://pypi.org/pypi/MDAnalysis/json"
+
+    echo ""
+    if [ $URL_FAIL -gt 0 ]; then
+        echo "PRE-FLIGHT FAILED: $URL_FAIL URL(s) unreachable."
+        echo "Fix the URLs above before building. Aborting."
+        exit 1
+    fi
+    echo "All URLs verified. Proceeding with build."
+    echo ""
+
+    # =========================================================================
+    # System dependencies
+    #
+    # sqlite-devel is CRITICAL: Python's _sqlite3 C extension is only built
+    # if sqlite-devel headers are present at Python compile time.  Without
+    # it, `import sqlite3` fails at runtime, which breaks MDAnalysis
+    # (imports sqlite3 transitively via DMS coordinate reader at module
+    # init).  A benchmark_models build without sqlite-devel demonstrated
+    # this failure mode — see notes.
+    # =========================================================================
+    yum update -y
+    yum install -y openssl-devel bzip2-devel libffi-devel epel-release binutils wget
+    yum install -y git unzip tar gzip bzip2 which zlib-devel sqlite-devel
+    yum groupinstall -y "Development Tools"
+
+    # =========================================================================
+    # Install CUDA 12.8 runtime libraries from NVIDIA's official yum repo.
+    #
+    # This is the approach NVIDIA's NGC PyTorch containers use, and it
+    # sidesteps the torch<->cuequivariance pip version deadlock entirely.
+    # torch 2.6.0+cu124 declares ==12.4.127 pins on its pip nvidia-*-cu12
+    # wheels; cuequivariance-ops 0.9.1 needs cuBLAS >=12.5.  Irreconcilable
+    # via pip.  But CUDA libraries are just ABI-compatible shared objects
+    # within CUDA major version 12 — which means torch 2.6 built against
+    # 12.4 runs fine against 12.8 runtime libs at runtime.  pip can't
+    # express this, so we take pip out of the CUDA loop: install runtime
+    # libs at system level via dnf, install torch with --no-deps so it
+    # doesn't pull pip nvidia-*-cu12 wheels.
+    #
+    # Packages installed (cuda-X-Y naming is "X major.Y minor").  Package
+    # names verified against NVIDIA's CUDA-Q official rhel9 install script
+    # (nvidia.github.io/cuda-quantum/latest/using/install/data_center_install.html),
+    # NVIDIA cuSPARSELt download page (developer.nvidia.com/cusparselt/downloads),
+    # and NVIDIA NCCL download page (developer.nvidia.com/nccl/nccl-download):
+    #   - cuda-cudart-12-8:      CUDA runtime (NOT libcudart-12-8)
+    #   - cuda-nvrtc-12-8:       NVRTC (needed by cuequivariance_ops dlopen)
+    #   - libcublas-12-8:        cuBLAS 12.8.x (has cublasGemmGroupedBatchedEx)
+    #   - libcusparse-12-8:      cuSPARSE (torch dep)
+    #   - libcusolver-12-8:      cuSOLVER (torch dep)
+    #   - libcurand-12-8:        cuRAND (torch dep)
+    #   - libcufft-12-8:         cuFFT (torch dep)
+    #   - libnvjitlink-12-8:     JIT linker (cuBLAS transitive dep)
+    #   - libnpp-12-8:           NPP (generally useful; small)
+    #   - cuda-cupti-12-8:       CUPTI (profiling; torch uses at runtime)
+    #   - cuda-nvtx-12-8:        NVTX (profiling markers; torch dep)
+    #   - libcudnn9-cuda-12:     cuDNN 9.x for CUDA 12
+    #   - libcusparselt0:        cuSPARSELt (torch _C dlopens libcusparseLt.so.0
+    #                            at import time; package is NOT version-suffixed
+    #                            since cuSPARSELt ships independent of toolkit)
+    #   - libnccl:               NCCL (torch dlopens for distributed; even
+    #                            single-GPU import sometimes touches it)
+    #
+    # NOT installed (kept in --nv's host bind-mount scope):
+    #   - kmod-nvidia-*:         driver, comes from host
+    #   - nvidia-gds:            GPU direct storage, needs driver
+    #   - cuda-drivers:          full driver meta-package
+    # =========================================================================
+    echo ""
+    echo "=== Installing CUDA 12.8 runtime from NVIDIA yum repo ==="
+    dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo \
+        || yum-config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
+    dnf install -y --setopt=obsoletes=0 \
+        cuda-cudart-12-8 \
+        cuda-nvrtc-12-8 \
+        libcublas-12-8 \
+        libcusparse-12-8 \
+        libcusolver-12-8 \
+        libcurand-12-8 \
+        libcufft-12-8 \
+        libnvjitlink-12-8 \
+        libnpp-12-8 \
+        cuda-cupti-12-8 \
+        cuda-nvtx-12-8 \
+        libcudnn9-cuda-12 \
+        libcusparselt0 \
+        libnccl
+
+    # Ensure /usr/local/cuda -> /usr/local/cuda-12.8 symlink exists.
+    # The dnf packages install into /usr/local/cuda-12.8/ but don't always
+    # create the generic /usr/local/cuda symlink (it's owned by the full
+    # cuda-toolkit meta-package, which we don't install).
+    if [ ! -L /usr/local/cuda ] && [ -d /usr/local/cuda-12.8 ]; then
+        ln -sf /usr/local/cuda-12.8 /usr/local/cuda
+    fi
+
+    # Runtime linker config so libraries are findable without touching
+    # LD_LIBRARY_PATH for processes outside our explicit env.
+    echo "/usr/local/cuda/lib64" > /etc/ld.so.conf.d/cuda-12-8.conf
+    ldconfig
+
+    # Confirm cuBLAS 12.8 is installed and has the symbol cuequivariance needs.
+    # Fail the build fast if either the package layout changes or a newer
+    # cuBLAS somehow drops the symbol.
+    CUBLAS_SO=$(ls /usr/local/cuda/lib64/libcublas.so.12 2>/dev/null || ls /usr/local/cuda-12.8/lib64/libcublas.so.12 2>/dev/null)
+    if [ -z "$CUBLAS_SO" ]; then
+        echo "FATAL: libcublas.so.12 not found after dnf install"
+        exit 1
+    fi
+    echo "Found cuBLAS at: $CUBLAS_SO"
+    if nm -D --defined-only "$CUBLAS_SO" 2>/dev/null | grep -q cublasGemmGroupedBatchedEx; then
+        echo "OK: cublasGemmGroupedBatchedEx present in system cuBLAS 12.8"
+    else
+        echo "FATAL: cublasGemmGroupedBatchedEx MISSING from $CUBLAS_SO"
+        exit 1
+    fi
+
+    # Make CUDA findable for the rest of %post
+    export CUDA_HOME=/usr/local/cuda
+    export PATH=/usr/local/cuda/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}
+
+    # =========================================================================
+    # Install Python 3.11
+    # =========================================================================
+    wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
+    tar -xzf Python-3.11.9.tgz
+    cd Python-3.11.9
+    ./configure --enable-optimizations
+    make altinstall
+    cd /
+    rm -rf Python-3.11.9 Python-3.11.9.tgz
+
+    rm -f /usr/bin/python
+    ln -s /usr/local/bin/python3.11 /usr/bin/python
+    ln -s /usr/local/bin/pip3.11 /usr/bin/pip
+
+    python -V
+    pip install --upgrade setuptools pip
+
+    # -------------------------------------------------------------------------
+    # Verify Python was built with sqlite3 support (guards against the
+    # "missing sqlite-devel" regression).  This must pass even on the build
+    # node because _sqlite3 is a pure-Python-extension import, not a
+    # GPU-gated module.
+    # -------------------------------------------------------------------------
+    python -c "import sqlite3; print(f'sqlite3 module OK (sqlite {sqlite3.sqlite_version})')" \
+        || { echo "FATAL: Python built without sqlite3 support. Check sqlite-devel install."; exit 1; }
+
+    # =========================================================================
+    # Install PyTorch with CUDA 12.4 support — but WITHOUT its nvidia-*-cu12
+    # pip wheel dependencies.  The --no-deps flag prevents pip from pulling
+    # in the ten nvidia-*-cu12 wheels that torch 2.6 normally requires
+    # (nvidia-cublas-cu12==12.4.127, etc.), because we're providing CUDA at
+    # the system level via /usr/local/cuda (installed by dnf above).  This
+    # is the NVIDIA NGC container approach — system-level CUDA, pip-managed
+    # Python stack.
+    #
+    # The resulting torch wheel is still tagged "2.6.0+cu124" — the wheel's
+    # own .so files were compiled against CUDA 12.4 headers.  CUDA libraries
+    # are ABI-compatible within major version 12, so torch will happily
+    # load against our 12.8 runtime libraries.  The only thing torch
+    # actually NEEDS at runtime is the set of symbols that existed in 12.4,
+    # and 12.8 is a strict superset.
+    #
+    # After torch we install its non-CUDA Python dependencies explicitly:
+    #   - filelock, typing-extensions: torch's own imports
+    #   - sympy, networkx, jinja2: torch's dynamo / fx subsystems
+    #   - fsspec: torch.hub / torch.load URL handling
+    #   - triton: GPU-kernel JIT (needed for trifast.wrap_triton)
+    # Everything else in the stack (cuequivariance, boltz, etc.) will pull
+    # its own non-CUDA deps normally — the key point is nobody ever tries
+    # to pull nvidia-*-cu12 wheels, because torch --no-deps blocked the
+    # only path that would have introduced them.
+    # =========================================================================
+    pip install --no-deps torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+
+    # Install torch's own non-CUDA runtime deps.  These are listed in
+    # torch's wheel METADATA as Requires-Dist (excluding the nvidia-*-cu12
+    # entries that are gated on platform_system=="Linux" and platform_machine
+    # =="x86_64").  Versions left floating — torch's floors are loose
+    # (typing-extensions>=4.10 etc.) so pip picks sensible latest-compatibles.
+    pip install \
+        filelock \
+        typing-extensions \
+        'sympy==1.13.1' \
+        networkx \
+        jinja2 \
+        fsspec \
+        'triton>=3.2,<3.3'
+
+    # Smoke test: torch imports, CUDA libraries dlopen-resolvable, matmul
+    # works symbolically (no GPU on build node so we can't actually run it).
+    python -c "
+import torch
+print(f'torch: {torch.__version__}')
+print(f'torch.version.cuda (build-time): {torch.version.cuda}')
+print(f'torch CUDA-enabled (at build time): {torch.backends.cuda.is_built()}')
+"
+
+    # -------------------------------------------------------------------------
+    # Write a pip constraints file.  Every subsequent `pip install` passes
+    # `-c $CONSTRAINTS_FILE` to enforce these pins transitively — including
+    # on packages pulled in as dependencies of what we asked for.
+    #
+    # The file lives under /opt/build_scratch/ (inside the image
+    # filesystem, NOT under /tmp which singularity bind-mounts from the
+    # host) and is removed at the end of %post so nothing persists into
+    # the final image.
+    #
+    # WHY NOT /tmp: `singularity build` bind-mounts the host's /tmp into
+    # the container's /tmp by default, so anything written to /tmp
+    # during %post lives on the HOST, not in the image.  Worse, any
+    # `rm -rf /tmp/<subdir>` in %post deletes the host path — which is
+    # exactly the bug that deleted the previous build's output .img
+    # files.  Use /opt/ or /root/ for build-time scratch; both are
+    # inside the image.
+    #
+    # Why each pin:
+    #   - torch==2.6.0:          our declared matrix; prevents ANY upgrade.
+    #                            The "+cu124" suffix is NOT in the pin —
+    #                            constraints match on the public version
+    #                            only.  pip will refuse to install any
+    #                            torch != 2.6.0, which is what we want.
+    #   - numpy<2.0:             Boltz pins this; many downstream packages
+    #                            silently break on numpy 2.x (e.g. DockQ).
+    #   - pandas>=2.2.2,<3.0:    Boltz requires >=2.2.2; pandas 3.0 (Mar
+    #                            2026) pulls numpy 2.x and caused the
+    #                            previous build to silently ship pandas
+    #                            3.0.2.
+    #   - cuequivariance stack:  pin to 0.9.1 (the version the previous
+    #                            build resolved and verified importable).
+    #                            Any future bump needs a fresh pin here.
+    # -------------------------------------------------------------------------
+    mkdir -p /opt/build_scratch
+    CONSTRAINTS_FILE=/opt/build_scratch/constraints.txt
+    cat > $CONSTRAINTS_FILE << 'CONSTRAINTS_EOF'
+torch==2.6.0
+numpy<2.0
+pandas>=2.2.2,<3.0
+cuequivariance==0.9.1
+cuequivariance-torch==0.9.1
+cuequivariance-ops-cu12==0.9.1
+cuequivariance-ops-torch-cu12==0.9.1
+# -----------------------------------------------------------------------------
+# Deliberately NO nvidia-*-cu12 pins here.  CUDA runtime libraries come
+# from the system dnf install (/usr/local/cuda/lib64), not from pip.
+# Adding nvidia-*-cu12 constraints would re-introduce the pip resolver
+# deadlock we went to lengths to avoid: torch 2.6 declares ==12.4.127
+# pins on these wheels, cuequivariance-ops needs cuBLAS >=12.5, pip
+# can't reconcile.  By never letting pip see these packages at all
+# (via --no-deps on torch) the constraint is unnecessary.
+# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# trifast pinned to 0.1.13 (latest) as a belt-and-braces pin alongside the
+# explicit == version in the pip install command below.  A plain
+# `pip install trifast` causes pip to backtrack through 0.1.12, 0.1.11,
+# ..., 0.1.2 even when 0.1.13 is satisfiable, and 0.1.2's sdist is broken
+# (missing configs/ directory, "Forced include not found" at build time).
+#
+# triton>=3.2 floor: trifast 0.1.13 calls torch._library.wrap_triton at
+# import time, which requires triton 3.2+.  The +cu124 torch wheel pulls
+# in triton 3.2.0 by default — this pin just stops a future change from
+# silently downgrading it and producing a runtime ImportError.
+trifast==0.1.13
+triton>=3.2
+CONSTRAINTS_EOF
+    echo ""
+    echo "=== pip constraints ($CONSTRAINTS_FILE) ==="
+    cat $CONSTRAINTS_FILE
+    echo ""
+
+    # -------------------------------------------------------------------------
+    # Hard torch-version sanity check BEFORE anything else is installed.
+    # Guards against the PyTorch install itself going wrong.
+    # -------------------------------------------------------------------------
+    TORCH_VER_INITIAL=$(python -c "import torch; print(torch.__version__)")
+    echo "PyTorch version immediately after install: $TORCH_VER_INITIAL"
+    case "$TORCH_VER_INITIAL" in
+        2.6.0+cu124|2.6.0) echo "OK: torch 2.6.0 installed as expected" ;;
+        *)
+            echo "FATAL: torch install produced $TORCH_VER_INITIAL, expected 2.6.0+cu124"
+            exit 1
+            ;;
+    esac
+
+    # =========================================================================
+    # pynvml — used by cuequivariance_ops.triton.cache_manager for
+    # autotuning cache keys.  Without it, the cuequivariance_ops import
+    # fails with: ModuleNotFoundError: No module named 'pynvml'.
+    # Any recent pynvml works; no version pin needed.
+    # =========================================================================
+    pip install -c $CONSTRAINTS_FILE pynvml
+
+    # =========================================================================
+    # Install cuEquivariance stack EXPLICITLY (not via boltz[cuda])
+    #
+    # Order matters:
+    #   - Frontend packages first (pure Python, no CUDA runtime deps).
+    #   - Kernel packages second, WITH --no-deps so they cannot re-pull
+    #     torch from the default PyPI index.  Their only runtime torch
+    #     dependency is satisfied by our torch 2.6.0+cu124 install.
+    #
+    # All invocations pass `-c $CONSTRAINTS_FILE` so even transitive pulls
+    # are pinned.
+    #
+    # The cu12-suffixed kernel packages are intentional: cuEquivariance
+    # publishes both cu12 and cu13 variants, and pip's default behaviour
+    # with `boltz[cuda]` would prefer cu13 (newer).  By naming cu12
+    # explicitly we match our torch build's CUDA runtime.
+    # =========================================================================
+    echo ""
+    echo "=== Installing cuEquivariance stack (cu12, pinned) ==="
+    pip install -c $CONSTRAINTS_FILE \
+        cuequivariance==0.9.1 \
+        cuequivariance-torch==0.9.1
+    pip install -c $CONSTRAINTS_FILE --no-deps \
+        cuequivariance-ops-cu12==0.9.1 \
+        cuequivariance-ops-torch-cu12==0.9.1
+
+    # Verify torch is still 2.6.0 after cuEquivariance install
+    TORCH_VER_AFTER_CUEQ=$(python -c "import torch; print(torch.__version__)")
+    case "$TORCH_VER_AFTER_CUEQ" in
+        2.6.0+cu124|2.6.0) echo "OK: torch 2.6.0 preserved after cuEquivariance install" ;;
+        *)
+            echo "FATAL: cuEquivariance install drifted torch to $TORCH_VER_AFTER_CUEQ"
+            exit 1
+            ;;
+    esac
+
+    # =========================================================================
+    # Install Boltz-2 (WITHOUT [cuda] extra)
+    #
+    # The cuEquivariance kernels are already installed above.  Installing
+    # `boltz` plain means Boltz's [cuda] extra resolution never runs, so it
+    # cannot attempt to upgrade torch or the kernel packages.
+    #
+    # trifast is a separate accelerated-kernel dependency of Boltz that
+    # pulls its own triton/torch requirements.  Installing it first, under
+    # the constraints file, ensures any triton version it wants is
+    # compatible with our pinned torch.
+    #
+    # WHY trifast==0.1.13 EXPLICITLY (not just `trifast`):
+    #   A plain `pip install trifast` with our constraints causes pip's
+    #   resolver to backtrack through every old version (0.1.12, 0.1.11,
+    #   ... 0.1.2) even when 0.1.13 is satisfiable — apparently because
+    #   something in the transitive dep tree triggers exploration.  The
+    #   0.1.2 sdist is broken (missing configs/ directory, "Forced
+    #   include not found"), which crashes the build.  An explicit == pin
+    #   forbids backtracking entirely and makes the install deterministic.
+    # =========================================================================
+    echo ""
+    echo "=== Installing Boltz-2 (plain, kernels already installed) ==="
+    pip install -c $CONSTRAINTS_FILE trifast==0.1.13
+    pip install -c $CONSTRAINTS_FILE boltz
+
+    # Verify torch is still 2.6.0 after Boltz install (the historical
+    # regression point).
+    TORCH_VER_AFTER_BOLTZ=$(python -c "import torch; print(torch.__version__)")
+    case "$TORCH_VER_AFTER_BOLTZ" in
+        2.6.0+cu124|2.6.0) echo "OK: torch 2.6.0 preserved after Boltz install" ;;
+        *)
+            echo "FATAL: Boltz install drifted torch to $TORCH_VER_AFTER_BOLTZ"
+            exit 1
+            ;;
+    esac
+
+    # =========================================================================
+    # Shared analysis dependencies (all pinned via constraints file)
+    # =========================================================================
+    pip install -c $CONSTRAINTS_FILE \
+        matplotlib biopython gemmi scipy scikit-learn pandas
+
+    # =========================================================================
+    # Orthogonal-metrics analysis dependencies
+    #
+    # For the negative-steering orthogonal-validation stages:
+    #   - DockQ       CAPRI-standard iRMSD / fnat / DockQ score (P0-29)
+    #                 GPL-3.0; ships CLI binary `DockQ` + importable library.
+    #                 Source dist; compiles a small Cython extension (gcc
+    #                 from Development Tools above).  Requires numpy<2
+    #                 (satisfied by the constraints file).
+    #   - freesasa    Buried surface area via FreeSASA C library (P0-31).
+    #                 PyPI Linux install is source-only (no manylinux wheel);
+    #                 compiles from C source via the installed gcc.
+    #   - MDAnalysis  Interface H-bond counting and flexible iRMSD /
+    #                 contact machinery (P0-31).  Imports sqlite3 at package
+    #                 init; requires sqlite-devel at Python build time.
+    # =========================================================================
+    pip install -c $CONSTRAINTS_FILE DockQ freesasa MDAnalysis
+
+    # =========================================================================
+    # CRITICAL: Purge pip-installed nvidia-*-cu12 wheels.
+    #
+    # Despite installing torch with --no-deps, the subsequent pip installs
+    # (cuequivariance, trifast, boltz, DockQ, MDAnalysis, etc.) resolved
+    # torch's declared deps again and pulled in the full set of
+    # nvidia-*-cu12 wheels (cublas 12.4.5.8, cudnn 9.1.0.70, etc.).
+    #
+    # Leaving them in place defeats the entire NGC-style approach:
+    #   1. torch/__init__._preload_cuda_deps() reads entry_points from the
+    #      installed nvidia wheels and prepends their lib/ dirs to
+    #      LD_LIBRARY_PATH *at Python startup*, before any %environment
+    #      block we set can take effect.
+    #   2. ldd on libcue_ops.so then resolves libcublas.so.12 to the
+    #      pip wheel (12.4.5.8) instead of our system /usr/local/cuda/lib64
+    #      copy (12.8.5.5), and cublasGemmGroupedBatchedEx is undefined.
+    #
+    # Uninstalling the wheels leaves torch's Python code intact (it was
+    # installed via --no-deps, so it does not depend on these packages as
+    # far as pip's own records are concerned).  At import time
+    # _preload_cuda_deps() finds no entry_points, stays quiet, and the
+    # dynamic linker resolves to /usr/local/cuda/lib64 via ldconfig.
+    #
+    # Note: we keep nvidia-ml-py (not cu12-suffixed) and nvidia-cusparselt-cu12
+    # since it has no system counterpart in the rhel9 repo at the version
+    # torch wants (0.6.2).  libcusparselt0 from the repo is newer and is
+    # what we actually want, but to avoid ambiguity we let the pip wheel
+    # satisfy torch's runtime dlopen.
+    # =========================================================================
+    echo ""
+    echo "=== Purging pip nvidia-*-cu12 wheels to let system CUDA 12.8 win ==="
+    pip uninstall -y \
+        nvidia-cublas-cu12 \
+        nvidia-cuda-cupti-cu12 \
+        nvidia-cuda-nvrtc-cu12 \
+        nvidia-cuda-runtime-cu12 \
+        nvidia-cudnn-cu12 \
+        nvidia-cufft-cu12 \
+        nvidia-curand-cu12 \
+        nvidia-cusolver-cu12 \
+        nvidia-cusparse-cu12 \
+        nvidia-nccl-cu12 \
+        nvidia-nvjitlink-cu12 \
+        nvidia-nvtx-cu12 \
+        || echo "WARN: some nvidia-*-cu12 wheels were not installed (ok)"
+
+    # Remove any stray nvidia/*/lib directories that pip uninstall left behind
+    # (uninstall sometimes leaves empty dirs; torch's _preload_cuda_deps
+    # tolerates missing dirs but not partial ones).
+    rm -rf /usr/local/lib/python3.11/site-packages/nvidia/cublas \
+           /usr/local/lib/python3.11/site-packages/nvidia/cuda_cupti \
+           /usr/local/lib/python3.11/site-packages/nvidia/cuda_nvrtc \
+           /usr/local/lib/python3.11/site-packages/nvidia/cuda_runtime \
+           /usr/local/lib/python3.11/site-packages/nvidia/cudnn \
+           /usr/local/lib/python3.11/site-packages/nvidia/cufft \
+           /usr/local/lib/python3.11/site-packages/nvidia/curand \
+           /usr/local/lib/python3.11/site-packages/nvidia/cusolver \
+           /usr/local/lib/python3.11/site-packages/nvidia/cusparse \
+           /usr/local/lib/python3.11/site-packages/nvidia/nccl \
+           /usr/local/lib/python3.11/site-packages/nvidia/nvjitlink \
+           /usr/local/lib/python3.11/site-packages/nvidia/nvtx \
+           2>/dev/null || true
+
+    echo "=== Verify pip-side nvidia wheels are gone ==="
+    # Match only the 12 wheels we uninstalled, NOT nvidia-cusparselt-cu12
+    # (kept intentionally — see note above).
+    STALE_WHEELS=$(pip list 2>/dev/null | awk '{print $1}' | grep -E "^nvidia-(cublas|cuda-cupti|cuda-nvrtc|cuda-runtime|cudnn|cufft|curand|cusolver|cusparse|nccl|nvjitlink|nvtx)-cu12$" || true)
+    if [ -n "$STALE_WHEELS" ]; then
+        echo "FATAL: stale nvidia-*-cu12 wheels still present:"
+        echo "$STALE_WHEELS"
+        exit 1
+    else
+        echo "  OK: no stale nvidia-*-cu12 wheels remain (cusparselt kept intentionally)"
+    fi
+
+    # =========================================================================
+    # Uninstall the standalone `pynvml` PyPI package.
+    #
+    # torch 2.6 imports a module named "pynvml" at startup (in
+    # torch/cuda/__init__.py).  Two PyPI packages provide that import name:
+    #   - pynvml:        the original third-party wrapper, now deprecated
+    #                    upstream by NVIDIA's official package
+    #   - nvidia-ml-py:  NVIDIA's own maintained package, also providing
+    #                    `import pynvml`
+    # If both are installed, torch finds the deprecated `pynvml` first and
+    # emits a FutureWarning on every torch import.  We installed pynvml
+    # explicitly earlier (for our own diagnostics), but `nvidia-ml-py` was
+    # pulled in transitively and provides the same import surface.  Removing
+    # `pynvml` leaves `nvidia-ml-py` in place; torch finds it, no warning.
+    # Verified live in sandbox before bake-in.
+    # =========================================================================
+    echo "=== Removing deprecated pynvml (nvidia-ml-py provides the same module) ==="
+    pip uninstall -y pynvml \
+        || echo "WARN: pynvml not installed (ok)"
+
+    echo "=== Verify torch still imports cleanly ==="
+    python -c "import torch; print(f'torch {torch.__version__} imports OK with system CUDA')" \
+        || { echo "FATAL: torch broken after nvidia wheel purge"; exit 1; }
+
+    echo "=== Verify pynvml still importable (via nvidia-ml-py shim) ==="
+    python -c "import pynvml; print(f'pynvml resolves to: {pynvml.__file__}')" \
+        || { echo "FATAL: pynvml unimportable after pynvml package removal"; exit 1; }
+
+    # =========================================================================
+    # Final hard pin check — any drift from this point is a build failure.
+    # =========================================================================
+    TORCH_VER=$(python -c "import torch; print(torch.__version__)")
+    TORCH_CUDA=$(python -c "import torch; print(torch.version.cuda)")
+    NUMPY_VER=$(python -c "import numpy; print(numpy.__version__)")
+    PANDAS_VER=$(python -c "import pandas; print(pandas.__version__)")
+    echo ""
+    echo "=== Version pin check after all installs ==="
+    echo "  torch:  $TORCH_VER  (CUDA $TORCH_CUDA)"
+    echo "  numpy:  $NUMPY_VER"
+    echo "  pandas: $PANDAS_VER"
+
+    PIN_FAIL=0
+    case "$TORCH_VER" in
+        2.6.0+cu124|2.6.0) ;;
+        *) echo "FATAL: torch drift to $TORCH_VER (expected 2.6.0+cu124)"; PIN_FAIL=$((PIN_FAIL + 1)) ;;
+    esac
+    case "$TORCH_CUDA" in
+        12.4) ;;
+        *) echo "FATAL: torch CUDA drift to $TORCH_CUDA (expected 12.4)"; PIN_FAIL=$((PIN_FAIL + 1)) ;;
+    esac
+    case "$NUMPY_VER" in
+        1.*) ;;
+        *) echo "FATAL: numpy drift to $NUMPY_VER (expected 1.x)"; PIN_FAIL=$((PIN_FAIL + 1)) ;;
+    esac
+    case "$PANDAS_VER" in
+        2.*) ;;
+        *) echo "FATAL: pandas drift to $PANDAS_VER (expected 2.x)"; PIN_FAIL=$((PIN_FAIL + 1)) ;;
+    esac
+    if [ $PIN_FAIL -gt 0 ]; then
+        echo "BUILD ABORTED: $PIN_FAIL version pin(s) drifted during install."
+        exit 1
+    fi
+    echo "All version pins honoured."
+
+    # -------------------------------------------------------------------------
+    # Clean up build scratch directory.  /opt/build_scratch/ lives inside
+    # the image filesystem (not bind-mounted from the host), so removing
+    # it here keeps the image clean without touching the build host.
+    # -------------------------------------------------------------------------
+    rm -rf /opt/build_scratch
+
+    # =========================================================================
+    # PRE-DOWNLOAD BOLTZ-2 MODEL WEIGHTS
+    #
+    # Compute nodes are air-gapped. Download everything now.
+    # =========================================================================
+    echo ""
+    echo "=== Downloading Boltz-2 weights ==="
+
+    export TORCH_HOME=/opt/torch_hub
+    mkdir -p $TORCH_HOME
+
+    export BOLTZ_CACHE=/opt/boltz_cache
+    mkdir -p $BOLTZ_CACHE
+
+    echo "  [Boltz-2] Downloading weights..."
+    wget -q --show-progress -O "$BOLTZ_CACHE/boltz2_conf.ckpt" \
+        "https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_conf.ckpt"
+    wget -q --show-progress -O "$BOLTZ_CACHE/boltz2_aff.ckpt" \
+        "https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_aff.ckpt"
+    wget -q --show-progress -O "$BOLTZ_CACHE/mols.tar" \
+        "https://huggingface.co/boltz-community/boltz-2/resolve/main/mols.tar"
+    cd $BOLTZ_CACHE && tar xf mols.tar
+
+    # =========================================================================
+    # Fix permissions
+    # =========================================================================
+    cd /usr/local/lib/
+    chmod 755 python3.11
+    chmod 755 python3.11/site-packages
+    cd /usr/local/lib/python3.11/site-packages/
+    find . -mount -type d -exec chmod 755 {} \;
+    find . -mount -type f -exec chmod 775 {} \;
+
+    chmod -R a+rX /opt/boltz_cache
+    chmod -R a+rX /opt/torch_hub
+
+    # =========================================================================
+    # FINAL VERIFICATION
+    #
+    # HARD checks abort the build via MISSING counter.
+    # SOFT checks (GPU-gated imports) are INFO only — they are expected to
+    # fail on the build node and will work at runtime on a GPU node.
+    # =========================================================================
+    echo ""
+    echo "=== FINAL VERIFICATION ==="
+
+    MISSING=0
+
+    echo "--- Python & PyTorch ---"
+    python -c "import sys; print(f'Python: {sys.version}')"
+    python -c "import torch; print(f'PyTorch: {torch.__version__}')" \
+        || { echo "FAIL: torch"; MISSING=$((MISSING + 1)); }
+    python -c "import torch; print(f'CUDA build: {torch.version.cuda}')"
+    python -c "import sqlite3; print(f'sqlite3: sqlite {sqlite3.sqlite_version}')" \
+        || { echo "FAIL: sqlite3"; MISSING=$((MISSING + 1)); }
+
+    # Hard re-check of version pins (belt-and-braces; the mid-install
+    # checks above should have caught any drift already).  These are in
+    # the MISSING counter so drift fails the build at "=== FINAL
+    # VERIFICATION ===" as well as during install.
+    FINAL_TORCH=$(python -c "import torch; print(torch.__version__)")
+    FINAL_CUDA=$(python -c "import torch; print(torch.version.cuda)")
+    case "$FINAL_TORCH" in
+        2.6.0+cu124|2.6.0) echo "  PASS: torch pinned at 2.6.0" ;;
+        *) echo "  FAIL: torch drifted to $FINAL_TORCH"; MISSING=$((MISSING + 1)) ;;
+    esac
+    case "$FINAL_CUDA" in
+        12.4) echo "  PASS: torch CUDA pinned at 12.4" ;;
+        *) echo "  FAIL: torch CUDA drifted to $FINAL_CUDA"; MISSING=$((MISSING + 1)) ;;
+    esac
+
+    echo ""
+    echo "--- Boltz-2 ---"
+    python -c "import boltz; print('  Boltz import OK')" \
+        || { echo "  FAIL: boltz import"; MISSING=$((MISSING + 1)); }
+    boltz --help > /dev/null 2>&1 \
+        && echo "  PASS: boltz CLI" \
+        || { echo "  FAIL: boltz CLI"; MISSING=$((MISSING + 1)); }
+    [ -s "/opt/boltz_cache/boltz2_conf.ckpt" ] \
+        && echo "  PASS: boltz2_conf.ckpt ($(du -sh /opt/boltz_cache/boltz2_conf.ckpt | cut -f1))" \
+        || { echo "  FAIL: boltz2_conf.ckpt"; MISSING=$((MISSING + 1)); }
+    [ -s "/opt/boltz_cache/boltz2_aff.ckpt" ] \
+        && echo "  PASS: boltz2_aff.ckpt ($(du -sh /opt/boltz_cache/boltz2_aff.ckpt | cut -f1))" \
+        || { echo "  FAIL: boltz2_aff.ckpt"; MISSING=$((MISSING + 1)); }
+    [ -d "/opt/boltz_cache/mols" ] \
+        && echo "  PASS: mols/ directory" \
+        || { echo "  FAIL: mols/ directory"; MISSING=$((MISSING + 1)); }
+
+    echo ""
+    echo "--- Shared dependencies ---"
+    python -c "import numpy; print(f'  NumPy: {numpy.__version__}')"
+    python -c "import pandas; print(f'  Pandas: {pandas.__version__}')"
+    python -c "import scipy; print(f'  SciPy: {scipy.__version__}')"
+    python -c "import Bio; print(f'  Biopython: {Bio.__version__}')"
+    python -c "import matplotlib; print(f'  Matplotlib: {matplotlib.__version__}')"
+
+    echo ""
+    echo "--- cuEquivariance (Boltz CUDA kernels) ---"
+    # Frontend packages: pure-Python, no CUDA runtime needed at import time.
+    # These MUST succeed on the build node.
+    python -c "import cuequivariance; print(f'  cuequivariance: {cuequivariance.__version__}')" \
+        || { echo "  FAIL: cuequivariance import"; MISSING=$((MISSING + 1)); }
+    python -c "import cuequivariance_torch; print(f'  cuequivariance_torch: {cuequivariance_torch.__version__}')" \
+        || { echo "  FAIL: cuequivariance_torch import"; MISSING=$((MISSING + 1)); }
+    # CUDA-kernel extension: dlopens libnvrtc.so.12 / libcuda.so.1 at import
+    # time, which are absent on build nodes without a GPU.  Same pattern as
+    # trifast below — INFO on the build node, works on GPU nodes.
+    python -c "import cuequivariance_ops_torch; print(f'  cuequivariance_ops_torch: {cuequivariance_ops_torch.__version__}')" 2>/dev/null \
+        && echo "  PASS: cuequivariance_ops_torch" \
+        || echo "  INFO: cuequivariance_ops_torch import failed (expected — no GPU on build node)"
+
+    echo ""
+    echo "--- Orthogonal-metrics analysis packages ---"
+    # DockQ: canonical API is `from DockQ.DockQ import load_PDB, run_on_all_native_interfaces`
+    python -c "from DockQ.DockQ import load_PDB, run_on_all_native_interfaces; print('  DockQ: API importable')" \
+        || { echo "  FAIL: DockQ API import (from DockQ.DockQ import ...)"; MISSING=$((MISSING + 1)); }
+    [ -x "$(command -v DockQ)" ] \
+        && echo "  PASS: DockQ CLI" \
+        || { echo "  FAIL: DockQ CLI on PATH"; MISSING=$((MISSING + 1)); }
+    # freesasa does not expose __version__ — just test that it imports
+    # and that the Classifier class is accessible.
+    python -c "import freesasa; _ = freesasa.Classifier; print('  freesasa: importable')" \
+        || { echo "  FAIL: freesasa import"; MISSING=$((MISSING + 1)); }
+    python -c "import MDAnalysis; print(f'  MDAnalysis: {MDAnalysis.__version__}')" \
+        || { echo "  FAIL: MDAnalysis import"; MISSING=$((MISSING + 1)); }
+
+    echo ""
+    echo "--- trifast (Boltz accelerated kernels) ---"
+    python -c "import trifast; print(f'  trifast: {trifast.__version__}')" 2>/dev/null \
+        && echo "  PASS: trifast" \
+        || echo "  INFO: trifast import failed (expected — no GPU on build node)"
+
+    echo ""
+    echo "--- Cache sizes ---"
+    echo "  Boltz cache: $(du -sh /opt/boltz_cache | cut -f1)"
+
+    echo ""
+    if [ $MISSING -gt 0 ]; then
+        echo "BUILD ABORTED: $MISSING critical component(s) missing."
+        exit 1
+    fi
+
+    echo "=== All checks passed — boltz2_negsteer container ready ==="
+    echo ""
+    echo "Contents:"
+    echo "  - Python 3.11 (with sqlite3)"
+    echo "  - PyTorch 2.6.0 + CUDA 12.4"
+    echo "  - Boltz-2 (with cuEquivariance CUDA kernels)"
+    echo "  - DockQ, freesasa, MDAnalysis (orthogonal metrics)"
+    echo "  - numpy, pandas, scipy, biopython, matplotlib, gemmi, scikit-learn"
+    echo ""
+    echo "Not included (use benchmark_models.img for model comparison):"
+    echo "  - Boltz-1"
+    echo "  - Chai-1"

@@ -1,0 +1,55 @@
+# Conda environment for everything this repo does on a laptop: rendering the
+# seven Quarto analyses, running the two local test tiers, and linting.
+#
+# It contains NO structure predictor and no GPU stack. Boltz-2 and its CUDA
+# dependencies live in the Singularity image built from
+# containers/boltz2_negsteer.def, on the cluster. Nothing here can run a
+# prediction, by design.
+#
+#   mamba env create -f environment.yml
+#   mamba activate negsteer-analysis
+#   cd analysis/01-pose-rescue && quarto render 01-pose-rescue.qmd
+#
+# Quarto itself is not a conda package here. Install it separately and keep it
+# at 1.9.38, the version the committed HTML was rendered with.
+#
+# Import names that differ from the distribution name, so a missing one is not
+# obvious from the traceback:
+#   biopython -> Bio        pyyaml -> yaml        gemmi -> gemmi
+name: negsteer-analysis
+
+channels:
+  - conda-forge
+  - bioconda
+
+dependencies:
+  # ----- interpreter -----
+  # 3.11 matches the kernel the analyses were rendered under. bin/ uses
+  # `X | None` annotations, so 3.10 is the floor.
+  - python=3.11.15
+
+  # ----- the analysis stack: all seven .qmd files -----
+  - numpy=2.4.6
+  - pandas=3.0.3
+  - matplotlib-base=3.10.9
+  - scipy=1.17.1              # spearmanr, wilcoxon, bootstrap CIs
+  - statsmodels=0.14.6        # paired tests in the confidence analyses
+
+  # ----- Quarto's jupyter engine -----
+  # Without these, `quarto render` cannot start a kernel for a .qmd.
+  - ipykernel=7.2.0
+  - jupyter_client=8.8.0
+
+  # ----- structure parsing, used by scripts/prepare_complex_inputs.py -----
+  # The engine takes gemmi OR biopython. Both are pinned so the derived
+  # interface indices are reproducible rather than parser-dependent.
+  - gemmi=0.7.5
+  - biopython=1.87
+
+  # ----- config parsing, used by scripts/negative_steering.py -----
+  - pyyaml=6.0.3
+
+  # ----- tests and lint -----
+  - pytest=9.1.1
+  - pytest-cov=7.1.0
+  - ruff=0.15.21              # pin, or CI fails on rules a newer release adds

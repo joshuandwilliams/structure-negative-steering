@@ -1,0 +1,2 @@
+cycle,pathway,n_generated,n_intact,n_novel,n_selected,min_dist_to_upstream_values,receptor_aligned_effector_rmsd_vs_truth_values
+0,cycle_0,60,55,28,5,25.337;24.138;23.600;22.984;22.902,3.663;4.750;5.941;25.952;26.135

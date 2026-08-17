@@ -5,36 +5,52 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "structure-negative-steering"
 version = "0.1.0"
-description = "Standalone negative-steering engine for Boltz-2, vendored from receptor-resurfacing-pipeline. Run negative steering on arbitrary inputs in isolation, with tests."
+description = "Standalone Boltz-2 negative-steering engine. Run negative steering on arbitrary inputs in isolation, with tests."
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-# Deps to run the engine standalone. boltz/torch are GPU/HPC-side and are
-# intentionally NOT listed here — the laptop test tier never imports them.
-test = [
-    "pytest>=7.0",
-    "PyYAML>=6.0",
-]
+# What the engine and the analyses need on a laptop. boltz and torch are
+# GPU/HPC-side and are deliberately absent, because nothing outside a container
+# imports them.
 experiments = [
     "numpy>=1.24",
     "pandas>=2.0",
     "gemmi>=0.6",
     "biopython>=1.81",
     "matplotlib>=3.7",
+    "scipy>=1.10",
     "PyYAML>=6.0",
+]
+# The same list plus the test tooling, stated once rather than twice. This is
+# what CI installs, so a package missing from `experiments` fails on a clean
+# runner instead of passing on a laptop whose conda environment supplies it.
+test = [
+    "structure-negative-steering[experiments]",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
 ]
 
 [tool.setuptools]
-# engine/bin/ scripts are invoked standalone (by Nextflow / the orchestrator),
+# bin/ scripts are invoked standalone (by Nextflow / the orchestrator),
 # not imported as an installed package.
 packages = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers -ra"
+# Coverage runs on every invocation over both trees, so bin/ is visible rather
+# than hidden. The gate is a ratchet; see [tool.coverage.report].
+addopts = """
+    --strict-markers -ra
+    --cov=scripts
+    --cov=bin
+    --cov-report=lcov:lcov.info
+    --cov-report=html
+    --cov-report=term-missing:skip-covered
+"""
 markers = [
-    "local_unit: tier — runs on a laptop with no GPU/containers; vendored-engine integrity, drift, and syntax checks; <1s each.",
-    "hpc: tier — requires a GPU + Boltz container on the cluster (a real negative-steering run); HPC-only.",
+    "local_unit: tier - pure helpers on synthetic input. Runs anywhere with Python, under 1s each.",
+    "local_integration: tier - reads the committed fixtures and reference structures. Mac, no cluster.",
+    "hpc: tier - needs a GPU, the Boltz container, or a finished run. Cluster only.",
     "slow: long-running test.",
 ]
 
@@ -45,5 +61,28 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
-# Vendored engine code is owned upstream — never lint-gate it here.
-exclude = ["engine/"]
+# bin/ is linted like the rest of the repo. Its sibling imports follow a
+# deliberate sys.path setup, which is marked with noqa: E402 where it occurs.
+
+
+[tool.coverage.run]
+source = ["scripts", "bin"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+skip_covered = true
+
+# A ratchet over bin/ + scripts/ combined. It may only ever go up. Raise it to
+# whatever a run reports once new tests land, so coverage cannot quietly fall.
+#
+# The remaining gap is concentrated in two files. boltz2_iterate_steering.py's
+# multi-cycle loop never runs here, because this repo has always driven it at
+# --max-cycles 0, and reversion.py's harvest needs real predictions on disk.
+# Both are reached by the smoke run in tests/run_smoke_negative_steering.slurm.sh,
+# which is the hpc tier and cannot run on a laptop or in CI.
+fail_under = 63.5

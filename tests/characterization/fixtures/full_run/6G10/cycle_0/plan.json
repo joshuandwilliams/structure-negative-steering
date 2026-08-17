@@ -1,0 +1,1172 @@
+{
+  "ground_truth": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/6G10.pdb",
+  "truth_receptor_chain": "A",
+  "truth_effector_chain": "B",
+  "pred_receptor_chain": "A",
+  "pred_effector_chain": "B",
+  "wild_type_receptor_seq": "LKQKIVIKVAMEGNNCRSKAMALVASTGGVDSVALVGDLRDKIEVVGYGIDPIKLISALRKKVGDAELLQVSQANK",
+  "initial_receptor_aligned_effector_rmsd": 23.881,
+  "initial_independent_receptor_rmsd": 1.446,
+  "initial_independent_effector_rmsd": 1.375,
+  "rmsd_threshold": 5.0,
+  "contact_cutoff": 5.0,
+  "max_mutations": 3,
+  "candidate_pool_size": 12,
+  "mode": "mild",
+  "effector_template_cif": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/effector_template.cif",
+  "n_designs": 20,
+  "num_seeds": 3,
+  "boltz_container": "/hpc-home/jowillia/receptor_design/receptor-resurfacing-pipeline/containers/boltz2_negsteer.img",
+  "recycling_steps": 3,
+  "diffusion_samples": 5,
+  "seed": 0,
+  "no_kernels": false,
+  "receptor_fasta_override": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/inputs/receptor.fasta",
+  "effector_fasta_override": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/inputs/effector.fasta",
+  "designs": [
+    {
+      "index": 0,
+      "name": "design_00_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_00_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_00_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        21,
+        25,
+        47
+      ],
+      "sequence_group": 0,
+      "seed_index": 0,
+      "boltz_seed": 1
+    },
+    {
+      "index": 1,
+      "name": "design_00_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_00_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_00_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        21,
+        25,
+        47
+      ],
+      "sequence_group": 0,
+      "seed_index": 1,
+      "boltz_seed": 2
+    },
+    {
+      "index": 2,
+      "name": "design_00_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_00_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_00_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        21,
+        25,
+        47
+      ],
+      "sequence_group": 0,
+      "seed_index": 2,
+      "boltz_seed": 3
+    },
+    {
+      "index": 3,
+      "name": "design_01_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_01_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_01_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        47
+      ],
+      "sequence_group": 1,
+      "seed_index": 0,
+      "boltz_seed": 4
+    },
+    {
+      "index": 4,
+      "name": "design_01_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_01_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_01_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        47
+      ],
+      "sequence_group": 1,
+      "seed_index": 1,
+      "boltz_seed": 5
+    },
+    {
+      "index": 5,
+      "name": "design_01_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_01_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_01_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        47
+      ],
+      "sequence_group": 1,
+      "seed_index": 2,
+      "boltz_seed": 6
+    },
+    {
+      "index": 6,
+      "name": "design_02_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_02_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_02_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        17,
+        20
+      ],
+      "sequence_group": 2,
+      "seed_index": 0,
+      "boltz_seed": 7
+    },
+    {
+      "index": 7,
+      "name": "design_02_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_02_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_02_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        17,
+        20
+      ],
+      "sequence_group": 2,
+      "seed_index": 1,
+      "boltz_seed": 8
+    },
+    {
+      "index": 8,
+      "name": "design_02_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_02_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_02_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        17,
+        20
+      ],
+      "sequence_group": 2,
+      "seed_index": 2,
+      "boltz_seed": 9
+    },
+    {
+      "index": 9,
+      "name": "design_03_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_03_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_03_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        25,
+        47
+      ],
+      "sequence_group": 3,
+      "seed_index": 0,
+      "boltz_seed": 10
+    },
+    {
+      "index": 10,
+      "name": "design_03_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_03_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_03_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        25,
+        47
+      ],
+      "sequence_group": 3,
+      "seed_index": 1,
+      "boltz_seed": 11
+    },
+    {
+      "index": 11,
+      "name": "design_03_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_03_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_03_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        25,
+        47
+      ],
+      "sequence_group": 3,
+      "seed_index": 2,
+      "boltz_seed": 12
+    },
+    {
+      "index": 12,
+      "name": "design_04_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_04_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_04_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        47
+      ],
+      "sequence_group": 4,
+      "seed_index": 0,
+      "boltz_seed": 13
+    },
+    {
+      "index": 13,
+      "name": "design_04_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_04_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_04_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        47
+      ],
+      "sequence_group": 4,
+      "seed_index": 1,
+      "boltz_seed": 14
+    },
+    {
+      "index": 14,
+      "name": "design_04_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_04_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_04_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        47
+      ],
+      "sequence_group": 4,
+      "seed_index": 2,
+      "boltz_seed": 15
+    },
+    {
+      "index": 15,
+      "name": "design_05_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_05_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_05_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        24,
+        47
+      ],
+      "sequence_group": 5,
+      "seed_index": 0,
+      "boltz_seed": 16
+    },
+    {
+      "index": 16,
+      "name": "design_05_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_05_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_05_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        24,
+        47
+      ],
+      "sequence_group": 5,
+      "seed_index": 1,
+      "boltz_seed": 17
+    },
+    {
+      "index": 17,
+      "name": "design_05_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_05_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_05_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        24,
+        47
+      ],
+      "sequence_group": 5,
+      "seed_index": 2,
+      "boltz_seed": 18
+    },
+    {
+      "index": 18,
+      "name": "design_06_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_06_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_06_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        25
+      ],
+      "sequence_group": 6,
+      "seed_index": 0,
+      "boltz_seed": 19
+    },
+    {
+      "index": 19,
+      "name": "design_06_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_06_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_06_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        25
+      ],
+      "sequence_group": 6,
+      "seed_index": 1,
+      "boltz_seed": 20
+    },
+    {
+      "index": 20,
+      "name": "design_06_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_06_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_06_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        25
+      ],
+      "sequence_group": 6,
+      "seed_index": 2,
+      "boltz_seed": 21
+    },
+    {
+      "index": 21,
+      "name": "design_07_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_07_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_07_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        25
+      ],
+      "sequence_group": 7,
+      "seed_index": 0,
+      "boltz_seed": 22
+    },
+    {
+      "index": 22,
+      "name": "design_07_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_07_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_07_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        25
+      ],
+      "sequence_group": 7,
+      "seed_index": 1,
+      "boltz_seed": 23
+    },
+    {
+      "index": 23,
+      "name": "design_07_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_07_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_07_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        25
+      ],
+      "sequence_group": 7,
+      "seed_index": 2,
+      "boltz_seed": 24
+    },
+    {
+      "index": 24,
+      "name": "design_08_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_08_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_08_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        24,
+        47
+      ],
+      "sequence_group": 8,
+      "seed_index": 0,
+      "boltz_seed": 25
+    },
+    {
+      "index": 25,
+      "name": "design_08_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_08_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_08_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        24,
+        47
+      ],
+      "sequence_group": 8,
+      "seed_index": 1,
+      "boltz_seed": 26
+    },
+    {
+      "index": 26,
+      "name": "design_08_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_08_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_08_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        24,
+        47
+      ],
+      "sequence_group": 8,
+      "seed_index": 2,
+      "boltz_seed": 27
+    },
+    {
+      "index": 27,
+      "name": "design_09_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_09_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_09_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        24
+      ],
+      "sequence_group": 9,
+      "seed_index": 0,
+      "boltz_seed": 28
+    },
+    {
+      "index": 28,
+      "name": "design_09_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_09_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_09_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        24
+      ],
+      "sequence_group": 9,
+      "seed_index": 1,
+      "boltz_seed": 29
+    },
+    {
+      "index": 29,
+      "name": "design_09_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_09_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_09_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        24
+      ],
+      "sequence_group": 9,
+      "seed_index": 2,
+      "boltz_seed": 30
+    },
+    {
+      "index": 30,
+      "name": "design_10_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_10_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_10_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        24,
+        25
+      ],
+      "sequence_group": 10,
+      "seed_index": 0,
+      "boltz_seed": 31
+    },
+    {
+      "index": 31,
+      "name": "design_10_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_10_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_10_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        24,
+        25
+      ],
+      "sequence_group": 10,
+      "seed_index": 1,
+      "boltz_seed": 32
+    },
+    {
+      "index": 32,
+      "name": "design_10_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_10_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_10_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        24,
+        25
+      ],
+      "sequence_group": 10,
+      "seed_index": 2,
+      "boltz_seed": 33
+    },
+    {
+      "index": 33,
+      "name": "design_11_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_11_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_11_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        24
+      ],
+      "sequence_group": 11,
+      "seed_index": 0,
+      "boltz_seed": 34
+    },
+    {
+      "index": 34,
+      "name": "design_11_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_11_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_11_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        24
+      ],
+      "sequence_group": 11,
+      "seed_index": 1,
+      "boltz_seed": 35
+    },
+    {
+      "index": 35,
+      "name": "design_11_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_11_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_11_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        24
+      ],
+      "sequence_group": 11,
+      "seed_index": 2,
+      "boltz_seed": 36
+    },
+    {
+      "index": 36,
+      "name": "design_12_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_12_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_12_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        20,
+        25
+      ],
+      "sequence_group": 12,
+      "seed_index": 0,
+      "boltz_seed": 37
+    },
+    {
+      "index": 37,
+      "name": "design_12_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_12_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_12_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        20,
+        25
+      ],
+      "sequence_group": 12,
+      "seed_index": 1,
+      "boltz_seed": 38
+    },
+    {
+      "index": 38,
+      "name": "design_12_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_12_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_12_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        20,
+        25
+      ],
+      "sequence_group": 12,
+      "seed_index": 2,
+      "boltz_seed": 39
+    },
+    {
+      "index": 39,
+      "name": "design_13_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_13_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_13_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        25
+      ],
+      "sequence_group": 13,
+      "seed_index": 0,
+      "boltz_seed": 40
+    },
+    {
+      "index": 40,
+      "name": "design_13_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_13_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_13_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        25
+      ],
+      "sequence_group": 13,
+      "seed_index": 1,
+      "boltz_seed": 41
+    },
+    {
+      "index": 41,
+      "name": "design_13_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_13_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_13_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        21,
+        25
+      ],
+      "sequence_group": 13,
+      "seed_index": 2,
+      "boltz_seed": 42
+    },
+    {
+      "index": 42,
+      "name": "design_14_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        24,
+        47
+      ],
+      "sequence_group": 14,
+      "seed_index": 0,
+      "boltz_seed": 43
+    },
+    {
+      "index": 43,
+      "name": "design_14_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        24,
+        47
+      ],
+      "sequence_group": 14,
+      "seed_index": 1,
+      "boltz_seed": 44
+    },
+    {
+      "index": 44,
+      "name": "design_14_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_14_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        24,
+        47
+      ],
+      "sequence_group": 14,
+      "seed_index": 2,
+      "boltz_seed": 45
+    },
+    {
+      "index": 45,
+      "name": "design_15_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_15_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_15_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        24,
+        47
+      ],
+      "sequence_group": 15,
+      "seed_index": 0,
+      "boltz_seed": 46
+    },
+    {
+      "index": 46,
+      "name": "design_15_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_15_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_15_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        24,
+        47
+      ],
+      "sequence_group": 15,
+      "seed_index": 1,
+      "boltz_seed": 47
+    },
+    {
+      "index": 47,
+      "name": "design_15_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_15_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_15_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        17,
+        24,
+        47
+      ],
+      "sequence_group": 15,
+      "seed_index": 2,
+      "boltz_seed": 48
+    },
+    {
+      "index": 48,
+      "name": "design_16_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_16_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_16_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        25
+      ],
+      "sequence_group": 16,
+      "seed_index": 0,
+      "boltz_seed": 49
+    },
+    {
+      "index": 49,
+      "name": "design_16_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_16_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_16_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        25
+      ],
+      "sequence_group": 16,
+      "seed_index": 1,
+      "boltz_seed": 50
+    },
+    {
+      "index": 50,
+      "name": "design_16_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_16_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_16_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        25
+      ],
+      "sequence_group": 16,
+      "seed_index": 2,
+      "boltz_seed": 51
+    },
+    {
+      "index": 51,
+      "name": "design_17_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_17_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_17_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        24
+      ],
+      "sequence_group": 17,
+      "seed_index": 0,
+      "boltz_seed": 52
+    },
+    {
+      "index": 52,
+      "name": "design_17_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_17_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_17_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        24
+      ],
+      "sequence_group": 17,
+      "seed_index": 1,
+      "boltz_seed": 53
+    },
+    {
+      "index": 53,
+      "name": "design_17_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_17_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_17_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        20,
+        21,
+        24
+      ],
+      "sequence_group": 17,
+      "seed_index": 2,
+      "boltz_seed": 54
+    },
+    {
+      "index": 54,
+      "name": "design_18_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_18_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_18_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        25
+      ],
+      "sequence_group": 18,
+      "seed_index": 0,
+      "boltz_seed": 55
+    },
+    {
+      "index": 55,
+      "name": "design_18_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_18_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_18_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        25
+      ],
+      "sequence_group": 18,
+      "seed_index": 1,
+      "boltz_seed": 56
+    },
+    {
+      "index": 56,
+      "name": "design_18_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_18_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_18_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        25
+      ],
+      "sequence_group": 18,
+      "seed_index": 2,
+      "boltz_seed": 57
+    },
+    {
+      "index": 57,
+      "name": "design_19_s0",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_19_s0",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_19_s0/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        21
+      ],
+      "sequence_group": 19,
+      "seed_index": 0,
+      "boltz_seed": 58
+    },
+    {
+      "index": 58,
+      "name": "design_19_s1",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_19_s1",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_19_s1/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        21
+      ],
+      "sequence_group": 19,
+      "seed_index": 1,
+      "boltz_seed": 59
+    },
+    {
+      "index": 59,
+      "name": "design_19_s2",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_19_s2",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/steered/design_19_s2/input/input.yaml",
+      "total_mutations": 3,
+      "mutated_positions": [
+        5,
+        20,
+        21
+      ],
+      "sequence_group": 19,
+      "seed_index": 2,
+      "boltz_seed": 60
+    }
+  ],
+  "true_interface_idx": [
+    1,
+    3,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    43,
+    44,
+    45,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75
+  ],
+  "true_interface_source": "pre_computed",
+  "cold_start_seeds": [
+    {
+      "seed_offset": 0,
+      "boltz_seed": 0,
+      "ra_eff": 23.881,
+      "ind_rec": 1.446,
+      "ind_eff": 1.375,
+      "pdb_path": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/initial_prediction.pdb"
+    },
+    {
+      "seed_offset": 1,
+      "boltz_seed": 1,
+      "ra_eff": 23.689,
+      "ind_rec": 1.388,
+      "ind_eff": 1.347,
+      "pdb_path": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/initial_prediction_s1.pdb"
+    },
+    {
+      "seed_offset": 2,
+      "boltz_seed": 2,
+      "ra_eff": 24.187,
+      "ind_rec": 2.661,
+      "ind_eff": 1.11,
+      "pdb_path": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/6G10/run/cycle_0/initial_prediction_s2.pdb"
+    }
+  ],
+  "cold_start_n_clean": 0,
+  "cold_start_all_clean": false,
+  "design_region_idx": [],
+  "protected_set_source": "true_interface",
+  "protected_set_idx": [
+    1,
+    3,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    43,
+    44,
+    45,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75
+  ],
+  "initial_wrong_interface_idx": [
+    1,
+    3,
+    5,
+    17,
+    20,
+    21,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    39,
+    41,
+    43,
+    45,
+    47,
+    69,
+    72,
+    73,
+    74,
+    75
+  ],
+  "candidate_pool": [
+    5,
+    17,
+    20,
+    21,
+    24,
+    25,
+    47
+  ],
+  "effector_interface_residues": [
+    11,
+    12,
+    13,
+    14,
+    16,
+    17,
+    19,
+    20,
+    35,
+    36,
+    37,
+    38,
+    41,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50
+  ],
+  "effector_interface_atom_cutoff_angstroms": 8.0,
+  "effector_interface_atoms": [
+    [
+      11,
+      "any"
+    ],
+    [
+      12,
+      "any"
+    ],
+    [
+      13,
+      "any"
+    ],
+    [
+      14,
+      "any"
+    ],
+    [
+      16,
+      "any"
+    ],
+    [
+      17,
+      "any"
+    ],
+    [
+      19,
+      "any"
+    ],
+    [
+      20,
+      "any"
+    ],
+    [
+      35,
+      "any"
+    ],
+    [
+      36,
+      "any"
+    ],
+    [
+      37,
+      "any"
+    ],
+    [
+      38,
+      "any"
+    ],
+    [
+      41,
+      "any"
+    ],
+    [
+      44,
+      "any"
+    ],
+    [
+      45,
+      "any"
+    ],
+    [
+      46,
+      "any"
+    ],
+    [
+      47,
+      "any"
+    ],
+    [
+      48,
+      "any"
+    ],
+    [
+      49,
+      "any"
+    ],
+    [
+      50,
+      "any"
+    ]
+  ],
+  "n_protected": 18,
+  "interfaces_overlap": 0.6,
+  "second_shell_fallback_used": false,
+  "second_shell_pool_size": 0,
+  "max_mutations_reduced_from": 6,
+  "max_mutations_reduced_to": 3,
+  "max_mutations_reduced_reason": "interfaces_overlap>50%",
+  "max_mutations_requested": 6,
+  "max_mutations_effective": 3,
+  "n_unique_sequences": 20,
+  "total_predictions": 60
+}
