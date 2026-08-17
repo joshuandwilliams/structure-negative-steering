@@ -109,6 +109,30 @@ def _in_container() -> bool:
     )
 
 
+def _running_image() -> str | None:
+    """Path of the image we are running inside, if we are.
+
+    The runtime exports it, and it is the honest answer to "which image should
+    the engine use", because it is the one already loaded.
+    """
+    return (os.environ.get("SINGULARITY_CONTAINER")
+            or os.environ.get("APPTAINER_CONTAINER"))
+
+
+def _resolve_container(explicit: str | None) -> str | None:
+    """The image the plan stage is told about.
+
+    plan requires --boltz-container whether or not it will use it. Inside a
+    container it does not: it detects the runtime and calls boltz directly,
+    nested singularity being unsupported. But argparse still demands the flag,
+    so omitting it fails before the engine gets to decide anything.
+
+    So pass the running image. It is accurate rather than a placeholder, and it
+    keeps the flag meaningful if the engine ever does shell out again.
+    """
+    return explicit or _running_image()
+
+
 def _run(argv: list[str], *, tolerate: int | None = None, dry: bool = False) -> int:
     printable = " ".join(str(a) for a in argv)
     print(f"  $ {printable}", flush=True)
@@ -168,14 +192,16 @@ def cmd_run(a: argparse.Namespace) -> int:
     cycle0 = outdir / "cycle_0"
     outdir.mkdir(parents=True, exist_ok=True)
 
-    if not _in_container() and not a.boltz_container:
+    image = _resolve_container(a.boltz_container)
+    if not image:
         sys.stderr.write(
-            "ERROR: not running inside a container, so the engine needs an image to\n"
-            "       call Boltz-2 with. Pass --boltz-container, or invoke this whole\n"
-            "       command with singularity exec --nv <image> negsteer run ...\n")
+            "ERROR: no Boltz-2 image. Not running inside a container, and no\n"
+            "       --boltz-container given. Pass one, or invoke this whole command\n"
+            "       with singularity exec --nv <image> negsteer run ...\n")
         return 2
 
-    container = ["--boltz-container", a.boltz_container] if a.boltz_container else []
+    # Always passed. plan requires it even when it will not use it.
+    container = ["--boltz-container", image]
     started = time.time()
 
     print(f"negsteer {__version__} — {a.name}", flush=True)

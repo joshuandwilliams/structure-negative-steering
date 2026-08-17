@@ -165,6 +165,7 @@ The HPC is airgapped, so nothing is installed there and everything runs in a con
 ./scripts/sync_to_hpc.sh                       # from the Mac. Excludes experiments/ and analysis/
 
 # on the HPC:
+export NXF_LOG_FILE=.nextflow-reports/nextflow.log     # keeps the repo root clean
 nextflow run main.nf --targets 'experiments/benchmarking/**/config.yml'
 nextflow run main.nf --targets experiments/benchmarking/unconstrained/6G10/config.yml
 nextflow run main.nf --targets tests/smoke/config.yml
@@ -172,6 +173,8 @@ nextflow run main.nf --targets tests/smoke/config.yml
 nextflow run main.nf --targets '...' -resume     # skip what already finished
 nextflow run main.nf --targets '...' -stub-run   # walk the DAG with no Boltz calls
 ```
+
+Every run artefact lands in `.nextflow-reports/`: the trace the compute-cost analysis reads, the HTML report and timeline, and the log. The config places the first three. The log is chosen before the config is read, so it needs `NXF_LOG_FILE` as above, or `nextflow -log .nextflow-reports/nextflow.log run ...` per invocation. Without either, Nextflow drops `.nextflow.log` in whatever directory you launched from. `.nextflow/` is Nextflow's own state directory and cannot be moved; it is hidden and gitignored.
 
 `-stub-run` checks the wiring on a laptop in seconds, with no container and no GPU. Every stage has a stub that writes a plausible artefact, so the channel shapes, the two fan-outs and both empty-fan-out bypasses are all exercised.
 

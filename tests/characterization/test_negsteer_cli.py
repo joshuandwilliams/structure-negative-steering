@@ -146,10 +146,10 @@ def test_it_refuses_to_run_outside_a_container_without_an_image(tmp_path, monkey
 
 
 @pytest.mark.local_unit
-def test_inside_a_container_no_image_is_needed(tmp_path, monkeypatch, capsys):
-    """The engine calls boltz directly when already in a container, so
-    requiring an image there would be asking for something unusable."""
-    monkeypatch.setenv("SINGULARITY_NAME", "negsteer.img")
+def test_inside_a_container_the_running_image_is_used(tmp_path, monkeypatch, capsys):
+    """The caller should not have to name an image it is already running
+    inside. The runtime exports the path, so use it."""
+    monkeypatch.setenv("SINGULARITY_CONTAINER", "/images/negsteer.img")
     args = build_parser().parse_args([
         "run", "--name", "x",
         "--receptor-fasta", "r", "--effector-fasta", "e",
@@ -157,7 +157,7 @@ def test_inside_a_container_no_image_is_needed(tmp_path, monkeypatch, capsys):
         "--outdir", str(tmp_path / "out"), "--dry-run",
     ])
     assert cmd_run(args) == 0
-    assert "--boltz-container" not in capsys.readouterr().out
+    assert "--boltz-container /images/negsteer.img" in capsys.readouterr().out
 
 
 @pytest.mark.local_unit
@@ -296,3 +296,46 @@ def test_an_override_pointing_nowhere_is_an_error_not_a_fallback(tmp_path, monke
         cli._find_bin()
     monkeypatch.delenv("NEGSTEER_BIN")
     importlib.reload(cli)
+
+
+# ── the CLI satisfies the engine's own argument requirements ─────────────────
+
+def _required_flags(subcommand: str) -> set[str]:
+    """Flags the engine marks required=True for a subcommand.
+
+    Read from the source rather than by importing, because the engine pulls in
+    numpy and gemmi at module scope and this must run with neither.
+    """
+    src = (REPO_ROOT / "bin" / "boltz2_negative_steering.py").read_text()
+    start = src.index(f'"{subcommand}"')
+    end = src.find("add_parser(", start + 1)
+    block = src[start:end if end != -1 else len(src)]
+    return set(re.findall(
+        r'add_argument\(\s*"(--[a-z0-9-]+)"[^)]*required\s*=\s*True', block))
+
+
+@pytest.mark.local_unit
+def test_the_plan_invocation_satisfies_every_flag_the_engine_requires(
+        tmp_path, capsys, monkeypatch):
+    """The gap that let a broken command reach the cluster.
+
+    The stage-sequence test asserts the CLI runs `plan`. It says nothing about
+    whether plan will accept the arguments. --boltz-container is required by
+    the engine unconditionally, including inside a container where it goes
+    unused, and omitting it failed 20 seconds into a GPU job rather than here.
+    """
+    monkeypatch.delenv("SINGULARITY_CONTAINER", raising=False)
+    _, cmds = _invoke(tmp_path, capsys)
+    plan = next(c for c in cmds if " plan " in c)
+
+    required = _required_flags("plan")
+    assert required, "found no required flags; the parser shape changed"
+    missing = [f for f in required if f not in plan]
+    assert not missing, f"plan requires {missing}, which the CLI does not pass"
+
+
+@pytest.mark.local_unit
+def test_the_engine_really_does_require_a_container_even_in_one():
+    """Pins the surprise itself. If the engine ever relaxes this, the extra
+    argument above becomes unnecessary rather than wrong, and this says so."""
+    assert "--boltz-container" in _required_flags("plan")

@@ -23,6 +23,7 @@ experiments/benchmarking/*/*/*
 .nextflow/
 .nextflow.log*
 .nextflow.history*
+.nextflow-reports/
 work/
 
 # ----- Pipeline-style outputs -----
