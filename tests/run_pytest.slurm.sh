@@ -59,7 +59,14 @@ echo "repo: ${REPO_DIR}"
 echo "args: $*"
 echo
 
+# addopts is cleared. pyproject asks for --cov on every invocation, and the
+# runner image has no pytest-cov, so pytest aborts on an unrecognised argument
+# before collecting anything. Installing it is not the fix: this tier asserts
+# on a run the engine performed in a separate container, and coverage cannot
+# see across that boundary, so the number would be misleading rather than
+# missing. Coverage is measured by the two local tiers and gated in CI.
+#
 # --nv exposes the GPU driver libraries. Harmless without a GPU allocation, and
 # required by anything in the hpc tier that reaches Boltz.
 exec singularity exec --nv --bind "${REPO_DIR}" "${CONTAINER}" \
-    python -m pytest "$@"
+    python -m pytest -o addopts="" "$@"

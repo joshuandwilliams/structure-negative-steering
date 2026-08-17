@@ -8,6 +8,20 @@ Include: yum
 #
 # Slim container for the resurfacing / negative-steering NextFlow pipeline.
 #
+# WHAT THE BUILT IMAGE ACTUALLY CONTAINS, read back off it rather than
+# inferred from this file (2026-08-17, .../containers/boltz2_negsteer.img):
+#
+#   boltz 2.2.1     torch 2.6.0+cu124   numpy 1.26.4   pandas 2.3.3
+#   gemmi 0.6.5     biopython 1.84      pyyaml 6.0.2   scipy 1.13.1
+#   matplotlib 3.10.8
+#
+# gemmi is 0.6.5 here and 0.7.5 in pytest_runner.img. The engine reads .pdb,
+# and both versions parse a prediction identically, so the skew is latent
+# rather than active. Both were checked directly rather than assumed. Anything
+# added here that reads mmCIF needs testing in THIS image, not only the test
+# one, because 0.6.5 returns zero models for input 0.7.5 accepts instead of
+# raising, which surfaces as an empty result rather than an error.
+#
 # Contents:
 #   - Python 3.11 (compiled from source, WITH sqlite support)
 #   - CUDA 12.8 runtime libraries (installed via NVIDIA yum repo at system

@@ -11,6 +11,29 @@ Include: yum
 # any of the pipeline runtime: no PyTorch, no CUDA, no Boltz/RFDiffusion/
 # ProteinMPNN/Rosetta — just the Python packages the comparators import.
 #
+# WHAT THE BUILT IMAGE ACTUALLY CONTAINS, read back off it rather than
+# inferred from this file (2026-08-17,
+# /hpc-home/jowillia/singularity/pytest/pytest_runner.img):
+#
+#   python 3.11.9   numpy 2.4.6      pandas 3.0.5     gemmi 0.7.5
+#   biopython 1.88  pyyaml 6.0.3     scipy 1.17.1     matplotlib 3.11.1
+#   pytest 9.1.1    pillow 12.3.0    scikit-image 0.26.0
+#   pytest-cov      ABSENT
+#
+# Two things that matters for:
+#
+#   pytest-cov is not installed, and pyproject asks for --cov on every
+#   invocation, so a bare `pytest` in here aborts on an unrecognised argument
+#   before collecting anything. tests/run_pytest.slurm.sh passes
+#   -o addopts="" for that reason. Coverage over an engine run in a separate
+#   container could not be measured anyway.
+#
+#   gemmi is 0.7.5 here and 0.6.5 in boltz2_negsteer.img. The engine reads
+#   .pdb, which both parse identically, so the skew is latent rather than
+#   active. Both were checked directly. It still means a structure-reading
+#   test can pass in here and behave differently in the runtime image, so
+#   anything that reads mmCIF must be exercised in the runtime image too.
+#
 # Contents:
 #   - Python 3.11 (compiled from source, matching boltz2_negsteer.def's
 #     toolchain so test code that imports 3.11-only typing features works

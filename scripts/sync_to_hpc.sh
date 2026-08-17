@@ -3,8 +3,21 @@
 # Sync the local repo to the HPC via SSH (uses the ~/.ssh/config alias 'slurm').
 #
 # Usage:
-#   ./scripts/sync_to_hpc.sh           # real sync
-#   ./scripts/sync_to_hpc.sh --dry     # dry run, no changes
+#   ./scripts/sync_to_hpc.sh              # real sync
+#   ./scripts/sync_to_hpc.sh --dry        # dry run, no changes
+#   ./scripts/sync_to_hpc.sh --list-stale # report cluster-only paths, change nothing
+#
+# Why --list-stale exists:
+#   rsync --delete does NOT delete excluded paths. It protects them, which is
+#   the behaviour that stops a code sync destroying results. The cost is that
+#   anything matching an exclude survives on the cluster forever, so a renamed
+#   or dropped directory is never cleaned up and the cluster silently
+#   accumulates two of everything. --list-stale reports what is up there and
+#   not down here so pruning is a deliberate, visible act.
+#
+#   It only ever reads. It prints commands; it does not run them, and this
+#   script never deletes anything on the cluster. --delete-excluded would
+#   "fix" the accumulation by wiping every result. Never use it.
 #
 # Direction & authority:
 #   The Mac repo is authoritative for CODE.  Develop here, sync up, run the
@@ -30,10 +43,45 @@ HPC_USER_HOST="slurm"
 HPC_DEST="receptor_design/structure-negative-steering/"
 
 DRY_RUN=""
-if [ "${1:-}" = "--dry" ] || [ "${1:-}" = "--dry-run" ]; then
-    DRY_RUN="--dry-run"
-    echo "=== DRY RUN -- no files will be changed ==="
-fi
+case "${1:-}" in
+    --dry|--dry-run)
+        DRY_RUN="--dry-run"
+        echo "=== DRY RUN -- no files will be changed ==="
+        ;;
+    --list-stale)
+        cd "$REPO_ROOT"
+        echo "=== cluster paths with no local counterpart ==="
+        echo "Reads only. Nothing here is deleted, by this script or otherwise."
+        echo
+
+        # A benchmark target is a directory holding a config.yml. Comparing on
+        # that rather than on directory names keeps derived inputs/ and run/
+        # trees out of the report.
+        find_targets="find . -name config.yml -maxdepth 3 \
+                      | sed -e 's|^\./||' -e 's|/config.yml\$||' | sort"
+
+        local_targets=$(cd experiments/benchmarking 2>/dev/null \
+            && eval "$find_targets")
+        remote_targets=$(ssh "$HPC_USER_HOST" \
+            "cd ${HPC_DEST}experiments/benchmarking 2>/dev/null && $find_targets" 2>/dev/null)
+
+        echo "--- benchmarking targets on the cluster only ---"
+        stale=$(comm -23 <(echo "$remote_targets") <(echo "$local_targets"))
+        [ -n "$stale" ] && echo "$stale" | sed 's/^/  /' || echo "  (none)"
+
+        echo
+        echo "--- repo-root entries on the cluster only ---"
+        local_root=$(ls -A | sort)
+        remote_root=$(ssh "$HPC_USER_HOST" "cd ${HPC_DEST} && ls -A" 2>/dev/null | sort)
+        comm -23 <(echo "$remote_root") <(echo "$local_root") | sed 's/^/  /' || true
+
+        echo
+        echo "Nothing above has been touched. To retire one, rename rather than"
+        echo "delete, so the name is freed but the data survives:"
+        echo "  ssh $HPC_USER_HOST 'cd ${HPC_DEST} && mv <path> <path>_superseded_\$(date +%Y%m%d)'"
+        exit 0
+        ;;
+esac
 
 cd "$REPO_ROOT"
 
