@@ -30,10 +30,16 @@ test = [
     "pytest-cov>=4.0",
 ]
 
+[project.scripts]
+# The tool interface. Installing this repo puts `negsteer` on PATH, which is
+# what lets another pipeline call it the way it calls RFDiffusion.
+negsteer = "negsteer.cli:main"
+
 [tool.setuptools]
-# bin/ scripts are invoked standalone (by Nextflow / the orchestrator),
-# not imported as an installed package.
-packages = []
+# Only the CLI package is installed. bin/ stays a directory of standalone
+# entry points invoked by path, because that is how the engine has always
+# been run and repackaging it would be a rewrite, not a repackaging.
+packages = ["negsteer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -43,6 +49,7 @@ addopts = """
     --strict-markers -ra
     --cov=scripts
     --cov=bin
+    --cov=negsteer
     --cov-report=lcov:lcov.info
     --cov-report=html
     --cov-report=term-missing:skip-covered
@@ -66,7 +73,7 @@ ignore = ["E501"]
 
 
 [tool.coverage.run]
-source = ["scripts", "bin"]
+source = ["scripts", "bin", "negsteer"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -85,4 +92,4 @@ skip_covered = true
 # --max-cycles 0, and reversion.py's harvest needs real predictions on disk.
 # Both are reached by the smoke run in tests/run_smoke_negative_steering.slurm.sh,
 # which is the hpc tier and cannot run on a laptop or in CI.
-fail_under = 63.5
+fail_under = 64.0

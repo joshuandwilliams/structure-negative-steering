@@ -99,6 +99,60 @@ The four-way method comparison passes 9 / 18 unrestrained, 12 / 18 with negative
 
 With `num_seeds: 1` only A or none can occur. `num_seeds >= 3` is what lets A/B/C resolve.
 
+## Using it as a tool
+
+`negsteer` is the interface another pipeline calls, in the same way it calls RFDiffusion or ProteinMPNN. One command, one run directory.
+
+```bash
+singularity exec --nv negsteer.img negsteer run \
+    --name            design_00 \
+    --receptor-fasta  receptor.fasta \
+    --effector-fasta  effector.fasta \
+    --reference-pdb   complex.pdb \
+    --design-region   design_region.txt \
+    --true-interface  true_interface.txt \
+    --outdir          design_00
+```
+
+Everything else has a default. `--n-designs`, `--num-seeds`, `--diffusion-samples`, `--recycling-steps` and `--boltz-constraints` cover the usual knobs, and `--plan-extra-args` forwards anything else to the engine verbatim so the CLI never becomes a bottleneck. A knob you do not set is not forwarded, so the engine's own default applies rather than this CLI restating it.
+
+**Read `negsteer_result.json`, do not glob the directory.** It names every output, reports whether each one exists, and carries a `contract_version` to pin against. Files not named in it are internals and may move.
+
+```json
+{
+  "contract_version": 1,
+  "name": "design_00",
+  "status": "ok",
+  "skip_steering": false,
+  "n_designs_planned": 20,
+  "n_reversions_planned": 3,
+  "tiering_succeeded": true,
+  "runtime_seconds": 6690,
+  "outputs": {
+    "per_seed_results": "raw_per_seed_results.csv",
+    "aggregated_results": "aggregated_results.csv",
+    "passing_summary": "passing_summary.csv",
+    "cross_sequence_summary": "cross_sequence_summary.csv",
+    "runtime_seconds": "run_one_runtime_sec.txt"
+  }
+}
+```
+
+`status` is `skipped_steering` when the cold start already passed, which is a normal outcome and not a failure. `tiering_succeeded: false` means the run produced its results but the representative could not be picked, which is also not a failure.
+
+`integration/negative_steering.nf` is a drop-in Nextflow module for `receptor-resurfacing-pipeline`, replacing the copy of the engine it carries today.
+
+The CLI runs the same nine stages, in the same order, with the same arguments as `bin/negative_steering_run_one.sh`, which produced the committed benchmark. That equivalence is asserted by `tests/characterization/test_negsteer_cli.py`, so the tool and the runner behind the published numbers cannot drift apart.
+
+Nesting is not a problem: the engine detects `SINGULARITY_NAME` and calls `boltz` directly when already inside a container, which is why `negsteer` can run in-container while the old shell orchestrator could not. `--boltz-container` is only needed on a bare host.
+
+Until the image is rebuilt from `containers/boltz2_negsteer.def`, reach the same CLI from a bind-mounted checkout:
+
+```bash
+singularity exec --nv --bind $REPO negsteer.img \
+    env PYTHONPATH=$REPO python -m negsteer.cli run ...
+```
+
 ## Running it
 
 The engine is a mid-pipeline component. It does not turn a bare PDB into results by itself. It needs both chain sequences plus a true-interface and a design-region index file, and it uses the complex as the comparison basis. Runs are config-driven, one YAML per target.

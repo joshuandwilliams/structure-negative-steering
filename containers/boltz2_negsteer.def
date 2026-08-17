@@ -64,6 +64,14 @@ Include: yum
 # =============================================================================
 
 %files
+    # Staged so the tool interface can be installed in %post below. Build from
+    # the repo root: `singularity build negsteer.img containers/boltz2_negsteer.def`.
+    # Only these three go in. Staging the whole checkout would put the
+    # benchmark reference structures and the analyses inside the image, which
+    # are data rather than runtime and would grow it for nothing.
+    negsteer      /opt/structure-negative-steering/negsteer
+    bin           /opt/structure-negative-steering/bin
+    pyproject.toml /opt/structure-negative-steering/pyproject.toml
 
 %environment
     export PATH=/usr/local/bin:$PATH
@@ -861,3 +869,37 @@ CONSTRAINTS_EOF
     echo "Not included (use benchmark_models.img for model comparison):"
     echo "  - Boltz-1"
     echo "  - Chai-1"
+
+# =============================================================================
+# The tool interface
+# =============================================================================
+# `negsteer` is the supported way to call this from another pipeline. Putting
+# it on PATH here is what lets a caller write
+#
+#     singularity exec --nv negsteer.img negsteer run --name ... --outdir ...
+#
+# rather than knowing where bin/ lives inside somebody else's checkout.
+#
+# The package is a thin CLI over bin/, which stays a directory of standalone
+# entry points invoked by path. Installing with --no-deps is deliberate: every
+# dependency is already in the image from %post above, and letting pip resolve
+# them again risks pulling a different numpy over the one Boltz was built
+# against.
+#
+# Until the image is rebuilt, the same CLI is reachable from a bind-mounted
+# checkout with
+#
+#     singularity exec --nv negsteer.img \
+#         env PYTHONPATH=/path/to/repo python -m negsteer.cli run ...
+#
+# which is the fallback the pipeline module uses when negsteer is not on PATH.
+
+%post
+    set -eu
+    if [ -d /opt/structure-negative-steering ]; then
+        python -m pip install --no-deps /opt/structure-negative-steering
+        negsteer --version
+    else
+        echo "NOTE: /opt/structure-negative-steering not staged at build time."
+        echo "      Bind the checkout and use python -m negsteer.cli instead."
+    fi
