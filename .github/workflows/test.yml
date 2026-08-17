@@ -48,10 +48,14 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+      # Nextflow needs a JDK, and the runner already ships several. Using the
+      # preinstalled one instead of actions/setup-java removes a download that
+      # has already failed this job once with a 429, for a dependency that was
+      # sitting on the machine the whole time.
+      - name: Use the runner's preinstalled JDK
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
 
       # READ_CONFIG has no stub. It runs the real driver, because the point of
       # the stub run is to check that the config the workflow reads produces
