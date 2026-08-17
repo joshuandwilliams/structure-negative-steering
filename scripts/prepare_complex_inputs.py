@@ -21,7 +21,7 @@ Interface residues come from one of two modes:
   --interface-file FILE    read positional indices from FILE (0-based, one per
                            line or comma-separated; '#' comments ignored)
 
-The contact detection and sequence extraction reuse the *vendored engine*
+The contact detection and sequence extraction reuse the *engine*
 helpers (find_contact_residues_heavy, get_chain_sequence), so the indices and
 sequences line up exactly with what the engine consumes at run time.
 
@@ -37,11 +37,11 @@ from pathlib import Path
 from typing import List
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ENGINE_BIN = REPO_ROOT / "engine" / "bin"
+ENGINE_BIN = REPO_ROOT / "bin"
 
 
 def _load_engine_helpers():
-    """Import the vendored engine helpers (need gemmi or biopython + numpy)."""
+    """Import the engine helpers (need gemmi or biopython + numpy)."""
     sys.path.insert(0, str(ENGINE_BIN))
     try:
         from boltz2_negative_steering import get_chain_sequence  # noqa: E402
@@ -49,7 +49,7 @@ def _load_engine_helpers():
     except ImportError as exc:  # pragma: no cover - dependency guidance
         raise SystemExit(
             f"ERROR: could not import engine helpers ({exc}).\n"
-            f"prepare_inputs needs numpy plus gemmi (or biopython) for sequence "
+            f"prepare_complex_inputs needs numpy plus gemmi (or biopython) for sequence "
             f"extraction. Install the experiments extras:\n"
             f"    pip install -e '.[experiments]'"
         )
@@ -141,11 +141,14 @@ def main(argv: List[str]) -> int:
     # --- Sequences ---------------------------------------------------------
     rec_seq = get_chain_sequence(args.complex, args.receptor_chain)
     eff_seq = get_chain_sequence(args.complex, args.effector_chain)
-    if not rec_seq:
+    # Unreachable with the current engine parser, which raises ValueError on an
+    # absent chain before it can return an empty sequence. Kept as a guard in
+    # case a future parser returns "" instead of raising.
+    if not rec_seq:  # pragma: no cover - engine raises first
         print(f"ERROR: receptor chain '{args.receptor_chain}' empty in {args.complex}",
               file=sys.stderr)
         return 2
-    if not eff_seq:
+    if not eff_seq:  # pragma: no cover - engine raises first
         print(f"ERROR: effector chain '{args.effector_chain}' empty in {args.complex}",
               file=sys.stderr)
         return 2

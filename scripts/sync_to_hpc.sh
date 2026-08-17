@@ -55,6 +55,8 @@ rsync -av --delete $DRY_RUN -e ssh \
     --exclude='*.sif' \
     --exclude='work/' \
     --exclude='.nextflow*' \
+    --exclude='jdk-*/' \
+    --exclude='nxf_home/' \
     --exclude='*_results/' \
     --exclude='*.out' \
     --exclude='*.err' \
@@ -63,18 +65,16 @@ rsync -av --delete $DRY_RUN -e ssh \
     "$REPO_ROOT/" "${HPC_USER_HOST}:${HPC_DEST}"
 
 # Push experiment DEFINITIONS additively (NO --delete): the benchmarking test
-# specs (config.yml + reference PDBs + READMEs) must reach the HPC, but the HPC
+# specs (config.yml + reference PDBs) must reach the HPC, but the HPC
 # experiments/ tree (prior results + run outputs) is authoritative and must
 # never be pruned by a code sync. Derived inputs/ and run/ outputs are excluded.
 if [ -d "$REPO_ROOT/experiments/benchmarking" ]; then
-    rsync -av $DRY_RUN -e ssh \
+    rsync -av --no-perms --no-owner --no-group $DRY_RUN -e ssh \
         --prune-empty-dirs \
-        --include='README.md' \
         --include='benchmarking/' \
         --include='benchmarking/**/' \
         --include='benchmarking/**/config.yml' \
         --include='benchmarking/**/*.pdb' \
-        --include='benchmarking/**/README.md' \
         --exclude='*' \
         "$REPO_ROOT/experiments/" "${HPC_USER_HOST}:${HPC_DEST}experiments/"
 fi
