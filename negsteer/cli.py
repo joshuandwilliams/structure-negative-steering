@@ -175,6 +175,11 @@ def _plan_args(a: argparse.Namespace) -> list[str]:
         ("--protected-set-source", a.protected_set_source),
         ("--contact-cutoff", a.contact_cutoff),
         ("--seed", a.seed),
+        ("--mode", a.mode),
+        # The plan-stage threshold decides whether the cold start already
+        # passes, so it gates whether steering runs at all. Distinct from
+        # --postprocess-rmsd-threshold, which only scores the result.
+        ("--rmsd-threshold", a.rmsd_threshold),
     ):
         if value is not None:
             out += [flag, str(value)]
@@ -182,6 +187,8 @@ def _plan_args(a: argparse.Namespace) -> list[str]:
         out.append("--boltz-constraints")
     if a.no_effector_template:
         out.append("--no-effector-template")
+    if a.no_kernels:
+        out.append("--no-kernels")
     if a.plan_extra_args:
         out += a.plan_extra_args.split()
     return out
@@ -268,7 +275,7 @@ def cmd_run(a: argparse.Namespace) -> int:
     _run(_stage(ITERATE, "aggregate", "--experiment-root", outdir), dry=a.dry_run)
     _run(_stage(ITERATE, "compute-final-metrics",
                 "--experiment-root", outdir,
-                "--rmsd-threshold", a.rmsd_threshold,
+                "--rmsd-threshold", a.postprocess_rmsd_threshold,
                 "--metric-column", a.metric_column,
                 "--contact-cutoff", a.postprocess_contact_cutoff,
                 *(["--populate-all"] if a.populate_all else [])), dry=a.dry_run)
@@ -358,6 +365,13 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--max-mutations", type=int)
     st.add_argument("--candidate-pool-size", type=int)
     st.add_argument("--protected-set-source")
+    st.add_argument("--mode", choices=["strong", "mild", "conservative", "alanine"],
+                    help="substitution aggressiveness. Unset takes the engine "
+                         "default, which is NOT the benchmark's 'mild'.")
+    st.add_argument("--rmsd-threshold", type=float,
+                    help="pass threshold used by the plan stage to decide "
+                         "whether the cold start already succeeded")
+    st.add_argument("--no-kernels", action="store_true")
     st.add_argument("--contact-cutoff", type=float)
     st.add_argument("--seed", type=int)
     st.add_argument("--boltz-constraints", action="store_true",
@@ -367,7 +381,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="escape hatch, forwarded to the plan stage verbatim")
 
     pp = r.add_argument_group("post-processing")
-    pp.add_argument("--rmsd-threshold", type=float, default=5.0)
+    pp.add_argument("--postprocess-rmsd-threshold", type=float, default=5.0)
     pp.add_argument("--metric-column", default="receptor_aligned_effector_rmsd")
     pp.add_argument("--postprocess-contact-cutoff", type=float, default=5.0)
     pp.add_argument("--populate-all", action="store_true")

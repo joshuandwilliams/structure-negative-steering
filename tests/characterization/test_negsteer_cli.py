@@ -339,3 +339,55 @@ def test_the_engine_really_does_require_a_container_even_in_one():
     """Pins the surprise itself. If the engine ever relaxes this, the extra
     argument above becomes unnecessary rather than wrong, and this says so."""
     assert "--boltz-container" in _required_flags("plan")
+
+
+@pytest.mark.local_unit
+def test_the_cli_can_set_every_plan_knob_the_config_driver_can(tmp_path, capsys):
+    """The omission the GPU comparison caught, generalised.
+
+    negsteer_mode was absent from the CLI, so a caller could not ask for the
+    benchmark's 'mild' and silently got the engine's 'strong' instead. Same
+    positions mutated, different residues, and a 2.2 A difference in ra_eff.
+    Nothing failed; the answer was just quietly different.
+
+    Every knob scripts/negative_steering.py forwards to plan must therefore be
+    reachable from the CLI. Flags exempt below are structural rather than
+    scientific: paths and chain ids the CLI names differently, and control flow
+    it owns.
+    """
+    STRUCTURAL = {
+        "--workdir", "--index", "--skip-steering", "--boltz-container",
+        "--ground-truth", "--receptor", "--effector",
+        "--receptor-fasta", "--effector-fasta",
+        "--true-interface-indices", "--true-interface-indices-file",
+        "--design-region-indices-file",
+        "--effector-template",  # the default; --no-effector-template negates it
+    }
+    src = (REPO_ROOT / "bin" / "boltz2_negative_steering.py").read_text()
+    start = src.index('"plan"')
+    end = src.find("add_parser(", start + 1)
+    plan_flags = set(re.findall(r'add_argument\(\s*"(--[a-z0-9-]+)"',
+                                src[start:end if end != -1 else len(src)]))
+
+    cli_flags = {a.option_strings[0]
+                 for a in build_parser()._subparsers._group_actions[0]
+                 .choices["run"]._actions if a.option_strings}
+
+    missing = sorted(plan_flags - STRUCTURAL - cli_flags)
+    assert not missing, (
+        f"plan accepts {missing}, which the CLI gives no way to set. "
+        "A caller cannot reach them, and the engine default applies silently.")
+
+
+@pytest.mark.local_unit
+def test_the_two_rmsd_thresholds_go_to_different_stages(tmp_path, capsys):
+    """They are separate config keys and mean different things. The plan one
+    decides whether steering runs at all; the postprocess one only scores what
+    came out. Sending one value to both would couple two decisions."""
+    _, cmds = _invoke(tmp_path, capsys,
+                      "--rmsd-threshold", "4.0",
+                      "--postprocess-rmsd-threshold", "6.0")
+    plan = next(c for c in cmds if " plan " in c)
+    metrics = next(c for c in cmds if "compute-final-metrics" in c)
+    assert "--rmsd-threshold 4.0" in plan
+    assert "--rmsd-threshold 6.0" in metrics

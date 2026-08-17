@@ -140,10 +140,12 @@ if [ -n "$VIA_CLI" ]; then
             --max-mutations     3 \
             --candidate-pool-size 6 \
             --protected-set-source true_interface \
+            --mode              mild \
             --seed              0 \
             --contact-cutoff    5.0 \
             --rmsd-threshold    5.0 \
             --metric-column     steered_ra_eff_vs_truth \
+            --postprocess-rmsd-threshold 5.0 \
             --postprocess-contact-cutoff 5.0
 else
     bash "$ENTRY" "$CONFIG"
@@ -175,9 +177,12 @@ if [ -f "$PYTEST_CONTAINER" ]; then
         # assertion that actually validates the tool.
         TESTS="$TESTS ${REPO_DIR}/tests/characterization/test_smoke_cli_matches_orchestrator.py"
     fi
+    # addopts is cleared: pyproject asks for --cov on every invocation and the
+    # runner image has no pytest-cov, so pytest aborts on an unrecognised
+    # argument before collecting anything. Same reason as run_pytest.slurm.sh.
     exec singularity exec --bind "$REPO_DIR" "$PYTEST_CONTAINER" \
         env NEGSTEER_SMOKE_DIR="$SMOKE_ASSERT_DIR" \
-        python -m pytest $TESTS -m hpc -ra --no-header
+        python -m pytest -o addopts="" $TESTS -m hpc -ra --no-header
 else
     echo "WARNING: no pytest image at ${PYTEST_CONTAINER}, skipping the assertions." >&2
     echo "         Build it from containers/pytest_runner.def, or run them yourself:" >&2
