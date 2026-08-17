@@ -1,0 +1,32 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # Pinned to the version in environment.yml, so CI and a local run apply
+      # the same rule set. An unpinned ruff picks up new default rules on
+      # release and fails CI on code that passed locally.
+      - name: Install ruff
+        run: pip install "ruff==0.15.21"
+
+      # Configuration lives in pyproject under [tool.ruff]. Line length 100,
+      # E, F, W and I, with E501 off.
+      #
+      # `ruff format --check` is deliberately not run. bin/ aligns related
+      # values into columns and the formatter collapses that alignment, which
+      # costs more in readability than it gains. Linting is enforced,
+      # formatting is not.
+      - name: ruff check
+        run: ruff check .

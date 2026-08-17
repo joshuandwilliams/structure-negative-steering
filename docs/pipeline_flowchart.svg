@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 1200" width="980" height="1200" font-family="Arial, Helvetica, sans-serif">
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#333333"/>
+    </marker>
+    <marker id="arrowskip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b8860b"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="980" height="1200" fill="#ffffff"/>
+
+  <!-- Legend -->
+  <g font-size="12" fill="#333333">
+    <rect x="30" y="18" width="920" height="38" fill="#fbfbfb" stroke="#cccccc" stroke-width="1" rx="6"/>
+    <rect x="44" y="30" width="14" height="14" fill="#ffffff" stroke="#111111"/>
+    <text x="66" y="41">Input or output</text>
+    <rect x="182" y="30" width="14" height="14" fill="#eaf5ea" stroke="#4c8c4a"/>
+    <text x="204" y="41">CPU stage</text>
+    <rect x="300" y="30" width="14" height="14" fill="#e3f0fd" stroke="#3477b5"/>
+    <text x="322" y="41">GPU stage, one Boltz-2 call</text>
+    <rect x="500" y="34" width="14" height="10" fill="#e3f0fd" stroke="#3477b5"/>
+    <rect x="496" y="30" width="14" height="10" fill="#e3f0fd" stroke="#3477b5"/>
+    <text x="524" y="41">Fan-out, one task per design</text>
+    <line x1="700" y1="37" x2="740" y2="37" stroke="#b8860b" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="748" y="41">Bypass when the fan-out is empty</text>
+  </g>
+
+  <!-- Input -->
+  <rect x="340" y="76" width="300" height="56" rx="8" fill="#ffffff" stroke="#111111" stroke-width="2"/>
+  <text x="490" y="100" text-anchor="middle" font-size="15" font-weight="bold" fill="#111111">config.yml</text>
+  <text x="490" y="120" text-anchor="middle" font-size="12" fill="#111111">one per target, plus its reference PDB</text>
+
+  <line x1="490" y1="132" x2="490" y2="164" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- READ_CONFIG -->
+  <rect x="340" y="166" width="300" height="50" rx="8" fill="#eaf5ea" stroke="#4c8c4a" stroke-width="2"/>
+  <text x="490" y="188" text-anchor="middle" font-size="13" font-weight="bold" fill="#24491f">READ_CONFIG</text>
+  <text x="490" y="206" text-anchor="middle" font-size="11" fill="#24491f">negative_steering.py --emit-json</text>
+  <text x="326" y="185" text-anchor="end" font-size="11" fill="#666666">key names live in Python,</text>
+  <text x="326" y="200" text-anchor="end" font-size="11" fill="#666666">not in Groovy</text>
+
+  <line x1="490" y1="216" x2="490" y2="248" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- PREPARE -->
+  <rect x="340" y="250" width="300" height="50" rx="8" fill="#eaf5ea" stroke="#4c8c4a" stroke-width="2"/>
+  <text x="490" y="272" text-anchor="middle" font-size="13" font-weight="bold" fill="#24491f">PREPARE</text>
+  <text x="490" y="290" text-anchor="middle" font-size="11" fill="#24491f">FASTAs, true interface, design region</text>
+
+  <line x1="490" y1="300" x2="490" y2="332" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- PLAN -->
+  <rect x="340" y="334" width="300" height="62" rx="8" fill="#e3f0fd" stroke="#3477b5" stroke-width="2"/>
+  <text x="490" y="356" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b456e">PLAN</text>
+  <text x="490" y="374" text-anchor="middle" font-size="11" fill="#1b456e">cold-start prediction, then locate the</text>
+  <text x="490" y="389" text-anchor="middle" font-size="11" fill="#1b456e">wrong interface and stage N designs</text>
+  <text x="326" y="358" text-anchor="end" font-size="11" fill="#666666">plan.json is the authority</text>
+  <text x="326" y="373" text-anchor="end" font-size="11" fill="#666666">for N, not the config</text>
+
+  <line x1="490" y1="396" x2="490" y2="432" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- PREDICT_ONE, fanned out -->
+  <rect x="348" y="442" width="300" height="68" rx="8" fill="#e3f0fd" stroke="#3477b5" stroke-width="2"/>
+  <rect x="344" y="438" width="300" height="68" rx="8" fill="#e3f0fd" stroke="#3477b5" stroke-width="2"/>
+  <rect x="340" y="434" width="300" height="68" rx="8" fill="#e3f0fd" stroke="#3477b5" stroke-width="2"/>
+  <text x="490" y="457" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b456e">PREDICT_ONE &#215; N</text>
+  <text x="490" y="476" text-anchor="middle" font-size="11" fill="#1b456e">one steered design per task, retried once</text>
+  <text x="490" y="491" text-anchor="middle" font-size="11" fill="#1b456e">then ignored, so one loss is not fatal</text>
+
+  <line x1="490" y1="510" x2="490" y2="544" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="498" y="532" font-size="11" fill="#666666">groupTuple barrier</text>
+
+  <!-- N = 0 bypass -->
+  <path d="M 640 365 L 700 365 L 700 571 L 644 571" fill="none" stroke="#b8860b" stroke-width="2"
+        stroke-dasharray="6 4" marker-end="url(#arrowskip)"/>
+  <text x="712" y="452" font-size="11" fill="#b8860b">N = 0: the cold start</text>
+  <text x="712" y="467" font-size="11" fill="#b8860b">already passed, so</text>
+  <text x="712" y="482" font-size="11" fill="#b8860b">nothing is steered</text>
+
+  <!-- COLLECT -->
+  <rect x="340" y="546" width="300" height="50" rx="8" fill="#eaf5ea" stroke="#4c8c4a" stroke-width="2"/>
+  <text x="490" y="568" text-anchor="middle" font-size="13" font-weight="bold" fill="#24491f">COLLECT</text>
+  <text x="490" y="586" text-anchor="middle" font-size="11" fill="#24491f">steered_results.csv</text>
+
+  <line x1="490" y1="596" x2="490" y2="628" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- REVERSION_PREP -->
+  <rect x="340" y="630" width="300" height="62" rx="8" fill="#eaf5ea" stroke="#4c8c4a" stroke-width="2"/>
+  <text x="490" y="652" text-anchor="middle" font-size="13" font-weight="bold" fill="#24491f">REVERSION_PREP</text>
+  <text x="490" y="670" text-anchor="middle" font-size="11" fill="#24491f">distances, prefilter, find contaminated</text>
+  <text x="490" y="685" text-anchor="middle" font-size="11" fill="#24491f">designs, stage M reversions</text>
+  <text x="326" y="654" text-anchor="end" font-size="11" fill="#666666">four steps in one task:</text>
+  <text x="326" y="669" text-anchor="end" font-size="11" fill="#666666">each reads what the last wrote</text>
+
+  <line x1="490" y1="692" x2="490" y2="726" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- PREDICT_REVERSION, fanned out -->
+  <rect x="348" y="736" width="300" height="62" rx="8" fill="#e3f0fd" stroke="#3477b5" stroke-width="2"/>
+  <rect x="344" y="732" width="300" height="62" rx="8" fill="#e3f0fd" stroke="#3477b5" stroke-width="2"/>
+  <rect x="340" y="728" width="300" height="62" rx="8" fill="#e3f0fd" stroke="#3477b5" stroke-width="2"/>
+  <text x="490" y="751" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b456e">PREDICT_REVERSION &#215; M</text>
+  <text x="490" y="770" text-anchor="middle" font-size="11" fill="#1b456e">re-predict with the contaminating</text>
+  <text x="490" y="785" text-anchor="middle" font-size="11" fill="#1b456e">mutations reverted to wild type</text>
+
+  <line x1="490" y1="798" x2="490" y2="832" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- M = 0 bypass -->
+  <path d="M 640 661 L 700 661 L 700 859 L 644 859" fill="none" stroke="#b8860b" stroke-width="2"
+        stroke-dasharray="6 4" marker-end="url(#arrowskip)"/>
+  <text x="712" y="748" font-size="11" fill="#b8860b">M = 0: no design</text>
+  <text x="712" y="763" font-size="11" fill="#b8860b">was contaminated,</text>
+  <text x="712" y="778" font-size="11" fill="#b8860b">a normal outcome</text>
+
+  <!-- HARVEST -->
+  <rect x="340" y="834" width="300" height="50" rx="8" fill="#eaf5ea" stroke="#4c8c4a" stroke-width="2"/>
+  <text x="490" y="856" text-anchor="middle" font-size="13" font-weight="bold" fill="#24491f">HARVEST</text>
+  <text x="490" y="874" text-anchor="middle" font-size="11" fill="#24491f">accept or reject each reversion, finalise</text>
+  <text x="326" y="854" text-anchor="end" font-size="11" fill="#666666">--max-cycles 0, so no</text>
+  <text x="326" y="869" text-anchor="end" font-size="11" fill="#666666">follow-up cycle is submitted</text>
+
+  <line x1="490" y1="884" x2="490" y2="916" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- POSTPROCESS -->
+  <rect x="340" y="918" width="300" height="62" rx="8" fill="#eaf5ea" stroke="#4c8c4a" stroke-width="2"/>
+  <text x="490" y="940" text-anchor="middle" font-size="13" font-weight="bold" fill="#24491f">POSTPROCESS</text>
+  <text x="490" y="958" text-anchor="middle" font-size="11" fill="#24491f">aggregate, final metrics, per-sequence</text>
+  <text x="490" y="973" text-anchor="middle" font-size="11" fill="#24491f">rollup, extract the passing designs</text>
+
+  <line x1="490" y1="980" x2="490" y2="1012" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- CROSS_SUMMARY -->
+  <rect x="340" y="1014" width="300" height="50" rx="8" fill="#eaf5ea" stroke="#4c8c4a" stroke-width="2"/>
+  <text x="490" y="1036" text-anchor="middle" font-size="13" font-weight="bold" fill="#24491f">CROSS_SUMMARY</text>
+  <text x="490" y="1054" text-anchor="middle" font-size="11" fill="#24491f">pick one representative, assign its tier</text>
+  <text x="326" y="1034" text-anchor="end" font-size="11" fill="#666666">errorStrategy 'ignore': the</text>
+  <text x="326" y="1049" text-anchor="end" font-size="11" fill="#666666">results are already written</text>
+
+  <line x1="490" y1="1064" x2="490" y2="1096" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Outputs -->
+  <rect x="280" y="1098" width="420" height="76" rx="8" fill="#ffffff" stroke="#111111" stroke-width="2"/>
+  <text x="490" y="1120" text-anchor="middle" font-size="13" font-weight="bold" fill="#111111">run/</text>
+  <text x="490" y="1139" text-anchor="middle" font-size="11" fill="#111111">raw_per_seed_results.csv, aggregated_results.csv,</text>
+  <text x="490" y="1154" text-anchor="middle" font-size="11" fill="#111111">passing_summary.csv, cross_sequence_summary.csv,</text>
+  <text x="490" y="1169" text-anchor="middle" font-size="11" fill="#111111">run_one_runtime_sec.txt</text>
+
+</svg>
