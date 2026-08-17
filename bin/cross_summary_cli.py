@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-cross_summary_v2.py
+cross_summary_cli.py
 -------------------
 Phase 4 typed CLI entry point for cross-sequence summary emission.
 
-Drop-in replacement for cross_sequence_summary.py from the Nextflow
+Drop-in replacement for cross_summary.py from the Nextflow
 process perspective: same CLI surface (--passing-summary-dir,
 --published-runs-dir, --scored-metadata, --output), same CSV output.
 
 The implementation routes through ``design_cohort.DesignCohort.
 emit_cross_summary_from_dirs`` — the Phase 4 typed API — which in turn
-delegates to the long-standing ``cross_sequence_summary.aggregate``
+delegates to the long-standing ``cross_summary.aggregate``
 function for the column-level CSV construction.  The architectural
 benefit: the typed API exposes the cohort-CSV emission as a method
 on DesignCohort, so future refactors can reach in via the type
 hierarchy without touching the Nextflow process or this CLI surface.
 
-Bit-identical CSV output relative to cross_sequence_summary.py.
+Bit-identical CSV output relative to cross_summary.py.
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from design_cohort import DesignCohort  # noqa: E402
-
 
 _SEQ_NAME_RE = re.compile(r"^[A-Za-z0-9_.+\-]+$")
 

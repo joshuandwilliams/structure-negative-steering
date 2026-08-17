@@ -49,7 +49,6 @@ import traceback
 
 import numpy as np
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # ipSAE (Dunbrack 2025)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1389,7 +1388,7 @@ def parse_boltz2(
         # have one), the columns are emitted blank.  When native_pdb
         # IS supplied, we compute both inside the per-prediction loop
         # so the values flow through the same aggregator → passing_summary
-        # → cross_sequence_summary chain as the PAE-derived metrics.
+        # → cross_summary chain as the PAE-derived metrics.
         if native_pdb is not None:
             ic_flag, _ic_rmsd, _ic_err = compute_intact_core(
                 pdb_path, native_pdb,

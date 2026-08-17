@@ -74,7 +74,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-
 # ───────────────────────────────────────────────────────────────────────
 # Reverted-confidence forwarding — single source of truth
 # ───────────────────────────────────────────────────────────────────────
@@ -332,7 +331,8 @@ def write_reversion_plan(
 
     plan_meta
         Dict with per-cycle info: effector_seq, effector_template_cif,
-        pred_receptor_chain, pred_effector_chain, base_seed, num_seeds.
+        pred_receptor_chain, pred_effector_chain, base_seed, num_seeds,
+        boltz_constraints_block.
 
     Returns
     -------
@@ -356,6 +356,7 @@ def write_reversion_plan(
     pred_effector_chain = plan_meta.get("pred_effector_chain", "B")
     base_seed = int(plan_meta.get("base_seed", 0))
     num_seeds = int(plan_meta.get("num_seeds", 1))
+    boltz_constraints_block = plan_meta.get("boltz_constraints_block")
 
     # ── Phase 1: build all reverted sequences ──────────────────────
     # Collect (reverted_seq, metadata) for each contaminated design,
@@ -468,6 +469,7 @@ def write_reversion_plan(
                 rec_chain=pred_receptor_chain,
                 eff_chain=pred_effector_chain,
                 effector_template_cif=effector_template_cif,
+                constraints_block=boltz_constraints_block,
             )
 
             # Metadata for the canonical member

@@ -1,5 +1,5 @@
 """
-cross_summary_view.py
+cross_summary_model.py
 ---------------------
 CrossSummaryRow + CrossSummarySnapshot — a typed read-only view over
 ``cross_sequence_summary.csv``.
@@ -166,7 +166,7 @@ class CrossSummarySnapshot:
         """Sort steered rows by (tier_order, -composite_score).
 
         Equivalent to the existing ``_assign_cross_ranks`` in
-        cross_sequence_summary.py — used here as a verification path."""
+        cross_summary.py — used here as a verification path."""
         def key(r: CrossSummaryRow):
             tier_idx = self._TIER_ORDER.get(r.cross_tier, 99)
             composite = r.cross_composite_score

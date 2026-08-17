@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sys
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -34,7 +34,7 @@ class DesignCohort:
     Holds NegativeSteeringRun instances keyed by mpnn_sequence_id.
     Tier 6 constructor takes a list of runs directly; the workdir-
     walking factory (from_runs_directory) is implemented at migration
-    time when the existing cross_sequence_summary.py absorbs.
+    time when the existing cross_summary.py absorbs.
     """
     runs: Tuple[NegativeSteeringRun, ...]
 
@@ -143,7 +143,7 @@ class DesignCohort:
         ranked_by_composite query interface using the per-row
         cross_tier / cross_composite_score columns directly.
         """
-        from cross_summary_view import CrossSummarySnapshot  # local import to keep deps lazy
+        from cross_summary_model import CrossSummarySnapshot  # local import to keep deps lazy
         return CrossSummarySnapshot.from_csv(path)
 
     def to_cross_summary_csv(
@@ -155,14 +155,14 @@ class DesignCohort:
     ) -> int:
         """Emit a cross_sequence_summary.csv from this cohort.
 
-        Delegates to the existing ``cross_sequence_summary.aggregate``
+        Delegates to the existing ``cross_summary.aggregate``
         function so the column set and aggregation behaviour stay
         bit-for-bit identical to the pre-Phase-4 emitter.  Each run's
         ``workdir / 'passing_summary.csv'`` is used as the input.
 
         Returns the aggregate return code (0 on success).
         """
-        from cross_sequence_summary import aggregate  # local import
+        from cross_summary import aggregate  # local import
         sequences = [
             (r.mpnn_sequence_id, Path(r.workdir) / "passing_summary.csv")
             for r in self.runs
@@ -193,7 +193,7 @@ class DesignCohort:
         warranted when downstream code consumes the StageResult chain.
         For CSV emission alone the workdir + mpnn_sequence_id pairs are
         sufficient — this classmethod gathers those and delegates to
-        the existing ``cross_sequence_summary.aggregate`` so the column
+        the existing ``cross_summary.aggregate`` so the column
         set stays bit-identical.
 
         Arguments
@@ -206,10 +206,10 @@ class DesignCohort:
             Per-sequence overrides for direct file paths (mirrors the
             existing --passing-summary CLI flag).
         """
-        from cross_sequence_summary import aggregate  # local import
-
         # Sequence-name validation regex (matches the existing CLI).
         import re as _re
+
+        from cross_summary import aggregate  # local import
         _SEQ_NAME_RE = _re.compile(r"^[A-Za-z0-9_.+\-]+$")
 
         sequences: List[Tuple[str, Path]] = []

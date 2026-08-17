@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cross_sequence_summary.py
+cross_summary.py
 -------------------------
 Aggregate per-MPNN-sequence ``passing_summary.csv`` files into a
 single cross-sequence ranked table.
@@ -14,10 +14,13 @@ unique (re-)folded sequence ranked by ``rank_by_composite_score``
 within that experiment.
 
 For cross-sequence triage we want one representative row PER MPNN
-SEQUENCE, picked using the tier-then-composite policy documented in
-notes 11.  The aggregator emits n_pass directly (= number of seeds
-classified as pose_holds or clean_steered — both pass-equivalent).
-Tiering is from n_pass / n_seeds only, with no outcome shortcut:
+SEQUENCE, picked using the tier-then-median policy (originally
+tier-then-composite per notes 11; switched to tier-then-median so
+that ranking within a tier is decided purely by pose accuracy, not
+partly by interface Jaccard overlap — see _pick_representative).  The
+aggregator emits n_pass directly (= number of seeds classified as
+pose_holds or clean_steered — both pass-equivalent).  Tiering is from
+n_pass / n_seeds only, with no outcome shortcut:
 
     Tier A: n_pass == n_seeds   (e.g. 3/3 pass-equivalent)
     Tier B: 1 < n_pass < n_seeds   (e.g. 2/3)
@@ -28,13 +31,15 @@ Tiering is from n_pass / n_seeds only, with no outcome shortcut:
                                     but whose seeds all sit in no_data
                                     / pose_collapses — n_pass == 0)
 
-Within each sequence, the best non-empty tier wins and the top-
-ranked row from that tier (lowest ``rank_by_composite_score``) is
-that sequence's representative.  Representatives are then stacked
-across sequences and re-ranked using the same composite score
-(``true_jaccard − 0.05 × ra_eff_vs_truth``; higher is better) so
-the cross-sequence rank is directly comparable to per-sequence
-ranks.
+Within each sequence, the best non-empty tier wins and the top-ranked
+row from that tier (lowest ``ra_eff_vs_truth_median``) is that
+sequence's representative — reliability (tier) first, then accuracy
+(median), rather than letting a design with a slightly better
+interface overlap outrank one with a meaningfully better pose.
+Representatives are then stacked across sequences and re-ranked two
+ways: ``cross_rank_by_composite`` (unchanged, the jaccard-weighted
+composite) and ``cross_rank_by_ra_eff`` (tier-then-ra_eff, matching
+the same policy as the per-sequence pick) — see _assign_cross_ranks.
 
 Inputs
 ======
@@ -107,8 +112,7 @@ from typing import Dict, List, Optional, Tuple
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
-from extract_passing import extract_row as _extract_passing_row
-
+from extract_passing import extract_row as _extract_passing_row  # noqa: E402
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -268,6 +272,18 @@ def _within_sequence_rank(row: Dict) -> int:
     return v
 
 
+def _median_ra_eff(row: Dict) -> float:
+    """The row's ra_eff_vs_truth_median (ascending: lower = better).
+
+    Already stage-aware (extract_passing.extract_row sources it from
+    reverted_* for reversion-attempted rows, steered_* otherwise), so no
+    extra correction is needed here. Missing/unparseable -> +inf so such
+    rows sort last.
+    """
+    v = _try_float(row.get("ra_eff_vs_truth_median"))
+    return v if v is not None else float("inf")
+
+
 # ── Input parsing ────────────────────────────────────────────────────
 
 _SEQ_NAME_RE = re.compile(r"^[A-Za-z0-9_.+\-]+$")
@@ -322,18 +338,30 @@ def _parse_passing_summary_arg(arg: str, seq_name_mode: str
 # ── Core aggregation ─────────────────────────────────────────────────
 
 def _pick_representative(rows: List[Dict]) -> Optional[Dict]:
-    """Tier-then-composite pick for a single sequence's
-    passing_summary.csv rows.  Returns None for an empty input
-    (sequence had no passing designs)."""
+    """Tier-then-median pick for a single sequence's passing_summary.csv
+    rows.  Returns None for an empty input (sequence had no passing
+    designs).
+
+    Reliability first: a design where more seeds independently land the
+    same correct pose outranks one that merely has a lower median by
+    chance (tier order: A = all seeds pass > B = some > C = one > none).
+    Within a tier, rank by median ra_eff ascending — not the composite
+    score (true_jaccard - 0.05*ra_eff) previously used here, which can
+    let a design with a slightly better interface overlap outrank one
+    with a meaningfully better pose. Cross-sequence ranking downstream
+    still offers both cross_rank_by_composite and cross_rank_by_ra_eff
+    (see _assign_cross_ranks) — this only changes the WITHIN-sequence
+    pick of which single design represents that sequence.
+    """
     if not rows:
         return None
-    # Tag every row with its tier + within-seq rank, then pick the
-    # row that minimises (tier_order, within_seq_rank).
+    # Tag every row with its tier + median ra_eff, then pick the row
+    # that minimises (tier_order, median_ra_eff).
     tagged = []
     for r in rows:
         tier = _tier_for_row(r)
         tagged.append((_TIER_ORDER.get(tier, 99),
-                       _within_sequence_rank(r),
+                       _median_ra_eff(r),
                        tier,
                        r))
     tagged.sort(key=lambda t: (t[0], t[1]))

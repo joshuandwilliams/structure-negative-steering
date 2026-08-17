@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -32,7 +32,6 @@ if str(_SCRIPT_DIR) not in sys.path:
 from boltz_confidence import BoltzConfidenceMetrics  # noqa: E402
 from position_set import PositionSet  # noqa: E402
 from protein_structure_prediction import ProteinStructurePrediction  # noqa: E402
-
 
 VALID_STAGE_TYPES = frozenset(("cold_start", "steered", "reversion"))
 

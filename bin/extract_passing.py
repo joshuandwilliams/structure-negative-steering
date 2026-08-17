@@ -65,7 +65,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-
 # ── Output schema ────────────────────────────────────────────────────
 #
 # Median values throughout (those are the sortable / thresholdable
@@ -427,7 +426,7 @@ def extract_row(r, per_seed_rows=None):
     filters passing_summary.csv to {pose_holds, no_reversion, ""}
     only — pose_collapses and new_contamination never reach
     passing_summary.csv via the normal flow.  The bug surfaced once
-    cross_sequence_summary.py's tier-none fallback (added 2026-04-29)
+    cross_summary.py's tier-none fallback (added 2026-04-29)
     started reading aggregated_results.csv directly, which DOES
     contain those verdicts.
 
@@ -668,7 +667,7 @@ def main():
         # in this passing_summary.csv share one run_one invocation,
         # so the value is identical for each — repeating it per row
         # keeps the CSV self-contained and lets downstream
-        # cross_sequence_summary read it without a separate lookup.
+        # cross_summary read it without a separate lookup.
         out_row["run_one_runtime_sec"] = run_one_runtime_sec
         out_rows.append(out_row)
 

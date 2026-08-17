@@ -29,26 +29,23 @@ This type consolidates many existing implementations:
 
 from __future__ import annotations
 
-import math
+# Local import — PositionSet (Tier 1).
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-# Local import — PositionSet (Tier 1).
-import sys
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
-
-from position_set import PositionSet  # noqa: E402
-
 
 # Three-letter → one-letter AA map.  Single canonical home in
 # contig_utils.py (post-Phase-3); re-exported here for the
 # tests/characterization tests that reach in for it.  All other
 # callers should import from contig_utils directly.
 from contig_utils import THREE_TO_ONE  # noqa: E402, F401
+from position_set import PositionSet  # noqa: E402
 
 
 class ProteinStructurePrediction:
@@ -70,9 +67,9 @@ class ProteinStructurePrediction:
         if not self._path.is_file():
             raise FileNotFoundError(f"structure file not found: {self._path}")
         if not isinstance(receptor_chain, str) or not receptor_chain:
-            raise ValueError(f"receptor_chain must be non-empty string")
+            raise ValueError("receptor_chain must be non-empty string")
         if not isinstance(effector_chain, str) or not effector_chain:
-            raise ValueError(f"effector_chain must be non-empty string")
+            raise ValueError("effector_chain must be non-empty string")
         if receptor_chain == effector_chain:
             raise ValueError(
                 f"receptor_chain and effector_chain cannot both be "

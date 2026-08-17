@@ -30,7 +30,6 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from contig_spec import ContigSpec  # noqa: E402
 
-
 # Frames allowed in the codebase today.  Locked-down list rather than a
 # free-form string so typos at construction surface as a clear error
 # instead of silently disabling cross-frame checks downstream.

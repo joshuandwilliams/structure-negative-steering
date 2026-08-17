@@ -54,7 +54,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-
 from contig_utils import THREE_TO_ONE
 
 # Module-level constants.  Also redefined as local variables inside
@@ -70,7 +69,7 @@ EFFECTOR_INTACT_CUTOFF = 5.0   # Å Cα RMSD vs ground truth
 # boltz2_verify_binding.compute_binding_rmsds — i.e. sequence-aligned
 # Kabsch on receptor Cα pairs, then apply that transform rigidly to
 # the effector and compute the receptor-aligned effector RMSD.
-from collections import defaultdict
+from collections import defaultdict  # noqa: E402
 
 # BioPython is required for sequence-aligned residue pairing (matches
 # what the rest of the pipeline does).  Boltz1 / Boltz2 containers
@@ -326,7 +325,7 @@ def extract_sequences_gemmi(path):
 
 def extract_sequences_biopython(path):
     """Fallback: extract sequences using BioPython."""
-    from Bio.PDB import PDBParser, MMCIFParser
+    from Bio.PDB import MMCIFParser, PDBParser
 
     if path.endswith(".cif") or path.endswith(".mmcif"):
         parser = MMCIFParser(QUIET=True)
@@ -384,14 +383,14 @@ def get_chain_sequence(pdb_path: Path, chain_id: str) -> str:
     """Extract sequence for a specific chain from a PDB file."""
     chains = extract_sequences(str(pdb_path))
     chain_map = {c["id"]: c["sequence"] for c in chains}
-    
+
     if chain_id not in chain_map:
         available = list(chain_map.keys())
         raise ValueError(
             f"Chain {chain_id} not found in {pdb_path}. "
             f"Available chains: {available}"
         )
-    
+
     return chain_map[chain_id]
 
 
@@ -707,6 +706,7 @@ def write_boltz_yaml(
     eff_chain: str,
     effector_template_cif: Path = None,
     template_threshold: float = 1.0,
+    constraints_block: Optional[List[str]] = None,
 ) -> Path:
     """Minimal Boltz2 YAML: two protein chains, single-seq A3Ms.
 
@@ -721,6 +721,10 @@ def write_boltz_yaml(
     the pipeline writes: nested inside the protein chain definition,
     with chain_id and template_id as bare strings (NOT bracketed
     lists), and the force/threshold pair gating the steering.
+
+    If `constraints_block` is given (pre-rendered YAML lines, see
+    ``build_benchmark_style_constraints_block``), it is appended as a
+    top-level ``constraints:`` key.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -754,6 +758,12 @@ def write_boltz_yaml(
             "          force: true",
             f"          threshold: {template_threshold}",
         ])
+
+    if constraints_block:
+        # Top-level key, sibling of "sequences:" — matches how the
+        # benchmarking repo appends constraints.yaml to its input.yaml.
+        yaml_lines.append("constraints:")
+        yaml_lines.extend(constraints_block)
 
     yaml_lines.append("")
     yaml_path = out_dir / "input.yaml"
@@ -1085,6 +1095,143 @@ def find_contact_residues_heavy(
 
     contacts.sort(key=lambda t: t[1])
     return contacts
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Benchmark-style Boltz-2 constraints (pocket + dense contact)
+# ───────────────────────────────────────────────────────────────────────
+# Ported from structure-prediction-benchmarking's BOLTZ2_CONSTRAINED
+# process (modules/boltz2.nf + bin/extract_constraints_boltz2.py):
+# Cα-Cα pocket + contact restraints derived once from the ground-truth
+# complex, steering every Boltz-2 prediction toward the true binding
+# pose. The thresholds below are the benchmark's own fixed defaults —
+# kept fixed here too, rather than exposed as knobs, so "benchmark-
+# style steering" means the same thing in both repos.
+_BOLTZ_CONSTRAINT_CONTACT_CUTOFF = 10.0
+_BOLTZ_CONSTRAINT_CONTACT_MAX = 50
+_BOLTZ_CONSTRAINT_CONTACT_TOLERANCE = 0.0
+_BOLTZ_CONSTRAINT_POCKET_CUTOFF = 8.0
+_BOLTZ_CONSTRAINT_POCKET_MAX_DISTANCE = 8.0
+
+
+def _ca_token_map(atoms: List[CAEntry]) -> Dict[int, np.ndarray]:
+    """{1-based Boltz token index: Cα xyz} for one chain's CAEntry list.
+
+    seq_index is 0-based per-chain file order (see read_ca_atoms);
+    Boltz numbers a chain's tokens 1..N in that same file order, so
+    the token index is seq_index + 1.
+    """
+    return {a.seq_index + 1: a.xyz for a in atoms}
+
+
+def pocket_residues_ca(
+    rec_ca: Dict[int, np.ndarray], eff_ca: Dict[int, np.ndarray], cutoff: float
+) -> List[int]:
+    """Receptor token indices with any Cα within `cutoff` Å of an
+    effector Cα.  Sorted ascending."""
+    eff_xyz = np.stack(list(eff_ca.values()))
+    selected = []
+    for tok, xyz in rec_ca.items():
+        d = np.sqrt(((eff_xyz - xyz) ** 2).sum(axis=1))
+        if float(d.min()) <= cutoff:
+            selected.append(tok)
+    return sorted(selected)
+
+
+def contact_pairs_ca(
+    rec_ca: Dict[int, np.ndarray], eff_ca: Dict[int, np.ndarray],
+    cutoff: float, max_pairs: int,
+) -> List[Tuple[int, int, float]]:
+    """Closest inter-chain Cα-Cα token pairs within `cutoff` Å, sorted
+    by distance ascending and truncated to `max_pairs`."""
+    pairs = []
+    for r_tok, r_xyz in rec_ca.items():
+        for e_tok, e_xyz in eff_ca.items():
+            d = float(np.linalg.norm(r_xyz - e_xyz))
+            if d <= cutoff:
+                pairs.append((r_tok, e_tok, d))
+    pairs.sort(key=lambda t: t[2])
+    return pairs[:max_pairs]
+
+
+def _format_boltz_pocket_block(
+    rec_chain: str, eff_chain: str, residues: List[int], max_distance: float
+) -> str:
+    contacts_str = ", ".join(f"[{rec_chain}, {r}]" for r in residues)
+    return "\n".join([
+        "  - pocket:",
+        f"      binder: {eff_chain}",
+        f"      contacts: [{contacts_str}]",
+        f"      max_distance: {max_distance}",
+        "      force: true",
+    ])
+
+
+def _format_boltz_contact_block(
+    rec_chain: str, eff_chain: str, rec_tok: int, eff_tok: int, max_distance: float
+) -> str:
+    return "\n".join([
+        "  - contact:",
+        f"      token1: [{rec_chain}, {rec_tok}]",
+        f"      token2: [{eff_chain}, {eff_tok}]",
+        f"      max_distance: {max_distance}",
+        "      force: true",
+    ])
+
+
+def build_benchmark_style_constraints_block(
+    ground_truth: Path,
+    truth_rec_chain: str,
+    truth_eff_chain: str,
+    pred_rec_chain: str,
+    pred_eff_chain: str,
+) -> List[str]:
+    """Pocket + contact constraint lines for write_boltz_yaml's
+    `constraints_block`, derived once from the ground-truth complex —
+    same geometry and thresholds as the benchmarking repo's
+    BOLTZ2_CONSTRAINED process.
+
+    Geometry (which residues/pairs) comes from the ground truth's own
+    chain IDs; the emitted labels use the PREDICTION chain IDs
+    (PRED_REC_CHAIN/PRED_EFF_CHAIN) since that's what the constraints
+    must reference inside the Boltz input.yaml they're appended to.
+    """
+    atoms = read_ca_atoms(ground_truth)
+    rec_atoms = [a for a in atoms if a.chain == truth_rec_chain]
+    eff_atoms = [a for a in atoms if a.chain == truth_eff_chain]
+    if not rec_atoms:
+        raise ValueError(f"No Cα atoms for receptor chain {truth_rec_chain} in {ground_truth}")
+    if not eff_atoms:
+        raise ValueError(f"No Cα atoms for effector chain {truth_eff_chain} in {ground_truth}")
+
+    rec_ca = _ca_token_map(rec_atoms)
+    eff_ca = _ca_token_map(eff_atoms)
+
+    pocket = pocket_residues_ca(rec_ca, eff_ca, _BOLTZ_CONSTRAINT_POCKET_CUTOFF)
+    contacts = contact_pairs_ca(
+        rec_ca, eff_ca, _BOLTZ_CONSTRAINT_CONTACT_CUTOFF, _BOLTZ_CONSTRAINT_CONTACT_MAX
+    )
+    if not pocket and not contacts:
+        raise ValueError(
+            f"No benchmark-style constraints generated from {ground_truth} "
+            f"(chains {truth_rec_chain}/{truth_eff_chain}) — check chain IDs."
+        )
+
+    lines = []
+    if pocket:
+        lines.append(_format_boltz_pocket_block(
+            pred_rec_chain, pred_eff_chain, pocket, _BOLTZ_CONSTRAINT_POCKET_MAX_DISTANCE,
+        ))
+    for r_tok, e_tok, d in contacts:
+        max_d = round(d + _BOLTZ_CONSTRAINT_CONTACT_TOLERANCE, 1)
+        lines.append(_format_boltz_contact_block(
+            pred_rec_chain, pred_eff_chain, r_tok, e_tok, max_d,
+        ))
+
+    print(f"  Benchmark-style Boltz constraints: {len(pocket)} pocket residue(s), "
+          f"{len(contacts)} contact pair(s) (from {ground_truth.name} "
+          f"{truth_rec_chain}/{truth_eff_chain})")
+    return lines
 
 
 def _load_true_interface_indices(
@@ -1489,7 +1636,7 @@ def _write_initial_multiseed_csv(
     → _per_seed_verdict_breakdown classifies them as clean_steered
     (patch a).  No reversion runs (no contamination to revert) →
     _classify_outcome returns ("no_reversion", ...) →
-    cross_sequence_summary places the row in tier A.
+    cross_summary places the row in tier A.
 
     Per-seed interface metrics (P0 fix, follow-up to jaccard-empty-
     wrong fix):  jaccard / n_shared_true / n_design_interface_residues
@@ -1848,8 +1995,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
         if not path.exists():
             print(f"ERROR: --{label.lower()}-fasta path does not exist: {path}")
             raise SystemExit(1)
-        lines = [l.strip() for l in path.read_text().splitlines() if l.strip()]
-        seq = "".join(l for l in lines if not l.startswith(">"))
+        lines = [line.strip() for line in path.read_text().splitlines() if line.strip()]
+        seq = "".join(line for line in lines if not line.startswith(">"))
         if not seq:
             print(f"ERROR: --{label.lower()}-fasta is empty: {path}")
             raise SystemExit(1)
@@ -1900,6 +2047,23 @@ def cmd_plan(args: argparse.Namespace) -> int:
         eff_template_path = None
         print("  Effector template DISABLED (--no-effector-template)")
 
+    # Benchmark-style pocket + contact constraints (--boltz-constraints).
+    # Computed once here from the ground truth and reused verbatim for
+    # EVERY Boltz-2 prediction in this run (initial, cold-start extra
+    # seeds, every steered design) — and persisted to plan.json so later
+    # cycles (cmd_iterate_plan) and reversion validation inherit the
+    # same block instead of recomputing it.
+    constraints_block: Optional[List[str]] = None
+    if args.boltz_constraints:
+        try:
+            constraints_block = build_benchmark_style_constraints_block(
+                args.ground_truth, args.receptor_chain, args.effector_chain,
+                PRED_REC_CHAIN, PRED_EFF_CHAIN,
+            )
+        except Exception as e:
+            print(f"ERROR: Benchmark-style Boltz constraints failed: {e}")
+            return 1
+
     # Write initial wild-type YAML using the canonical A/B prediction
     # chains (NOT the user's truth chain IDs).
     init_dir = workdir / "initial"
@@ -1908,6 +2072,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         rec_seq, eff_seq,
         PRED_REC_CHAIN, PRED_EFF_CHAIN,
         effector_template_cif=eff_template_path,
+        constraints_block=constraints_block,
     )
     print(f"  Wrote wild-type YAML: {yaml_path}")
 
@@ -1968,6 +2133,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
                 rec_seq, eff_seq,
                 PRED_REC_CHAIN, PRED_EFF_CHAIN,
                 effector_template_cif=eff_template_path,
+                constraints_block=constraints_block,
             )
             # boltz_seed = args.seed + extra_idx; matches the offset
             # convention used downstream for steered designs (which
@@ -2097,6 +2263,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
         "mode": args.mode,
         "effector_template_cif":
             str(eff_template_path.resolve()) if eff_template_path else None,
+        # Persisted so cmd_iterate_plan (later cycles) and the
+        # reversion-validation pass reuse the SAME constraint block
+        # rather than recomputing it — see build_benchmark_style_constraints_block.
+        "boltz_constraints_block": constraints_block,
         "n_designs": args.n_designs,
         "num_seeds": args.num_seeds,
         "boltz_container": args.boltz_container,
@@ -2195,7 +2365,6 @@ def cmd_plan(args: argparse.Namespace) -> int:
         print(f"ERROR: Wrong-interface detection failed: {e}")
         return 1
     predicted_wrong_idx = sorted(i for i, _ in wrong_contacts)
-    wrong_dist = {i: d for i, d in wrong_contacts}
     print(f"  {len(predicted_wrong_idx)} receptor residues at the wrong interface")
 
     # ── Surface-pointing test on every wrong-interface residue ──────
@@ -2754,6 +2923,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
                     mutated_seq, eff_seq,
                     PRED_REC_CHAIN, PRED_EFF_CHAIN,
                     effector_template_cif=eff_template_path,
+                    constraints_block=constraints_block,
                 )
 
                 # Seed: base_seed + design_idx + 1 (unique per prediction)
@@ -2804,7 +2974,7 @@ def cmd_predict_one(args: argparse.Namespace) -> int:
     d = Path(design["dir"])
     yaml_path = Path(design["yaml"])
 
-    # ── Resume (LOCAL PATCH — see engine/_LOCAL_PATCHES.md) ─────────────────
+    # ── Resume ──────────────────────────────────────────────────────────────
     # Large standalone-benchmark complexes can outrun the SLURM walltime; on
     # resubmit the plan stage re-derives the SAME (seeded-rng) designs, so a
     # design already predicted on disk can be reused instead of re-run. Guard
@@ -3315,6 +3485,15 @@ def build_parser() -> argparse.ArgumentParser:
                     dest="effector_template", action="store_false",
                     help="Disable the effector template (sequence-only "
                          "Boltz prediction for both chains).")
+    pp.add_argument("--boltz-constraints",
+                    dest="boltz_constraints", action="store_true", default=False,
+                    help="Add the same pocket + dense-contact constraints used "
+                         "by structure-prediction-benchmarking's BOLTZ2_CONSTRAINED "
+                         "(Cα pocket ≤8Å + up to 50 contact pairs ≤10Å, derived "
+                         "once from the ground-truth complex) to EVERY Boltz-2 "
+                         "prediction in this run — initial, cold-start extra "
+                         "seeds, all steered designs, every later cycle, and "
+                         "reversion validation. Off by default.")
     pp.add_argument("--n-designs", type=int, default=10)
     pp.add_argument("--num-seeds", type=int, default=1,
                     help="Number of independent Boltz seeds per unique "

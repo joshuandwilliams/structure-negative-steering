@@ -614,6 +614,11 @@ def cmd_iterate_plan(args: argparse.Namespace) -> int:
         Path(cycle0_plan["effector_template_cif"])
         if cycle0_plan.get("effector_template_cif") else None
     )
+    # Benchmark-style constraints (--boltz-constraints), inherited
+    # verbatim from cycle 0 so every cycle in the pathway steers with
+    # the SAME pocket/contact block — see
+    # boltz2_negative_steering.build_benchmark_style_constraints_block.
+    boltz_constraints_block = cycle0_plan.get("boltz_constraints_block")
 
     # Run heavy-atom contact detection on the parent prediction to
     # find the NEW wrong interface.  expected_rec_seq is the parent's
@@ -712,6 +717,7 @@ def cmd_iterate_plan(args: argparse.Namespace) -> int:
         "candidate_pool_size": pool_size,
         "mode": mode,
         "effector_template_cif": str(eff_template_cif) if eff_template_cif else None,
+        "boltz_constraints_block": boltz_constraints_block,
         "n_designs": n_designs,
         "num_seeds": num_seeds,
         "boltz_container": boltz_container,
@@ -756,11 +762,11 @@ def cmd_iterate_plan(args: argparse.Namespace) -> int:
     if eff_override_path:
         try:
             lines = [
-                l.strip()
-                for l in Path(eff_override_path).read_text().splitlines()
-                if l.strip()
+                line.strip()
+                for line in Path(eff_override_path).read_text().splitlines()
+                if line.strip()
             ]
-            eff_seq = "".join(l for l in lines if not l.startswith(">"))
+            eff_seq = "".join(line for line in lines if not line.startswith(">"))
             print(f"  effector seq: OVERRIDE from {eff_override_path} "
                   f"({len(eff_seq)} residues)")
         except Exception as e:
@@ -828,6 +834,7 @@ def cmd_iterate_plan(args: argparse.Namespace) -> int:
                 mutated_seq, eff_seq,
                 pred_rec_chain, pred_eff_chain,
                 effector_template_cif=eff_template_cif,
+                constraints_block=boltz_constraints_block,
             )
 
             boltz_seed = plan["seed"] + design_idx + 1
@@ -1765,8 +1772,8 @@ def cmd_iterate_collect_finalize(args: argparse.Namespace) -> int:
                 try:
                     reverted_seq = reverted_fasta.read_text().splitlines()
                     reverted_seq = "".join(
-                        l.strip() for l in reverted_seq
-                        if l.strip() and not l.startswith(">")
+                        line.strip() for line in reverted_seq
+                        if line.strip() and not line.startswith(">")
                     )
                     (design_workdir / "receptor.fasta").write_text(
                         f">receptor_reverted\n{reverted_seq}\n"
@@ -2345,8 +2352,8 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
                 try:
                     seq_lines = reverted_fasta.read_text().splitlines()
                     reverted_seq = "".join(
-                        l.strip() for l in seq_lines
-                        if l.strip() and not l.startswith(">")
+                        line.strip() for line in seq_lines
+                        if line.strip() and not line.startswith(">")
                     )
                     (design_workdir / "receptor.fasta").write_text(
                         f">receptor_reverted\n{reverted_seq}\n"
@@ -2598,8 +2605,8 @@ def cmd_plan_reversions(args: argparse.Namespace) -> int:
     script_dir = SCRIPT_DIR
     if str(script_dir) not in sys.path:
         sys.path.insert(0, str(script_dir))
-    from boltz2_negative_steering import get_chain_sequence  # type: ignore
     import reversion  # type: ignore
+    from boltz2_negative_steering import get_chain_sequence  # type: ignore
 
     ground_truth = Path(plan["ground_truth"])
     truth_eff_chain = plan["truth_effector_chain"]
@@ -2624,6 +2631,7 @@ def cmd_plan_reversions(args: argparse.Namespace) -> int:
         "pred_effector_chain": plan.get("pred_effector_chain", "B"),
         "base_seed": int(plan.get("seed", 0)),
         "num_seeds": int(plan.get("num_seeds", 1)),
+        "boltz_constraints_block": plan.get("boltz_constraints_block"),
     }
 
     n = len(contaminated_list)
@@ -4335,7 +4343,7 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
         # ── Compute reverted_mutations_chimerax / _aa / _total for ──
         # pose_holds rows: cumulative mutation set minus the positions
         # that were reverted.  All other rows leave these blank.
-        # The reversion data lives in cycle_N/(pathway_<label>/)? 
+        # The reversion data lives in cycle_N/(pathway_<label>/)?
         # reversion_results.json keyed by pathway label.
         _populate_reverted_mutations(rows, experiment_root)
 

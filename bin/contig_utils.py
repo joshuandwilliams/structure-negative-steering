@@ -14,7 +14,6 @@ Provides functions to:
 
 import sys
 
-
 # Three-letter to one-letter amino acid map.  Covers the 20 standard
 # residues plus common non-standard / modified codes encountered in PDB
 # and mmCIF files (selenomethionine MSE, selenocysteine SEC, pyrrolysine
@@ -79,8 +78,11 @@ def parse_block_segments(block, rec_chain=None, pdb_path=None):
     from pathlib import Path as _Path
     _sys.path.insert(0, str(_Path(__file__).resolve().parent))
     from contig_spec import (  # noqa: E402
-        ContigSpec, FixedSegment, DeNovoSegment,
-        BreakSegment, PassthroughSegment,
+        BreakSegment,
+        ContigSpec,
+        DeNovoSegment,
+        FixedSegment,
+        PassthroughSegment,
     )
 
     # ContigSpec.from_string parses multi-chain space-separated blocks.

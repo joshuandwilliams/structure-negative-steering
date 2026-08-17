@@ -2,22 +2,16 @@
 """
 negsteer_within_sequence_plots.py
 ---------------------------------
-Production within-sequence (per-seed) plot script for negative
-steering (Task 43).  Invoked from
-modules/negative_steering.nf::NEGSTEER_WITHIN_SEQUENCE_PLOTS.
+Within-sequence (per-seed) dispersion plots. Companion to
+negsteer_plots.py, which plots cohort-level summaries. This one shows
+the spread of seeds within each sequence, so a cohort median can be
+checked against the seeds behind it.
 
-Lifted verbatim from
-tests/negative_steering/test_negsteer_within_sequence_plots.py;
-the only difference is this header.  The two scripts must stay in
-sync; when iterating on plots, edit the test script first, validate
-against real cluster data, then mirror the changes here.
-
-Reads per-sequence raw_per_seed_results.csv files from the runs/
-directory of a previous test_negative_steering run.  Each CSV holds
-one row per Boltz seed prediction; this script visualises that
-per-seed dispersion across the cohort so you can see whether
-cohort-level medians (in cross_sequence_summary.csv) are trustworthy
-or driven by a single rogue seed.
+Reads each run's raw_per_seed_results.csv from the runs/ directory.
+Each CSV holds one row per Boltz seed prediction. The plots show that
+per-seed dispersion across the cohort, so a cohort-level median in
+cross_sequence_summary.csv can be told apart from one driven by a
+single rogue seed.
 
 The "final" prediction for each seed is verdict-aware: when reversion
 ran (verdict in pose_holds / pose_collapses / new_contamination) the
@@ -33,7 +27,8 @@ negsteer_per_seed_dispersion_overview.png
     representative sequence_group.  X = ra_eff (final), Y =
     true_jaccard (final).  Shape encodes which stage produced the
     final prediction (circle = cold-start, square = steering, triangle
-    = reversion); colour encodes tier.
+    = reversion)
+    colour encodes tier.
 
 negsteer_per_seed_dispersion_grid.png
     Small-multiples grid, one panel per MPNN sequence, sorted by
@@ -46,7 +41,8 @@ negsteer_per_design_stage_trajectories.png
     One panel per RFDiffusion design.  X-axis: stage (cold-start →
     steering → reversion).  One line per (MPNN sequence, sg, seed)
     showing ra_eff at each stage where data exists.  Cold-start point
-    is shared across seeds (single pre-steering prediction); steered
+    is shared across seeds (single pre-steering prediction)
+    steered
     and reverted points are per-seed.  Marker placed on the FINAL
     stage.  Lines coloured by MPNN sequence number (so seq 3 is the
     same colour wherever it appears across designs).  Dashed line at
@@ -62,8 +58,10 @@ negsteer_composite_vs_confidence.png
     Multi-panel scatter.  Per panel: X = a confidence metric (median
     across the representative sg's seeds, per MPNN sequence), Y =
     composite score (per MPNN sequence).  Bounded [0, 1] metrics are
-    shown on a fixed 0-1 axis; pLDDT is shown on its native 0-100
-    scale; ipae and pae_mean autoscale.  Threshold lines drawn for
+    shown on a fixed 0-1 axis
+    pLDDT is shown on its native 0-100
+    scale
+    ipae and pae_mean autoscale.  Threshold lines drawn for
     the 4 gating metrics (complex_pLDDT, ipTM, ipae, pae_pass_frac).
 
 Usage
@@ -74,7 +72,8 @@ Usage
         --outdir tests/negative_steering/receptor_resurfacing_results/plots_iter
 
 Sequences with no raw_per_seed_results.csv (or empty CSVs) are
-silently skipped.  Controls (input_control_*) are excluded; the
+silently skipped.  Controls (input_control_*) are excluded
+the
 within-sequence plots are about per-seed dispersion of steered
 sequences, not control behaviour.
 """
@@ -90,14 +89,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import matplotlib
 import numpy as np
 
-import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-
 
 # ── Styling (mirrors cohort script for consistency) ─────────────────────
 COLOUR_TIER = {
@@ -399,14 +397,6 @@ def load_cohort_seeds(
             except (TypeError, ValueError):
                 seed_idx = 0
 
-            # Also capture per-stage values for trajectory plot.
-            cs_ra = _try_float(row.get("steered_ra_eff_vs_truth")) \
-                    if stage == "cold_start" else None
-            st_ra = _try_float(row.get("steered_ra_eff_vs_truth")) \
-                    if stage in ("steering", "reversion") else None
-            rev_ra = _try_float(row.get("reverted_ra_eff_vs_truth")) \
-                     if stage == "reversion" else None
-
             rec = {
                 "seed": seed_idx, "sg": sg,
                 "stage": stage, "outcome": outcome,
@@ -484,7 +474,8 @@ def plot_dispersion_overview(rep_seeds, tiers, out_path):
             ax.scatter(ra, tj, marker=marker, s=80, c=colour,
                        edgecolor="black", linewidth=0.5, alpha=0.85,
                        zorder=3)
-            seen_tiers.add(tier); seen_stages.add(stage)
+            seen_tiers.add(tier)
+            seen_stages.add(stage)
 
     ax.set_xlabel("Receptor Aligned Effector RMSD (Å, final)", fontsize=11)
     ax.set_ylabel("Interface Jaccard (final)", fontsize=11)
@@ -515,7 +506,8 @@ def plot_dispersion_overview(rep_seeds, tiers, out_path):
 def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
     """Small-multiples: one panel per MPNN sequence, scatter of ALL
     its seeds (across all sgs) — ra_eff (final) vs true_jaccard
-    (final).  Non-representative seeds are drawn in grey; the
+    (final).  Non-representative seeds are drawn in grey
+    the
     representative sg's seeds are coloured green (pass) or red (fail)
     based on whether ra_eff < 5 Å.  Vertical line at ra_eff = 5.
     Sorted by composite descending."""
@@ -538,8 +530,10 @@ def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
     all_ra, all_tj = [], []
     for seeds in all_seeds.values():
         for s in seeds:
-            if s["ra_final"] is not None: all_ra.append(s["ra_final"])
-            if s["tj_final"] is not None: all_tj.append(s["tj_final"])
+            if s["ra_final"] is not None:
+                all_ra.append(s["ra_final"])
+            if s["tj_final"] is not None:
+                all_tj.append(s["tj_final"])
     if not all_ra:
         return
     x_max = max(all_ra) * 1.05
@@ -552,7 +546,8 @@ def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
 
     for i, ax in enumerate(axes_flat):
         if i >= n:
-            ax.set_axis_off(); continue
+            ax.set_axis_off()
+            continue
         name = names[i]
         seeds = all_seeds.get(name, [])
         tier = tiers.get(name, "none")
@@ -639,7 +634,8 @@ def plot_stage_trajectories(all_seeds, tiers, cold_baseline, out_path):
     """Panel per RFDiffusion design.  X-axis: stage (cold-start →
     steered → reverted).  One line per (MPNN sequence, sg, seed).
     Cold-start point is shared across all seeds of a sequence (it's
-    a single pre-steering prediction); steering and reversion points
+    a single pre-steering prediction)
+    steering and reversion points
     are per-seed.  Marker on the FINAL stage.  Lines coloured by MPNN
     sequence number (so seq 3 is the same colour wherever it appears
     across designs)."""
@@ -673,14 +669,16 @@ def plot_stage_trajectories(all_seeds, tiers, cold_baseline, out_path):
         for s in seeds:
             for k in ("steered_ra_raw", "reverted_ra_raw"):
                 v = s.get(k)
-                if v is not None: all_ra.append(v)
+                if v is not None:
+                    all_ra.append(v)
     if not all_ra:
         return
     y_max = max(all_ra) * 1.05
 
     for i, ax in enumerate(axes_flat):
         if i >= n:
-            ax.set_axis_off(); continue
+            ax.set_axis_off()
+            continue
         design = designs[i]
         seq_names = sorted(by_design[design])
 
@@ -767,14 +765,16 @@ def plot_weighted_vs_true_jaccard(rep_seeds, tiers, out_path):
             ax.scatter(tj + jx, wj + jy, s=70, c=colour,
                        edgecolor="black", linewidth=0.5, alpha=0.85,
                        zorder=3)
-            seen_tiers.add(tier); n_total += 1
+            seen_tiers.add(tier)
+            n_total += 1
     if n_total == 0:
         ax.text(0.5, 0.5, "No weighted_jaccard data available",
                 ha="center", va="center", transform=ax.transAxes,
                 fontsize=12, color="grey")
     ax.plot([0, 1], [0, 1], color="grey", linestyle="--",
             linewidth=0.8, alpha=0.7, zorder=1)
-    ax.set_xlim(-0.05, 1.05); ax.set_ylim(-0.05, 1.05)
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_ylim(-0.05, 1.05)
     ax.set_xlabel("True Jaccard (final prediction)", fontsize=11)
     ax.set_ylabel("Weighted Jaccard (final prediction)", fontsize=11)
     ax.set_title(f"Weighted vs True Jaccard\n"
@@ -796,7 +796,8 @@ def plot_weighted_vs_true_jaccard(rep_seeds, tiers, out_path):
 # ── Plot 4: composite vs confidence metrics ─────────────────────────────
 def plot_composite_vs_confidence(rep_seeds, composites, tiers, out_path):
     """Multi-panel scatter: composite (y) vs each confidence metric (x).
-    One point per MPNN sequence (composite is per-sequence; confidence
+    One point per MPNN sequence (composite is per-sequence
+    confidence
     metric is the median across that sequence's representative
     seeds).  Colour by tier.
 
@@ -849,19 +850,22 @@ def plot_composite_vs_confidence(rep_seeds, composites, tiers, out_path):
     seen_tiers = set()
     for i, ax in enumerate(axes_flat):
         if i >= n:
-            ax.set_axis_off(); continue
+            ax.set_axis_off()
+            continue
         key, label, thresh, _cmp, xlim = metrics_present[i]
         xs, ys, cols = [], [], []
         for name, rec in seq_data.items():
             if key not in rec:
                 continue
-            xs.append(rec[key]); ys.append(rec["composite"])
+            xs.append(rec[key])
+            ys.append(rec["composite"])
             cols.append(COLOUR_TIER.get(rec["tier"], "#B0B0B0"))
             seen_tiers.add(rec["tier"])
         if not xs:
             ax.text(0.5, 0.5, "no data", ha="center", va="center",
                     transform=ax.transAxes, fontsize=9, color="grey")
-            ax.set_title(label, fontsize=10); continue
+            ax.set_title(label, fontsize=10)
+            continue
         ax.scatter(xs, ys, s=60, c=cols, edgecolor="black",
                    linewidth=0.4, alpha=0.85, zorder=3)
         if thresh is not None:

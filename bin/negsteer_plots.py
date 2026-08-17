@@ -2,18 +2,11 @@
 """
 negsteer_plots.py
 -----------------
-Production cohort plot script for negative steering (Task 43).
+Cohort-level plots for a negative-steering cohort.
 
-Reads cross_sequence_summary.csv produced by NEGSTEER_CROSS_SEQUENCE
-and emits the diagnostic plot suite to --outdir.  Invoked from
-modules/negative_steering.nf::NEGSTEER_PLOTS.
-
-Lifted verbatim from tests/negative_steering/test_negsteer_plots.py;
-the only differences are (a) the test-path fallback in
-_resolve_csv_path is removed (production always passes --csv
-explicitly) and (b) this header.  The two scripts must stay in sync;
-when iterating on plots, edit the test script first, validate against
-real cluster data, then mirror the changes here.
+Reads the cross_sequence_summary.csv written by CROSS_SUMMARY and emits
+the diagnostic plot suite to --outdir. The analyses under analysis/ call
+the figure helpers directly rather than running this as a script.
 
 Plots produced
 --------------
@@ -85,15 +78,14 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import matplotlib
 import numpy as np
 
-import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
-
 
 # ── Threshold defaults ────────────────────────────────────────────────────
 # Default values mirror extract_passing._compute_confidence_flag.
@@ -234,7 +226,7 @@ def _project_agg_row(seq_name: str, agg_row: Dict, row_type: str = "steered") ->
     """Convert an aggregated_results.csv row into a cross_summary-shaped
     dict.  Only minimal columns needed by the plots are populated.
     Tier defaults to 'none' (cross_tier is computed by
-    cross_sequence_summary.py post-passing-filter, so a non-passing
+    cross_summary.py post-passing-filter, so a non-passing
     sequence gets no tier)."""
     out = {
         "mpnn_sequence": seq_name,
