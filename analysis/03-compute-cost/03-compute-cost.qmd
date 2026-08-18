@@ -206,9 +206,10 @@ they overlap, so the axis is comparable across every point. It is host RAM, not
 VRAM, which is usually the real constraint.
 
 Reference-restrained points share the No MSA colour, as they are a no-MSA variant,
-and carry `(constr)` in their label. The two steering points carry a bare
-steering-set count, which the legend spells out, because that count is what
-separates them.
+and carry `(constr)` in their label. Only the 20-set benchmark cohort is plotted.
+The 3-set point is measured on the campaign rather than on the 18 benchmark
+targets, so it is not comparable with the predictors it would sit beside. Its
+cost is reported in the per-run section above.
 
 ```{python}
 SCATTER_COLOR = {"no_msa": VARIANT_COLOR["no_msa"], "restraints": VARIANT_COLOR["no_msa"],
@@ -216,7 +217,8 @@ SCATTER_COLOR = {"no_msa": VARIANT_COLOR["no_msa"], "restraints": VARIANT_COLOR[
 SCATTER_LEGEND = [("no_msa", "No MSA"), ("msa", "MSA"),
                   ("negsteer", "Negative steering\n(steering sets)")]
 
-med2 = (rt.groupby(["model", "variant"])
+med2 = (rt[rt["model"] != NEGSTEER_3]
+          .groupby(["model", "variant"])
           .agg(runtime=("elapsed_min", "median"),
                memory=("peak_rss_gb", "median"))
           .reset_index())
@@ -270,12 +272,9 @@ save_fig(fig, "compute_cost_tradeoff")
 plt.show()
 ```
 
-- Negative steering costs no more memory than the Boltz-2 it wraps, 4.6 to 5.1
-  GB against 5.0 GB unsteered. Memory is set by the prediction model, so the
+- Negative steering costs no more memory than the Boltz-2 it wraps, 4.6 GB
+  against 5.0 GB unsteered. Memory is set by the prediction model, so the
   engine's extra stages are not what bounds how many can run at once.
-- The two steering points sit an order of magnitude apart in wall-clock and on
-  top of each other in memory, which is the sampling-depth difference of the
-  previous section seen on a second axis.
 - At 20 steering sets it lands next to AlphaFold2-Multimer in wall-clock while
   using roughly a fifth of the memory, so under a memory cap it parallelises far
   better than that comparison alone suggests.
