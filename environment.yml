@@ -38,6 +38,10 @@ dependencies:
   # Without these, `quarto render` cannot start a kernel for a .qmd.
   - ipykernel=7.2.0
   - jupyter_client=8.8.0
+  # Quarto's own jupyter.py imports these directly, so a render fails at kernel
+  # startup without them even though the kernel packages above are present.
+  - nbformat=5.11.0
+  - nbclient=0.11.0
 
   # ----- structure parsing, used by scripts/prepare_complex_inputs.py -----
   # The engine takes gemmi OR biopython. Both are pinned so the derived
