@@ -273,3 +273,33 @@ def test_a_receptor_override_of_the_right_length_is_accepted(tmp_path):
 
     work = tmp_path / "work"
     assert _run_plan(work, GT, "--receptor-fasta", str(override)) == 0
+
+
+# ── what the method is and is not blind to ───────────────────────────────────
+
+@pytest.mark.local_unit
+def test_every_protected_set_source_includes_the_true_interface():
+    """The scope of the method's claim, pinned to the code that sets it.
+
+    The wrong interface is read off the prediction, so that half needs no
+    answer. The protected set is not blind: both sources include the true
+    interface, design_region_union being true interface UNION design region
+    rather than the design region alone. So the residues the engine may mutate
+    are always the predicted contacts minus a truth-derived set.
+
+    The README and the analyses state this. If a source is ever added that
+    excludes the true interface, the claim becomes wrong in the other
+    direction and the prose needs revisiting, which is what this catches.
+    """
+    src = (_REPO_ROOT / "bin" / "boltz2_negative_steering.py").read_text()
+    start = src.index("protected_source = getattr")
+    end = src.index('plan["protected_set_source"]')
+    assignments = src[start:end].split("protected_set =")[1:]
+
+    assert assignments, "the protected-set block moved; this test is stale"
+    for branch in assignments:
+        head = branch.split("\n")[0]
+        assert "true_set" in head, (
+            f"a protected-set branch omits the true interface: {head.strip()!r}. "
+            "If that is deliberate, the blindness claim in README.md and "
+            "analysis/02-model-choice needs updating with it.")

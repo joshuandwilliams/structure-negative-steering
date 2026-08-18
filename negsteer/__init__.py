@@ -1,8 +1,10 @@
 """Negative steering as a callable tool.
 
 Mutates the receptor surface residues a prediction wrongly places in contact
-with the effector, so the model can no longer settle there and has to find the
-real interface instead.
+with the effector, so the model can no longer settle there. Residues at the
+interface the caller intends to keep are protected, via --true-interface, so
+what is removed is a competing site rather than the intended one. The method
+is never told where to bind, only where not to break.
 
 `negsteer run` takes a receptor sequence, an effector sequence, a reference
 complex and two residue-index files, and writes a run directory. Callers are

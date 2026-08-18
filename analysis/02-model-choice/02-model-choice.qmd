@@ -21,8 +21,17 @@ Restraints are Boltz-2's contact and pocket constraints derived from the true
 interface. They are a positive control showing the model can be steered when
 told exactly where to go. They are not runnable on a novel target, since the
 answer has to be known already.
-Negative steering never sees the true interface: it only knocks out the
-*wrong* one the model chose, so it is the method the actual pipeline uses.
+Negative steering also uses the true interface, but far more weakly. It reads
+the *wrong* interface off the prediction and mutates those residues, while
+protecting a set that always contains the true interface. It is never told
+where to bind. It is told where not to break.
+
+The difference from restraints is what the input has to be. A restraint needs
+the answer. The protected set needs only an interface the user already intends
+to keep, which on a designed or grafted receptor is known by construction
+rather than by having solved the structure. On these native complexes the two
+coincide, so this benchmark is a proxy for that case rather than a
+demonstration of a truth-free method.
 
 ```{python}
 import sys

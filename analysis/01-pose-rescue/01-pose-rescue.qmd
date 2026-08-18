@@ -15,6 +15,15 @@ receptor-effector complex. For every target two predictions of the effector pose
 are compared against the experimental truth using `ra_eff`, the receptor-aligned
 effector RMSD in Å. Lower is better, and ≤ 5 Å counts as a rescued pose.
 
+What steering needs as input is worth stating before the numbers. The *wrong*
+interface is read off the prediction, so that half needs no answer. The
+protected set is not. It always contains the true interface, so the residues
+the engine may mutate are the predicted contacts minus a truth-derived set.
+Steering is never told where to bind, only where not to break. These targets
+are solved complexes, so their intended and true interfaces are the same, and
+the rescue rates below should be read as a proxy for a designed receptor whose
+intended interface is known by construction.
+
 * cold start, the initial Boltz-2 prediction before steering
   (`run/cycle_0/plan.json::initial_receptor_aligned_effector_rmsd`).
 * representative, the steered design `make_plots.py::select_representative`

@@ -350,7 +350,11 @@ def build_parser() -> argparse.ArgumentParser:
     req.add_argument("--design-region", required=True,
                      help="1-based residue list that must not be mutated")
     req.add_argument("--true-interface", required=True,
-                     help="0-based residue indices of the interface to protect")
+                     help="0-based residue indices of the interface to keep. "
+                          "Never mutated, and always part of the protected set, "
+                          "so steering is not blind to where binding should "
+                          "happen. On a designed receptor this is the intended "
+                          "interface rather than a solved one.")
     req.add_argument("--outdir", required=True)
 
     ch = r.add_argument_group("chains")
