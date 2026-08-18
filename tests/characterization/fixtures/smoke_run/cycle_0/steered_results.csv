@@ -1,0 +1,3 @@
+rank,design,sequence_group,seed_index,total_mutations,receptor_aligned_effector_rmsd,delta_receptor_aligned_effector_rmsd,independent_receptor_rmsd,independent_effector_rmsd,receptor_intact,wrong_jaccard,n_shared_wrong,true_jaccard,n_shared_true,n_design_interface_residues,status,pdb
+0,initial,,,0,6.166,0.0,2.813,4.079,1,1.0,17,0.631578947368421,12,17,initial,/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/initial_prediction.pdb
+1,design_00,0,0,2,8.446,-2.2799999999999994,2.703,4.064,1,0.5263157894736842,10,0.5294117647058824,9,12,ok,/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/steered/design_00/prediction.pdb

@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/joshuandwilliams/structure-negative-steering/actions/workflows/test.yml/badge.svg)](https://github.com/joshuandwilliams/structure-negative-steering/actions/workflows/test.yml)
 [![Lint](https://github.com/joshuandwilliams/structure-negative-steering/actions/workflows/lint.yml/badge.svg)](https://github.com/joshuandwilliams/structure-negative-steering/actions/workflows/lint.yml)
-![tests](https://img.shields.io/badge/tests-936%20passing-brightgreen) ![coverage](https://img.shields.io/badge/coverage-64%25%20bin%20%7C%2098%25%20scripts-yellow) ![python](https://img.shields.io/badge/python-3.11-blue) ![nextflow](https://img.shields.io/badge/nextflow-%E2%89%A524.04-blue) ![status](https://img.shields.io/badge/status-results%20current-brightgreen)
+![tests](https://img.shields.io/badge/tests-936%20passing-brightgreen) ![coverage](https://img.shields.io/badge/coverage-66%25%20bin%20%7C%2098%25%20scripts-yellow) ![python](https://img.shields.io/badge/python-3.11-blue) ![nextflow](https://img.shields.io/badge/nextflow-%E2%89%A524.04-blue) ![status](https://img.shields.io/badge/status-results%20current-brightgreen)
 
 A standalone home for the Boltz-2 negative-steering engine, so it can be run and tested on arbitrary inputs in isolation. Negative steering mutates the receptor surface residues that a prediction wrongly places in contact with the effector, so the model can no longer settle there and has to find the real interface instead.
 
@@ -12,7 +12,7 @@ A standalone home for the Boltz-2 negative-steering engine, so it can be run and
 
 The benchmark is complete, the committed analyses are current, and the test suite passes.
 
-Coverage over `bin/` is 64% and gated as a ratchet that may only rise. `scripts/` is at 98%. The remaining gap is concentrated in the multi-cycle loop of `boltz2_iterate_steering` and the reversion harvest in `reversion`, which need a GPU and the Boltz image. The smoke run (below) is how those are reached.
+Coverage over `bin/` is 66% and gated as a ratchet that may only rise. `scripts/` is at 98%. The remaining gap is concentrated in the multi-cycle loop of `boltz2_iterate_steering` and the reversion harvest in `reversion`, which need a GPU and the Boltz image. The smoke run (below) is how those are reached.
 
 CI runs on every push and pull request. `lint.yml` is ruff, pinned to the version in `environment.yml` so it applies the same rule set as a local run. `test.yml` runs the two local test tiers, then stub-runs the workflow to check the DAG still wires up. The `hpc` tier is not run there, since it needs a GPU, the Boltz image or a finished run.
 

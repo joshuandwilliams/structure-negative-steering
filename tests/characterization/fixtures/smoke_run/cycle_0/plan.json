@@ -1,0 +1,175 @@
+{
+  "ground_truth": "/hpc-home/jowillia/receptor_design/structure-negative-steering/experiments/benchmarking/unconstrained/6Q76/6Q76.pdb",
+  "truth_receptor_chain": "A",
+  "truth_effector_chain": "B",
+  "pred_receptor_chain": "A",
+  "pred_effector_chain": "B",
+  "wild_type_receptor_seq": "GLKQKIVIKVAMENCRSKAMALVASTGGVDSVALVGDLRDKIEVVGYGIDPIKLISALRKKVGDAELLQVSQA",
+  "initial_receptor_aligned_effector_rmsd": 6.166,
+  "initial_independent_receptor_rmsd": 2.813,
+  "initial_independent_effector_rmsd": 4.079,
+  "rmsd_threshold": 5.0,
+  "contact_cutoff": 5.0,
+  "max_mutations": 2,
+  "candidate_pool_size": 6,
+  "mode": "mild",
+  "effector_template_cif": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/effector_template.cif",
+  "boltz_constraints_block": null,
+  "n_designs": 1,
+  "num_seeds": 1,
+  "boltz_container": "/hpc-home/jowillia/receptor_design/receptor-resurfacing-pipeline/containers/boltz2_negsteer.img",
+  "recycling_steps": 1,
+  "diffusion_samples": 1,
+  "seed": 0,
+  "no_kernels": false,
+  "receptor_fasta_override": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/inputs/receptor.fasta",
+  "effector_fasta_override": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/inputs/effector.fasta",
+  "designs": [
+    {
+      "index": 0,
+      "name": "design_00",
+      "dir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/steered/design_00",
+      "yaml": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/steered/design_00/input/input.yaml",
+      "total_mutations": 2,
+      "mutated_positions": [
+        36,
+        42
+      ],
+      "sequence_group": 0,
+      "seed_index": 0,
+      "boltz_seed": 1
+    }
+  ],
+  "true_interface_idx": [
+    15,
+    16,
+    19,
+    20,
+    21,
+    23,
+    24,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    38
+  ],
+  "true_interface_source": "pre_computed",
+  "cold_start_seeds": [
+    {
+      "seed_offset": 0,
+      "boltz_seed": 0,
+      "ra_eff": 6.166,
+      "ind_rec": 2.813,
+      "ind_eff": 4.079,
+      "pdb_path": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/initial_prediction.pdb"
+    }
+  ],
+  "cold_start_n_clean": 0,
+  "cold_start_all_clean": false,
+  "design_region_idx": [],
+  "protected_set_source": "true_interface",
+  "protected_set_idx": [
+    15,
+    16,
+    19,
+    20,
+    21,
+    23,
+    24,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    38
+  ],
+  "initial_wrong_interface_idx": [
+    16,
+    19,
+    20,
+    23,
+    24,
+    25,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    38,
+    42
+  ],
+  "candidate_pool": [
+    34,
+    36,
+    42
+  ],
+  "effector_interface_residues": [
+    7,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    29,
+    31
+  ],
+  "effector_interface_atom_cutoff_angstroms": 8.0,
+  "effector_interface_atoms": [
+    [
+      7,
+      "any"
+    ],
+    [
+      21,
+      "any"
+    ],
+    [
+      22,
+      "any"
+    ],
+    [
+      23,
+      "any"
+    ],
+    [
+      24,
+      "any"
+    ],
+    [
+      25,
+      "any"
+    ],
+    [
+      26,
+      "any"
+    ],
+    [
+      29,
+      "any"
+    ],
+    [
+      31,
+      "any"
+    ]
+  ],
+  "n_protected": 12,
+  "interfaces_overlap": 0.7059,
+  "second_shell_fallback_used": false,
+  "second_shell_pool_size": 0,
+  "max_mutations_reduced_from": 3,
+  "max_mutations_reduced_to": 2,
+  "max_mutations_reduced_reason": "interfaces_overlap>50%",
+  "max_mutations_requested": 3,
+  "max_mutations_effective": 2,
+  "n_unique_sequences": 1,
+  "total_predictions": 1
+}

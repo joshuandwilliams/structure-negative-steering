@@ -1,0 +1,8 @@
+{
+  "workdir": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0",
+  "n_contaminated": 0,
+  "n_staged": 0,
+  "pred_receptor_chain": "A",
+  "pred_effector_chain": "B",
+  "entries": []
+}

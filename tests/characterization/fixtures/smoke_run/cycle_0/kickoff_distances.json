@@ -1,0 +1,49 @@
+{
+  "n_generated": 1,
+  "candidates": [
+    {
+      "design": "design_00",
+      "design_idx": 0,
+      "sequence_group": 0,
+      "seed_index": 0,
+      "pdb": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/steered/design_00/prediction.pdb",
+      "receptor_aligned_effector_rmsd_vs_truth": 8.446,
+      "independent_receptor_rmsd": 2.703,
+      "independent_effector_rmsd": 4.064,
+      "dists_to_upstream": [
+        7.869
+      ],
+      "min_dist_to_upstream": 7.869,
+      "result": {
+        "index": 0,
+        "design": "design_00",
+        "total_mutations": 2,
+        "receptor_aligned_effector_rmsd": 8.446,
+        "independent_receptor_rmsd": 2.703,
+        "independent_effector_rmsd": 4.064,
+        "wrong_jaccard": 0.5263157894736842,
+        "true_jaccard": 0.5294117647058824,
+        "n_shared_wrong": 10,
+        "n_shared_true": 9,
+        "n_design_interface_residues": 12,
+        "steered_interface_idx": [
+          15,
+          19,
+          23,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          36,
+          46
+        ],
+        "pdb": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/steered/design_00/prediction.pdb",
+        "status": "ok"
+      }
+    }
+  ],
+  "wild_type_pdb": "/hpc-home/jowillia/receptor_design/structure-negative-steering/tests/smoke/run/cycle_0/initial_prediction.pdb"
+}

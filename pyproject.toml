@@ -92,4 +92,4 @@ skip_covered = true
 # --max-cycles 0, and reversion.py's harvest needs real predictions on disk.
 # Both are reached by the smoke run in tests/run_smoke_negative_steering.slurm.sh,
 # which is the hpc tier and cannot run on a laptop or in CI.
-fail_under = 64.0
+fail_under = 65.6
