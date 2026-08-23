@@ -46,6 +46,7 @@ if not (HERE / "boltz2_benchmark_comparison.csv").exists():
     HERE = Path("analysis/02-model-choice")
 HERE = HERE.resolve()
 ANALYSIS = HERE.parent
+REPO_ROOT = ANALYSIS.parent
 POSE = ANALYSIS / "01-pose-rescue"   # owns benchmark_summary.csv and make_plots.py
 
 sys.path.insert(0, str(POSE))
@@ -57,10 +58,33 @@ bench = pd.read_csv(HERE / "boltz2_benchmark_comparison.csv").set_index("target"
 RA_EFF_THRESHOLD = 5.0
 RA_TICKS = [0.5, 1, 2, 5, 10, 20, 40]
 
+# neg_steered is sourced from the n=50 dose-sweep arm, not the n=20 shipped
+# benchmark. select_representative() is the same reliability-first,
+# reversion-corrected selection make_plots.py uses for benchmark_summary.csv,
+# applied here to experiments/dose-sweep/n50/<target>/run instead. 50 sets
+# clears 15/18 targets against 12/18 at n=20 (7A8X, 7QPX and 7QZD flip from
+# fail to pass, nothing regresses), so it is the tighter bound negative
+# steering has actually demonstrated on this benchmark, and the number the
+# comparison should use.
+#
+# Two targets saturate their mutation-set pool well below 50 (6Q76 at 4 sets,
+# 6R8K near its own ceiling), so their n=50 value is not evidence of a wider
+# search, only confirmation the same representative design keeps winning.
+# cold_start is unaffected by dose, since it is the single unsteered
+# prediction regardless of how many mutated sequences are then sampled, so it
+# is left on benchmark_summary.csv.
+DOSE_SWEEP = REPO_ROOT / "experiments" / "dose-sweep" / "n50"
+neg_steered_n50 = {}
+for t in bench.index:
+    rundir = DOSE_SWEEP / t / "run"
+    sel = select_representative(rundir)
+    if sel is not None:
+        neg_steered_n50[t] = sel["rep_ra_eff"]
+
 cmp = pd.DataFrame({
     "unconstrained": bench["boltz2_unconstrained_ra_eff"],
     "constrained": bench["boltz2_constrained_ra_eff"],
-    "neg_steered": pd.to_numeric(ns["rep_ra_eff"], errors="coerce"),
+    "neg_steered": pd.Series(neg_steered_n50),
     "cold_start": pd.to_numeric(ns["cold_start_ra_eff"], errors="coerce"),
 })
 cmp = cmp.reindex(bench.index)
@@ -70,7 +94,6 @@ cmp = cmp.reindex(bench.index)
 # to every Boltz-2 call during steering. Staged for all 18 targets under
 # experiments/benchmarking/<target>_constrained/; targets whose run has not
 # landed yet simply drop out of this series (select_representative -> None).
-REPO_ROOT = ANALYSIS.parent
 CONSTRAINED_STEERED_TARGETS = list(bench.index)
 constrained_and_steered = {}
 for t in CONSTRAINED_STEERED_TARGETS:

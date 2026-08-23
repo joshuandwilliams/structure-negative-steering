@@ -22,29 +22,44 @@ steering sets, and cost per prediction does not. The figure reports per-run cost
 and the prediction count that explains it, and the paired tests below report
 per-prediction cost.
 
-Two steering cohorts are shown, because the parameter that dominates cost was
-set differently in each.
+Six steering cohorts are shown, because the parameter that dominates cost is
+`negsteer_n_designs`, the steering-set count, and it was set differently across
+all of them.
 
-* 20 steering sets, the 18-target benchmark under `experiments/benchmarking/`.
-  A median of 305 predictions per run.
-* 3 steering sets, the 128 designed sequences of the AVR-PikF campaign
-  (`crystal_full_test_contig` in `receptor-resurfacing-pipeline`). A median of
-  50 predictions per run. This is the setting the pipeline ships with.
+* 3, 5, 10, 20 and 50 steering sets, the same 18-target benchmark, all else
+  held fixed. The 20-set point is the shipped benchmark under
+  `experiments/benchmarking/`; 3/5/10/50 are the dose sweep under
+  `experiments/dose-sweep/`. Because only the dose changes across these five,
+  they isolate the effect of `negsteer_n_designs` cleanly, and the per-run
+  scaling below is read from them.
+* 3 steering sets, but on a different target set entirely: the 128 designed
+  sequences of the AVR-PikF campaign (`crystal_full_test_contig` in
+  `receptor-resurfacing-pipeline`), a median of 50 predictions per run. This
+  is the setting the pipeline ships with, and it is not the same run as the
+  dose sweep's own 3-set point on the 18 benchmark targets, even though the
+  dose is the same number.
 
-They differ in more than the steering-set count, so read the gap between them as
-the effect of the configuration as a whole rather than of that one parameter.
-The campaign also used a smaller candidate pool (10 against 12), took its
-protected set from the design region rather than the true interface, ran with
-`negsteer_no_kernels: true`, and ran many sequences concurrently
-(`max_boltz2_parallel: 24`), which can inflate wall-clock through contention.
-The per-prediction figures are nonetheless close (20.5 s against 22.1 s), so the
-per-run gap is close to pure sampling depth.
+The campaign differs from the benchmark cohorts in more than target set: a
+smaller candidate pool (10 against 12), a protected set taken from the design
+region rather than the true interface, `negsteer_no_kernels: true`, and many
+sequences run concurrently (`max_boltz2_parallel: 24`), which can inflate
+wall-clock through contention. Its per-prediction figure is nonetheless close
+to the dose sweep's own 3-set point (20.5 s against 22.9 s), so the gap between
+them is mostly sampling depth rather than that configuration difference.
 
-MSA search is counted. Benchmark wall-clock is `standalone_elapsed_s`, which
-folds in the shared ColabFold MSA search for the models that depend on it
-(Boltz-1 and Boltz-2 with an MSA, and ColabFold). Using the raw `elapsed_s`
-would hand those three a free MSA and understate them by roughly 35 min each.
-This is the same convention as that repo's own compute-cost analysis.
+MSA search is counted, but not in wall-clock. For the three models that share
+one pooled ColabFold/MMseqs2 search (Boltz-1 and Boltz-2 with an MSA, and
+ColabFold), the reported time is `predict_wall_s + search_cpu_s`: wall-clock
+for the GPU prediction step, plus CPU time for the search. Using the search's
+own wall-clock would be the wrong number here, since this run's shared-storage
+node was contended and running at low CPU utilisation while the search waited
+on I/O, which inflates wall-clock without inflating the actual compute spent.
+CPU time is insulated from that. AlphaFold2-Multimer and AlphaFold3 run search
+and prediction in one process and need no correction, since their own
+wall-clock already includes it. Every no-MSA combo pays no search cost at all.
+This mixes two units into one axis, which is a real caveat, not an oversight:
+read the three shared-search MSA points as wall-clock-plus-CPU-cost, not as a
+wall-clock time a clock on the wall would have shown.
 
 Wall-clock for steering is every stage of the run summed (plan, predict-one,
 collect, reversion, harvest, finalize, aggregate, metrics), not just the GPU
@@ -74,7 +89,9 @@ if not (HERE / "runtime_comparison.csv").exists():
 rt = pd.read_csv(HERE / "runtime_comparison.csv")
 
 NEGSTEER_20 = "Boltz-2 + negative steering (steering sets = 20)"
-NEGSTEER_3 = "Boltz-2 + negative steering (steering sets = 3)"
+# The campaign's own 3-set point, NOT the dose sweep's 3-set point on the 18
+# benchmark targets -- the two share a number but not a target set, and only
+NEGSTEER_CAMPAIGN_3 = "Boltz-2 + negative steering, AVR-PikF campaign (steering sets = 3)"
 # The variant is shown by colour, so the y axis carries the bare model name and the
 # same model can appear more than once.
 VARIANT_COLOR = {
@@ -178,18 +195,23 @@ spread = (rt.groupby(["model", "variant"])
 spread
 ```
 
-- At 20 steering sets, negative steering is the most expensive method here, at a
-  median of 111 min against 109 min for AlphaFold2-Multimer and 40 to 43 min for
-  Boltz-1, Boltz-2 and ColabFold once their MSA search is counted.
-- At 3 steering sets it is cheaper per run than every MSA-based combination, at
-  17.2 min against 22.8 min for AlphaFold3 with an MSA. Per run the claim depends
-  entirely on the steering-set count, and it holds at the shipped setting.
-- The difference between the two cohorts is sampling depth rather than
-  per-prediction overhead. 305 predictions per run against 50, at 22.1 s and
-  20.5 s per prediction.
-- The overhead of steering itself is modest. Steering runs at 22.1 s per
-  prediction against unsteered Boltz-2's 12.4 s, so planning, contact analysis,
-  reversion and final metrics add about 75% on top of the raw Boltz-2 call.
+- Once the MSA models carry their true search cost, negative steering is no
+  longer the most expensive method here at any dose up to 20 sets. AlphaFold3,
+  Boltz-2, AlphaFold2-Multimer, Boltz-1 and ColabFold with an MSA all land
+  between 144 and 185 min, against 111 min for 20-set steering. Only the
+  50-set dose sweep point, at 256 min, is more expensive than every MSA combo.
+- Steering is cheaper per run than every MSA-based combination at every dose
+  up to 20 sets (19, 29, 54 and 111 min against a 144-185 min MSA range). It
+  costs more only at 50 sets, the far end of the dose sweep rather than
+  anything the pipeline ships with.
+- Per-prediction cost holds flat across the whole dose sweep, 20.3 to 22.9 s
+  regardless of dose. The 305-vs-50-predictions-per-run gap between the 20-set
+  benchmark and the 3-set AVR-PikF campaign is sampling depth, not
+  per-prediction overhead: 22.1 s against 20.5 s.
+- The overhead of steering itself is modest. Steering runs at 20.3 to 22.9 s
+  per prediction against unsteered Boltz-2's 14.0 s, so planning, contact
+  analysis, reversion and final metrics add 45 to 64% on top of the raw
+  Boltz-2 call, essentially flat across dose.
 - Some units never steer. Three of the 18 benchmark targets and 22 of the 128
   campaign sequences had a cold start that passed on every seed, so the run
   exited after 15 predictions. Cost is conditional on the cold start failing.
@@ -206,10 +228,12 @@ they overlap, so the axis is comparable across every point. It is host RAM, not
 VRAM, which is usually the real constraint.
 
 Reference-restrained points share the No MSA colour, as they are a no-MSA variant,
-and carry `(constr)` in their label. Only the 20-set benchmark cohort is plotted.
-The 3-set point is measured on the campaign rather than on the 18 benchmark
-targets, so it is not comparable with the predictors it would sit beside. Its
-cost is reported in the per-run section above.
+and carry `(constr)` in their label. All five benchmark steering points are
+plotted (steering sets 3, 5, 10, 20, 50), since all five ran the same 18
+targets as the predictors they sit beside. The campaign's own 3-set point is
+excluded, since it was measured on a different target set entirely and is not
+comparable with the predictors here; its cost is reported in the per-run
+section above.
 
 ```{python}
 SCATTER_COLOR = {"no_msa": VARIANT_COLOR["no_msa"], "restraints": VARIANT_COLOR["no_msa"],
@@ -217,7 +241,7 @@ SCATTER_COLOR = {"no_msa": VARIANT_COLOR["no_msa"], "restraints": VARIANT_COLOR[
 SCATTER_LEGEND = [("no_msa", "No MSA"), ("msa", "MSA"),
                   ("negsteer", "Negative steering\n(steering sets)")]
 
-med2 = (rt[rt["model"] != NEGSTEER_3]
+med2 = (rt[rt["model"] != NEGSTEER_CAMPAIGN_3]
           .groupby(["model", "variant"])
           .agg(runtime=("elapsed_min", "median"),
                memory=("peak_rss_gb", "median"))
@@ -240,29 +264,62 @@ for variant in ["msa", "restraints", "no_msa", "negsteer"]:
                alpha=0.65, edgecolor="black", linewidth=0.6,
                zorder=5 if variant == "negsteer" else 4)
 
-# Nudged so the near-coincident pairs (each Boltz model against its restrained
-# variant, and 20-set steering against AlphaFold2-Multimer) stay readable.
+# Nudged so the near-coincident groups stay readable: each Boltz model against
+# its restrained variant, the four MSA points clustered at 144-185 min, and
+# the five steering points strung out along one narrow memory band (4.6-5.1
+# GB) where a flat left/right nudge just overlaps them into each other.
+# Labels keyed by (model, variant) alone collide for the five steering rows,
+# which all share "Boltz-2" -- key on the full label instead there.
 LABEL_LEFT = {("ESMFold2", "no_msa"), ("Boltz-2", "no_msa"),
-              ("Boltz-1", "no_msa"), ("ColabFold", "no_msa"),
-              ("AlphaFold2-Multimer", "msa")}
+              ("Boltz-1", "no_msa"), ("ColabFold", "no_msa")}
 LABEL_BELOW = {("Boltz-2", "restraints"), ("Boltz-1", "restraints")}
+# The four MSA points at 144-185 min and the two 20/50-set steering points
+# that land among them are close enough on a log axis that their MARKERS
+# nearly touch, not just their text, so plain offsets cannot separate five
+# labels without still reading as unclear which belongs to which dot. Each
+# gets its own far offset plus a thin leader line back to its point instead.
+# "Boltz-2", "Boltz-1" and "ColabFold" as bare text are ambiguous between
+# their no-MSA and MSA rows, so those three are keyed on (model, variant)
+# rather than text; everything else here has a unique label already.
+LABEL_BY_KEY = {
+    ("Boltz-2", "msa"): (-14, 34, "right", "bottom", True),
+    ("Boltz-1", "msa"): (14, 46, "left", "bottom", True),
+    ("ColabFold", "msa"): (14, -30, "left", "top", True),
+}
+LABEL_BY_TEXT = {
+    "Boltz-2 (3)": (0, 14, "center", "bottom", False),
+    "Boltz-2 (5)": (0, -14, "center", "top", False),
+    "Boltz-2 (10)": (0, 14, "center", "bottom", False),
+    "Boltz-2 (20)": (-10, -34, "right", "top", True),
+    "Boltz-2 (50)": (14, 30, "left", "bottom", True),
+    "AlphaFold3": (0, -34, "center", "top", True),
+    "AlphaFold2-Multimer": (0, -11, "center", "top", False),
+}
 for _, r in med2.iterrows():
     key = (r["model"], r["variant"])
-    if key in LABEL_BELOW:
+    text = r["label"]
+    leader = False
+    if key in LABEL_BY_KEY:
+        dx, dy, ha, va, leader = LABEL_BY_KEY[key]
+    elif text in LABEL_BY_TEXT:
+        dx, dy, ha, va, leader = LABEL_BY_TEXT[text]
+    elif key in LABEL_BELOW:
         dx, dy, ha, va = 0, -11, "center", "top"
     elif key in LABEL_LEFT:
         dx, dy, ha, va = -8, 0, "right", "center"
     else:
         dx, dy, ha, va = 8, 0, "left", "center"
-    ax.annotate(r["label"], (r["runtime"], r["memory"]), fontsize=7.5,
+    ax.annotate(text, (r["runtime"], r["memory"]), fontsize=7.5,
                 xytext=(dx, dy), textcoords="offset points", ha=ha, va=va,
-                zorder=6)
+                zorder=6,
+                arrowprops=dict(arrowstyle="-", lw=0.5, color="#999999",
+                                shrinkA=0, shrinkB=4) if leader else None)
 
 ax.set_xscale("log")
 readable_log(ax.xaxis, TIME_TICKS)
 ax.set_xlabel("Median wall-clock per run (minutes, log scale)")
 ax.set_ylabel("Median peak resident memory (GB)")
-ax.set_xlim(right=260)   # room for the right-hand labels at ~110 min
+ax.set_xlim(right=340)   # room for the right-hand label at the 50-set point (~256 min)
 handles = [plt.Line2D([], [], ls="none", marker="o", markersize=8,
                       mfc=SCATTER_COLOR[a], mec="black", mew=0.7, alpha=0.65)
            for a, _ in SCATTER_LEGEND]
@@ -272,12 +329,14 @@ save_fig(fig, "compute_cost_tradeoff")
 plt.show()
 ```
 
-- Negative steering costs no more memory than the Boltz-2 it wraps, 4.6 GB
-  against 5.0 GB unsteered. Memory is set by the prediction model, so the
-  engine's extra stages are not what bounds how many can run at once.
-- At 20 steering sets it lands next to AlphaFold2-Multimer in wall-clock while
-  using roughly a fifth of the memory, so under a memory cap it parallelises far
-  better than that comparison alone suggests.
+- Negative steering costs no more memory than the Boltz-2 it wraps, 4.6 to
+  5.1 GB depending on dose against 5.0 GB unsteered, and flat across the whole
+  dose sweep. Memory is set by the prediction model, so the engine's extra
+  stages are not what bounds how many can run at once.
+- At every dose from 3 to 50 sets, steering uses 7-8x less memory than
+  AlphaFold2-Multimer while spanning most of its wall-clock range, so under a
+  memory cap it parallelises far better than a wall-clock comparison alone
+  suggests.
 
 ## 4. Is the per-prediction cost of steering below the MSA models?
 
@@ -332,17 +391,19 @@ for _, r in med.iterrows():
 pd.DataFrame(rows)
 ```
 
-- Steering is cheaper per prediction than every MSA-based combination, and the
-  intervals are well clear of 1 in each case. Against AlphaFold2-Multimer the
-  ratio is 0.08, against ColabFold, Boltz-1 and Boltz-2 with an MSA it is
-  0.21–0.24, and against AlphaFold3 with an MSA it is 0.41.
-- Among the no-MSA models it is cheaper only than ESMFold2 (0.38). It is 1.2 to
-  5.2 times more expensive per prediction than the other no-MSA combos, which is
-  the expected price of the extra Boltz-2 calls and the engine's own stages.
-- So the claim holds per prediction at either steering-set count, and it holds
-  per run as well at the 3 sets the pipeline ships with. It fails per run only
-  at the benchmark's 20 sets, where steering deliberately samples an order of
-  magnitude deeper than any single prediction does.
+- Steering is cheaper per prediction than every MSA-based combination, and by
+  a wide margin now the search cost is counted properly. Against
+  AlphaFold2-Multimer, AlphaFold3, Boltz-1 and Boltz-2 with an MSA and
+  ColabFold, the ratio is 0.05-0.06 in every case, all intervals well clear
+  of 1.
+- Among the no-MSA models it is cheaper only than ESMFold2 (0.37) and
+  AlphaFold3 (4.60x more expensive is the largest gap in the table, since
+  AlphaFold3 no-MSA is the fastest method here at 1.9 min a run). Against the
+  rest it is 1.2 to 1.6x more expensive per prediction, the expected price of
+  the extra Boltz-2 calls and the engine's own stages.
+- So the claim holds per prediction at every dose. Per run it holds up to 20
+  sets and fails only at 50, where steering deliberately samples deeper than
+  any single prediction does.
 
 Wall-clock is execution time rather than time-to-result, so queueing is
 excluded. One benchmark target has no usable trace row, so the benchmark combos
