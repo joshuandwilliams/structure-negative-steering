@@ -27,7 +27,18 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "bin"))
 
-import boltz2_iterate_steering as its  # noqa: E402
+# The ten stages now live in three modules. Dispatch by subcommand so a test
+# reads the same as the pipeline does, which invokes each module by path.
+import negsteer_aggregate as _agg  # noqa: E402
+import negsteer_coldstart as _cold  # noqa: E402
+import reversion as _rev  # noqa: E402
+
+_STAGE_MODULE = {
+    "kickoff-distances": _cold, "kickoff-prefilter": _cold, "kickoff-finalize": _cold,
+    "build-contaminated": _rev, "plan-reversions": _rev,
+    "predict-reversion-one": _rev, "harvest-reversions": _rev,
+    "aggregate": _agg, "compute-final-metrics": _agg, "aggregate-per-sequence": _agg,
+}
 import boltz2_negative_steering as bns  # noqa: E402
 
 GT = (_REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
@@ -156,8 +167,9 @@ def run_dir(built_run, tmp_path) -> Path:
 
 
 def _iterate(*argv) -> int:
-    with mock.patch.object(sys, "argv", ["boltz2_iterate_steering.py", *argv]):
-        rc = its.main()
+    mod = _STAGE_MODULE[argv[0]]
+    with mock.patch.object(sys, "argv", [f"{mod.__name__}.py", *argv]):
+        rc = mod.main()
     return 0 if rc is None else rc
 
 
@@ -278,16 +290,6 @@ def test_build_contaminated_requires_the_prefilter_first(run_dir, capsys):
     assert not (run_dir / "contaminated.json").is_file()
 
 
-@pytest.mark.local_integration
-@needs_pdb
-def test_the_prefilter_needs_phase_one_first(run_dir, capsys):
-    """It names compute-distances as the missing predecessor.
-
-    An error that says which stage to run is the difference between a
-    recoverable mis-order and an opaque stall.
-    """
-    assert _iterate("iterate-collect-prefilter", "--workdir", str(run_dir)) != 0
-    assert "compute-distances" in capsys.readouterr().err
 
 
 @pytest.mark.local_integration
@@ -311,11 +313,6 @@ def test_kickoff_distances_needs_a_cycle_directory(run_dir, capsys):
     assert "no cycle_0" in capsys.readouterr().err
 
 
-@pytest.mark.local_integration
-@needs_pdb
-def test_iterate_collect_prefilter_runs(run_dir):
-    rc = _iterate("iterate-collect-prefilter", "--workdir", str(run_dir))
-    assert rc in (0, 1)
 
 
 # ── the collect stage's own numbers ──────────────────────────────────────────
@@ -355,45 +352,12 @@ def test_every_prediction_scored_the_same_wrong_pose(built_run):
 # work. Both matter: the guards are what stop a mis-ordered pipeline producing
 # a plausible-looking empty result.
 
-@pytest.mark.local_integration
-@needs_pdb
-def test_compute_distances_rejects_a_cycle_zero_plan(run_dir):
-    """The cycle-0 plan has no `cycle` key, so this must fail rather than guess."""
-    with pytest.raises(KeyError):
-        _iterate("compute-distances", "--workdir", str(run_dir))
 
 
-@pytest.mark.local_integration
-@needs_pdb
-def test_compute_distances_reports_a_missing_plan(tmp_path, capsys):
-    empty = tmp_path / "nothing"
-    empty.mkdir()
-    assert _iterate("compute-distances", "--workdir", str(empty)) == 1
-    assert "does not exist" in capsys.readouterr().err
 
 
-@pytest.mark.local_integration
-@needs_pdb
-def test_the_prefilter_records_why_it_bailed(run_dir):
-    """It writes prefilter.json carrying the error rather than writing nothing.
-
-    A stage that silently produced no file would stall the chain with no record
-    of the cause, which is the failure mode the playbook warns about.
-    """
-    (run_dir / "distances.json").unlink(missing_ok=True)
-    _iterate("iterate-collect-prefilter", "--workdir", str(run_dir))
-    out = run_dir / "prefilter.json"
-    assert out.is_file(), "the prefilter left no record of its failure"
-    assert "error" in json.loads(out.read_text())
 
 
-@pytest.mark.local_integration
-@needs_pdb
-def test_the_prefilter_names_the_missing_input(run_dir):
-    (run_dir / "distances.json").unlink(missing_ok=True)
-    _iterate("iterate-collect-prefilter", "--workdir", str(run_dir))
-    err = json.loads((run_dir / "prefilter.json").read_text())["error"]
-    assert "distances.json" in err, f"the error does not name its input: {err!r}"
 
 
 @pytest.mark.local_integration

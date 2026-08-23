@@ -105,7 +105,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # Make sibling scripts in the same bin/ directory importable.  Mirrors
-# the pattern boltz2_iterate_steering.py uses (line 91).  Needed for
+# the pattern negsteer_aggregate.py uses (line 91).  Needed for
 # the tier-none representative fallback below, which calls
 # extract_passing.extract_row to translate one aggregated_results row
 # into a passing_summary-shaped dict.
@@ -249,7 +249,7 @@ _TIER_ORDER = {"A": 0, "B": 1, "C": 2, "none": 3}
 def _composite_score(row: Dict) -> Optional[float]:
     """Recompute composite score from a passing_summary.csv row.
 
-    Formula matches ``_ranking_composite`` in boltz2_iterate_steering:
+    Formula matches ``_ranking_composite`` in negsteer_aggregate:
         composite = true_jaccard_median − 0.05 × ra_eff_vs_truth_median
 
     Higher is better.  Returns None if either component is missing
@@ -405,7 +405,7 @@ def _pick_rep_from_aggregated(
 
     Stage-aware following the same convention as
     ``_ranking_metric`` / ``_ranking_composite`` in
-    boltz2_iterate_steering.py:
+    negsteer_aggregate.py:
       - ``true_jaccard`` always sourced from ``steered_true_jaccard_median``
         (the interface identity is a property of the steered
         prediction, not the reverted pose).
@@ -447,7 +447,7 @@ def _pick_rep_from_aggregated(
         # true_jaccard always sourced from steered_ — interface identity
         # is a property of the steered (cold-start) prediction, not the
         # reverted pose.  Mirrors _ranking_composite in
-        # boltz2_iterate_steering.py:3194-3198.
+        # negsteer_aggregate.py.
         tj_key = "steered_true_jaccard_median"
         ra = _try_float(r.get(ra_key, ""))
         tj = _try_float(r.get(tj_key, ""))
@@ -729,7 +729,7 @@ def aggregate(
     for seq_name, rows in per_seq_rows.items():
         # Tier-none fallback.  When passing_summary.csv has no rows
         # (typically because every prediction's steered_ra_eff
-        # exceeded the 5 Å eligibility gate at boltz2_iterate_steering.
+        # exceeded the 5 Å eligibility gate at negsteer_aggregate.
         # py:_compute_unified_ranks), fall back to picking the best
         # row from aggregated_results.csv directly.  See helper
         # docstring for rationale.  This stamps real metric values

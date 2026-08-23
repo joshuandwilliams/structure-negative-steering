@@ -64,6 +64,11 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# archive/prerepo_scripts/ holds superseded pre-repo scripts, kept verbatim as the
+# only record of the sequence-walk and seed-variance diagnostics. Reformatting
+# them to satisfy a linter would edit the thing being preserved, and nothing
+# imports them, so they are excluded rather than fixed.
+exclude = ["archive"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
@@ -90,6 +95,6 @@ skip_covered = true
 # The remaining gap is concentrated in two files. boltz2_iterate_steering.py's
 # multi-cycle loop never runs here, because this repo has always driven it at
 # --max-cycles 0, and reversion.py's harvest needs real predictions on disk.
-# Both are reached by the smoke run in tests/run_smoke_negative_steering.slurm.sh,
+# Both are reached by the single-run test in tests/run_single_run_test.slurm.sh,
 # which is the hpc tier and cannot run on a laptop or in CI.
-fail_under = 65.6
+fail_under = 69.5

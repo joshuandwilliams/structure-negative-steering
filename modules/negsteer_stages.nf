@@ -6,12 +6,28 @@
 // task directory and declares it as a path output. That is what Nextflow hashes
 // for -resume; without it a resumed run repeats work it has already done.
 //
-// Every process appends its elapsed seconds to <run>/.stage_times, which
-// POSTPROCESS sums into run_one_runtime_sec.txt.
+// Every process writes its elapsed seconds to its OWN file under
+// <run>/.stage_times.d/, and POSTPROCESS concatenates that directory into
+// <run>/.stage_times and sums it into run_one_runtime_sec.txt.
+//
+// One file per stage rather than one shared file, because the two fan-outs
+// append concurrently from different nodes over a shared filesystem. The first
+// real cluster run lost one of nine predict_one lines that way, which silently
+// understates the per-run cost the compute-cost analysis reads. Concatenating
+// at the end is also idempotent, so a -resume that re-runs POSTPROCESS cannot
+// double-count.
 
 nextflow.enable.dsl = 2
 
 
+// The one stage that cannot assume a container, because the container path is
+// what it is reading. It resolves that path as plain text first, then runs the
+// driver inside it like every other stage does. Running the driver on the host
+// instead is what broke the first cluster run: the driver needs PyYAML, and the
+// airgapped host has stdlib only.
+//
+// The host-python branch is not dead code. CI has PyYAML installed and no
+// singularity, and READ_CONFIG has no stub, so that is the path it takes.
 process NEGSTEER_READ_CONFIG {
     tag "${config.simpleName}"
     label 'tiny'
@@ -24,8 +40,27 @@ process NEGSTEER_READ_CONFIG {
 
     script:
     """
-    python3 ${params.repo_root}/scripts/negative_steering.py \\
-        "\$(readlink -f ${config})" --emit-json
+    CFG="\$(readlink -f ${config})"
+    CONTAINER="\$(bash ${params.repo_root}/scripts/resolve_boltz_container.sh \\
+        "\$CFG" "${params.boltz_container ?: ''}")"
+
+    if [ -n "\$CONTAINER" ] && [ -f "\$CONTAINER" ]; then
+        singularity exec --bind ${params.repo_root} --bind "\$(dirname "\$CFG")" \\
+            "\$CONTAINER" \\
+            python ${params.repo_root}/scripts/negative_steering.py "\$CFG" --emit-json
+    elif [ "${params.allow_host_python}" = "true" ]; then
+        # Opted into explicitly, and only ever by CI. A GitHub runner has
+        # pip-installed PyYAML and no image to run anything inside. Enabling
+        # this on the cluster would mean reading the config with whatever
+        # Python the host happens to have, which is the thing the containers
+        # exist to prevent.
+        python3 ${params.repo_root}/scripts/negative_steering.py "\$CFG" --emit-json
+    else
+        echo "ERROR: no Boltz container for \$CFG." >&2
+        echo "Set boltz_container: in the config, or pass --boltz_container IMG." >&2
+        echo "Running the driver on the host needs --allow_host_python, which is for CI." >&2
+        exit 1
+    fi
     """
 }
 
@@ -44,21 +79,21 @@ process NEGSTEER_PREPARE {
     script:
     """
     mkdir -p ${run_dir}
-    : > ${run_dir}/.stage_times
+    rm -rf ${run_dir}/.stage_times.d
+    mkdir -p ${run_dir}/.stage_times.d
 
     _t0=\$SECONDS
     singularity exec --bind ${params.repo_root} ${container} \\
         python ${params.repo_root}/scripts/negative_steering.py \\
             ${config} --prepare-only
-    printf 'prepare %s\\n' "\$((SECONDS - _t0))" >> ${run_dir}/.stage_times
+    printf 'prepare %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/prepare
 
     cp ${run_dir}/../inputs/receptor.fasta .
     """
 
     stub:
     """
-    mkdir -p ${run_dir}
-    : > ${run_dir}/.stage_times
+    mkdir -p ${run_dir}/.stage_times.d
     printf '>r\\nACDEF\\n' > receptor.fasta
     """
 }
@@ -85,10 +120,11 @@ process NEGSTEER_PLAN {
             --workdir ${run_dir}/cycle_0 \\
             --boltz-container ${container} \\
             ${plan_args} 1>&2
-    printf 'plan %s\\n' "\$((SECONDS - _t0))" >> ${run_dir}/.stage_times
+    printf 'plan %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/plan
 
     cp ${run_dir}/cycle_0/plan.json .
-    python3 -c "
+    singularity exec --bind ${params.repo_root} --bind "\$PWD" ${container} \\
+        python -c "
 import json, sys
 plan = json.load(open('plan.json'))
 sys.stdout.write('0' if plan.get('skip_steering') else str(len(plan.get('designs', []))))
@@ -122,12 +158,12 @@ process NEGSTEER_PREDICT_ONE {
     singularity exec --nv --bind ${params.repo_root} ${container} \\
         python ${params.repo_root}/bin/boltz2_negative_steering.py predict-one \\
             --workdir ${run_dir}/cycle_0 --index ${index}
-    printf 'predict_one_${index} %s\\n' "\$((SECONDS - _t0))" >> ${run_dir}/.stage_times
+    printf 'predict_one_${index} %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/predict_one_${index}
     """
 
     stub:
     """
-    printf 'predict_one_${index} 0\\n' >> ${run_dir}/.stage_times
+    printf 'predict_one_${index} 0\\n' > ${run_dir}/.stage_times.d/predict_one_${index}
     """
 }
 
@@ -149,7 +185,7 @@ process NEGSTEER_COLLECT {
     singularity exec --bind ${params.repo_root} ${container} \\
         python ${params.repo_root}/bin/boltz2_negative_steering.py collect \\
             --workdir ${run_dir}/cycle_0
-    printf 'collect %s\\n' "\$((SECONDS - _t0))" >> ${run_dir}/.stage_times
+    printf 'collect %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/collect
 
     cp ${run_dir}/cycle_0/steered_results.csv .
     """
@@ -176,22 +212,24 @@ process NEGSTEER_REVERSION_PREP {
 
     script:
     """
-    ITER=${params.repo_root}/bin/boltz2_iterate_steering.py
-    SING="singularity exec --bind ${params.repo_root} ${container} python"
+    COLD=${params.repo_root}/bin/negsteer_coldstart.py
+    REV=${params.repo_root}/bin/reversion.py
+    AGG=${params.repo_root}/bin/negsteer_aggregate.py
+    SING="singularity exec --bind ${params.repo_root} --bind \$PWD ${container} python"
 
     _t0=\$SECONDS
-    \$SING \$ITER kickoff-distances  --experiment-root ${run_dir} 1>&2
-    \$SING \$ITER kickoff-prefilter  --experiment-root ${run_dir} 1>&2
-    \$SING \$ITER build-contaminated --workdir ${run_dir}/cycle_0 1>&2
-    \$SING \$ITER plan-reversions    --workdir ${run_dir}/cycle_0 1>&2
-    printf 'reversion_prep %s\\n' "\$((SECONDS - _t0))" >> ${run_dir}/.stage_times
+    \$SING \$COLD kickoff-distances  --experiment-root ${run_dir} 1>&2
+    \$SING \$COLD kickoff-prefilter  --experiment-root ${run_dir} 1>&2
+    \$SING \$REV build-contaminated --workdir ${run_dir}/cycle_0 1>&2
+    \$SING \$REV plan-reversions    --workdir ${run_dir}/cycle_0 1>&2
+    printf 'reversion_prep %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/reversion_prep
 
     if [ -f ${run_dir}/cycle_0/reversion_plan.json ]; then
         cp ${run_dir}/cycle_0/reversion_plan.json .
     else
         echo '{"entries": []}' > reversion_plan.json
     fi
-    python3 -c "
+    \$SING -c "
 import json, sys
 sys.stdout.write(str(len(json.load(open('reversion_plan.json')).get('entries', []))))
 "
@@ -219,14 +257,14 @@ process NEGSTEER_PREDICT_REVERSION {
     """
     _t0=\$SECONDS
     singularity exec --nv --bind ${params.repo_root} ${container} \\
-        python ${params.repo_root}/bin/boltz2_iterate_steering.py \\
+        python ${params.repo_root}/bin/reversion.py \\
             predict-reversion-one --workdir ${run_dir}/cycle_0 --index ${index}
-    printf 'predict_reversion_${index} %s\\n' "\$((SECONDS - _t0))" >> ${run_dir}/.stage_times
+    printf 'predict_reversion_${index} %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/predict_reversion_${index}
     """
 
     stub:
     """
-    printf 'predict_reversion_${index} 0\\n' >> ${run_dir}/.stage_times
+    printf 'predict_reversion_${index} 0\\n' > ${run_dir}/.stage_times.d/predict_reversion_${index}
     """
 }
 
@@ -246,17 +284,19 @@ process NEGSTEER_HARVEST {
 
     script:
     """
-    ITER=${params.repo_root}/bin/boltz2_iterate_steering.py
+    COLD=${params.repo_root}/bin/negsteer_coldstart.py
+    REV=${params.repo_root}/bin/reversion.py
+    AGG=${params.repo_root}/bin/negsteer_aggregate.py
     SING="singularity exec --bind ${params.repo_root} ${container} python"
 
     _t0=\$SECONDS
-    \$SING \$ITER harvest-reversions --workdir ${run_dir}/cycle_0
-    \$SING \$ITER kickoff-finalize \\
+    \$SING \$REV harvest-reversions --workdir ${run_dir}/cycle_0
+    \$SING \$COLD kickoff-finalize \\
         --experiment-root ${run_dir} \\
         --max-cycles 0 \\
         --max-passing ${params.max_passing} \\
         --novelty-cutoff ${params.novelty_cutoff}
-    printf 'harvest %s\\n' "\$((SECONDS - _t0))" >> ${run_dir}/.stage_times
+    printf 'harvest %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/harvest
 
     cp ${run_dir}/cycle_0/reversion_results.json . 2>/dev/null \\
         || echo '[]' > reversion_results.json
@@ -288,26 +328,32 @@ process NEGSTEER_POSTPROCESS {
     script:
     def populate = params.postprocess_populate_all ? '--populate-all' : ''
     """
-    ITER=${params.repo_root}/bin/boltz2_iterate_steering.py
+    COLD=${params.repo_root}/bin/negsteer_coldstart.py
+    REV=${params.repo_root}/bin/reversion.py
+    AGG=${params.repo_root}/bin/negsteer_aggregate.py
     SING="singularity exec --bind ${params.repo_root} ${container} python"
 
     _t0=\$SECONDS
-    \$SING \$ITER aggregate --experiment-root ${run_dir}
+    \$SING \$AGG aggregate --experiment-root ${run_dir}
 
-    \$SING \$ITER compute-final-metrics \\
+    \$SING \$AGG compute-final-metrics \\
         --experiment-root ${run_dir} \\
         --rmsd-threshold  ${rmsd_threshold} \\
         --metric-column   ${metric_column} \\
         --contact-cutoff  ${contact_cutoff} \\
         ${populate}
 
-    \$SING \$ITER aggregate-per-sequence --experiment-root ${run_dir}
+    \$SING \$AGG aggregate-per-sequence --experiment-root ${run_dir}
 
     \$SING ${params.repo_root}/bin/extract_passing.py \\
         --input ${run_dir}/aggregated_results.csv
-    printf 'postprocess %s\\n' "\$((SECONDS - _t0))" >> ${run_dir}/.stage_times
+    printf 'postprocess %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/postprocess
 
-    python3 ${params.repo_root}/bin/sum_stage_times.py \\
+    # Assemble the record from the per-stage files. Written fresh rather than
+    # appended, so re-running this stage under -resume cannot double-count.
+    cat ${run_dir}/.stage_times.d/* > ${run_dir}/.stage_times
+
+    \$SING ${params.repo_root}/bin/sum_stage_times.py \\
         --stage-times ${run_dir}/.stage_times \\
         --output ${run_dir}/run_one_runtime_sec.txt
 
@@ -317,10 +363,13 @@ process NEGSTEER_POSTPROCESS {
 
     stub:
     """
-    printf 'postprocess 1\\n' >> ${run_dir}/.stage_times
-    python3 ${params.repo_root}/bin/sum_stage_times.py \\
-        --stage-times ${run_dir}/.stage_times \\
-        --output ${run_dir}/run_one_runtime_sec.txt
+    printf 'postprocess 1\\n' > ${run_dir}/.stage_times.d/postprocess
+    cat ${run_dir}/.stage_times.d/* > ${run_dir}/.stage_times
+    # Shell, not sum_stage_times.py. A stub run has no container, and the host
+    # is not allowed to run the engine's Python. The real sum is asserted by
+    # tests/characterization/, not by walking the DAG.
+    awk '{ total += \$2 } END { print total + 0 }' ${run_dir}/.stage_times \\
+        > ${run_dir}/run_one_runtime_sec.txt
     cp ${run_dir}/run_one_runtime_sec.txt .
     echo "mpnn_sequence" > passing_summary.csv
     """

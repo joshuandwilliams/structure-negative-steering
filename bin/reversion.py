@@ -55,7 +55,7 @@ Coordinate conventions
   everything else in 1-based.
 - The "cumulative mutation history" is a list of (pos1, wt, mut)
   tuples in chronological order (cycle-0 first), as produced by
-  boltz2_iterate_steering.read_cumulative_mutations.  If the same
+  pathway_labels.read_cumulative_mutations.  If the same
   position was touched twice across cycles the earliest wt is the
   true wild-type.
 
@@ -77,7 +77,7 @@ from typing import Dict, List, Optional, Set, Tuple
 # ───────────────────────────────────────────────────────────────────────
 # Reverted-confidence forwarding — single source of truth
 # ───────────────────────────────────────────────────────────────────────
-# Confidence-suite columns that boltz2_iterate_steering.py forwards en
+# Confidence-suite columns that negsteer_aggregate.py forwards en
 # bloc from a reverted prediction's per_seed_records entry into the
 # downstream candidate dict / aggregated CSVs.  The structural RMSD
 # subset (reverted_ra_eff*, reverted_independent_*), the contact-flag
@@ -91,7 +91,7 @@ from typing import Dict, List, Optional, Set, Tuple
 # `per_seed_records[(label, seed_index)]` inside
 # harvest_reversion_results below.  Six historical bugs have come from
 # the two drifting apart; defining the list here once and importing it
-# in boltz2_iterate_steering.py removes the dual-source surface.
+# in negsteer_aggregate.py removes the dual-source surface.
 _REVERTED_CONFIDENCE_FIELDS = (
     "reverted_ipsae_min",
     "reverted_ipsae_ab",
@@ -162,7 +162,7 @@ def build_reverted_sequence(
     cumulative_mutations
         Full chronological mutation history for the design's pathway,
         as `(pos1, wt, mut)` tuples.  Obtained from
-        boltz2_iterate_steering.read_cumulative_mutations(experiment_root,
+        pathway_labels.read_cumulative_mutations(experiment_root,
         leaf_label).  Cycle-0 mutations come first.  If the same
         position was edited twice across cycles, the earliest wt is
         the true wild-type and is used for the reversion.
@@ -1304,3 +1304,791 @@ def classify_reversion_verdict(
                 f"residue(s) contacting the effector: {mutated_contacts}")
 
     return ("pose_holds", "reverted pose holds structurally and cleanly")
+
+
+# ======================================================================
+# Command-line stages
+#
+# Moved here from boltz2_iterate_steering.py, which no longer exists. These
+# four stages are the CLI over the library above, so they belong beside it
+# rather than in a module named after a loop that was never run.
+# ======================================================================
+
+import argparse  # noqa: E402
+import math  # noqa: E402
+import shutil  # noqa: E402
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from pathway_labels import (  # noqa: E402
+    _locate_boltz_sidecar_pdb,
+    make_pathway_label,
+    read_cumulative_mutations,
+    read_mutations_tsv_full,
+)
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Subcommand: build-contaminated  (container, phase 2b)
+# ───────────────────────────────────────────────────────────────────────
+#
+# Container-phase CPU work: for every intact candidate in prefilter.json,
+# shell out to compute_metrics.py to run the contact analysis.  A design
+# is flagged contaminated if any of its steering mutations contacts the
+# effector in the steered prediction; those contacting positions are
+# what the reversion pass will revert.  Write contaminated.json listing
+# every flagged design, in the schema plan-reversions consumes.
+def cmd_build_contaminated(args: argparse.Namespace) -> int:
+    workdir = args.workdir.resolve()
+    plan_path = workdir / "plan.json"
+    prefilter_path = workdir / "prefilter.json"
+
+    if not plan_path.exists():
+        print(f"ERROR: {plan_path} not found", file=sys.stderr)
+        return 2
+    if not prefilter_path.exists():
+        print(f"ERROR: {prefilter_path} not found — run "
+              f"iterate-collect-prefilter first", file=sys.stderr)
+        return 2
+
+    plan = json.loads(plan_path.read_text())
+    prefilter = json.loads(prefilter_path.read_text())
+
+    # Short-circuit: exhausted pathway → nothing to do
+    if prefilter.get("exhausted"):
+        print("[build-contaminated] pathway exhausted, nothing to do")
+        (workdir / "contaminated.json").write_text(json.dumps({
+            "cycle": prefilter.get("cycle"),
+            "parent_pathway": prefilter.get("parent_pathway"),
+            "n_checked": 0,
+            "n_contaminated": 0,
+            "contaminated": [],
+        }, indent=2))
+        return 0
+
+    # Resolve experiment_root + cycle_0 plan in a way that works for
+    # both cycle 0 (workdir = <root>/cycle_0/, plan IS cycle0_plan)
+    # and cycle 1+ (workdir = <root>/cycle_N/pathway_<label>/, cycle_0
+    # plan must be loaded from <root>/cycle_0/plan.json).
+    #
+    # The cycle-N+1 plan.json (written by cmd_iterate_plan) carries an
+    # "experiment_root" field explicitly.  The cycle-0 plan.json (written
+    # by boltz2_negative_steering.cmd_plan) does NOT — so we detect the
+    # cycle-0 case and derive experiment_root from the workdir's parent.
+    plan_cycle = int(plan.get("cycle", 0))
+    if "experiment_root" in plan:
+        experiment_root = Path(plan["experiment_root"])
+    else:
+        # Cycle 0: workdir = <root>/cycle_0/ (nested layout) or <root>/
+        # (flat layout).  We assume nested here because that's what the
+        # kickoff chain uses; the flat-layout single-cycle submit script
+        # never invokes build-contaminated.
+        experiment_root = workdir.parent
+
+    if plan_cycle == 0:
+        # The current plan IS cycle 0 — no need to re-read from disk.
+        cycle0_plan = plan
+        cycle0_plan_path = plan_path
+    else:
+        cycle0_plan_path = experiment_root / "cycle_0" / "plan.json"
+        if not cycle0_plan_path.exists():
+            print(f"ERROR: {cycle0_plan_path} not found — cannot resolve "
+                  f"chain info", file=sys.stderr)
+            return 2
+        cycle0_plan = json.loads(cycle0_plan_path.read_text())
+
+    pred_rec_chain = cycle0_plan.get("pred_receptor_chain", "A")
+    pred_eff_chain = cycle0_plan.get("pred_effector_chain", "B")
+
+    # Resolve compute_metrics.py (sibling of this script unless overridden)
+    compute_metrics_script = args.compute_metrics_script
+    if compute_metrics_script is None:
+        compute_metrics_script = SCRIPT_DIR / "compute_metrics.py"
+    compute_metrics_script = Path(compute_metrics_script).resolve()
+    if not compute_metrics_script.exists():
+        print(f"ERROR: compute_metrics.py not found at "
+              f"{compute_metrics_script}", file=sys.stderr)
+        return 2
+
+    scratch_dir = workdir / "contamination_scratch"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+
+    # Per-seed evaluations: populated below, one entry per
+    # passing_candidate (whether or not it's contaminated).  After the
+    # loop we group these by design and apply the CL-3 majority rule
+    # (see CL-3 in notes/phase4_architecture_spec.md): reversion runs
+    # only when n_contaminated >= ceil(n_correctly_placed / 2).
+    per_seed_evaluations: List[Dict] = []
+    contaminated_entries: List[Dict] = []
+    n_checked = 0
+    intact_candidates = prefilter.get("intact_candidates", [])
+
+    # Only check candidates whose steered prediction passes the ra_eff
+    # threshold.  The reversion pass validates whether a GOOD steered
+    # pose survives without the contaminating mutations.  Running it on
+    # a design whose steered pose is already terrible (ra_eff >> cutoff)
+    # doesn't answer that question — it's just asking whether Boltz
+    # happens to find the right pose on a fresh random seed.
+    rmsd_threshold = float(plan.get("rmsd_threshold", 5.0))
+    ra_eff_key = "receptor_aligned_effector_rmsd_vs_truth"
+    passing_candidates = []
+    n_skipped_ra_eff = 0
+    for cand in intact_candidates:
+        try:
+            ra_eff = float(cand.get(ra_eff_key, float("inf")))
+        except (ValueError, TypeError):
+            ra_eff = float("inf")
+        if ra_eff < rmsd_threshold:
+            passing_candidates.append(cand)
+        else:
+            n_skipped_ra_eff += 1
+
+    print(f"[build-contaminated] {len(intact_candidates)} intact candidates, "
+          f"{len(passing_candidates)} pass ra_eff < {rmsd_threshold} Å"
+          + (f" ({n_skipped_ra_eff} skipped)" if n_skipped_ra_eff else ""))
+
+    for cand in passing_candidates:
+        n_checked += 1
+        label_suffix = cand.get("design")
+        design_idx = cand.get("design_idx")
+        pdb_str = cand.get("pdb")
+        if not pdb_str or not label_suffix:
+            print(f"  WARN: skipping candidate with missing fields "
+                  f"({cand.get('design')})", file=sys.stderr)
+            continue
+        pdb = Path(pdb_str)
+        if not pdb.exists():
+            print(f"  WARN: pdb not found: {pdb}", file=sys.stderr)
+            continue
+        design_workdir = pdb.parent
+
+        # Build label: cycle 0 labels are "design_NN", cycle-N+1 are
+        # "parent.cNdMM".  We can reconstruct from plan + design_idx.
+        # Note: prefilter["cycle"] is the CHILD cycle (the cycle that
+        # just finished predicting), so pass it directly to
+        # make_pathway_label — do NOT subtract 1.  This matches the
+        # convention used by cmd_iterate_collect, cmd_iterate_plan's
+        # resubmit, and cmd_aggregate.
+        cycle = int(prefilter.get("cycle", 0))
+        parent_label = prefilter.get("parent_pathway")
+        is_cycle_zero = (parent_label is None and cycle == 0)
+        if is_cycle_zero:
+            label = label_suffix  # "design_NN"
+        else:
+            label = make_pathway_label(parent_label, cycle, design_idx)
+
+        # Walk the cumulative mutation history for this design so we
+        # can pass --mutated-positions to compute_metrics.py and (for
+        # contaminated outcomes) stash the full [(pos1, wt, mut)] list
+        # in contaminated.json for the reversion pass.
+        #
+        # Cycle-0 designs use a flat "design_NN" label which
+        # parse_pathway_label cannot parse, so read_cumulative_mutations
+        # would fail.  For cycle 0 the design's own mutations.tsv is
+        # the full history — no ancestors to walk — so just read it
+        # directly from the design workdir.
+        cumulative: List[Tuple[int, str, str]] = []
+        if is_cycle_zero:
+            mut_path = design_workdir / "mutations.tsv"
+            if mut_path.exists():
+                try:
+                    cumulative = read_mutations_tsv_full(mut_path)
+                except Exception as e:
+                    print(f"  WARN {label}: read_mutations_tsv_full failed: {e}",
+                          file=sys.stderr)
+        else:
+            try:
+                cumulative = read_cumulative_mutations(experiment_root, label)
+            except Exception as e:
+                print(f"  WARN {label}: read_cumulative_mutations failed: {e}",
+                      file=sys.stderr)
+
+        mutated_positions_1 = sorted(set(pos for pos, _, _ in cumulative))
+        mutated_cli = ",".join(str(p) for p in mutated_positions_1)
+
+        # Count CAs per chain for --chain-lengths
+        from collections import Counter
+        ca_counts: Counter = Counter()
+        with open(pdb) as f:
+            for line in f:
+                if line.startswith("ATOM") and line[12:16].strip() == "CA":
+                    ca_counts[line[21:22].strip() or " "] += 1
+        rec_len = ca_counts.get(pred_rec_chain, 0)
+        eff_len = ca_counts.get(pred_eff_chain, 0)
+        if rec_len == 0 or eff_len == 0:
+            ordered = ca_counts.most_common()
+            if len(ordered) >= 2:
+                rec_len = rec_len or ordered[0][1]
+                eff_len = eff_len or ordered[1][1]
+        if rec_len == 0 or eff_len == 0:
+            print(f"  WARN {label}: could not determine chain lengths",
+                  file=sys.stderr)
+            continue
+
+        # compute_metrics.py expects sidecar files (confidence/pae/plddt)
+        # alongside a nested model PDB, not next to `prediction.pdb`
+        # which is a copy.  Reuse _locate_boltz_sidecar_pdb so we point
+        # the parser at the directory that actually has the sidecars.
+        sidecar = _locate_boltz_sidecar_pdb(pdb)
+        pred_dir = sidecar.parent if sidecar is not None else pdb.parent
+
+        per_row_csv = scratch_dir / f"{label.replace('.', '_')}.csv"
+
+        cmd = [
+            sys.executable, str(compute_metrics_script),
+            "--model", "boltz2",
+            "--prediction-dir", str(pred_dir),
+            "--chain-lengths", str(rec_len), str(eff_len),
+            "--output-csv", str(per_row_csv),
+            "--pae-cutoff", str(args.pae_cutoff),
+            "--receptor-chain", pred_rec_chain,
+            "--effector-chain", pred_eff_chain,
+            "--contact-cutoff", str(args.contact_cutoff),
+            # v8 Level 1: restrict contact detection to the effector
+            # interface-atom set, read from cycle_0/plan.json.  An
+            # empty list in plan.json (fallback case) leaves contact
+            # detection unfiltered — compute_metrics.py handles that
+            # internally.
+            "--effector-atom-filter-json", str(cycle0_plan_path),
+        ]
+        if mutated_cli:
+            cmd.extend(["--mutated-positions", mutated_cli])
+
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=600)
+        except subprocess.TimeoutExpired:
+            print(f"  WARN {label}: compute_metrics.py timed out",
+                  file=sys.stderr)
+            continue
+        if proc.returncode != 0:
+            print(f"  WARN {label}: compute_metrics.py rc={proc.returncode}: "
+                  f"{(proc.stderr or '').strip()[:200]}",
+                  file=sys.stderr)
+            continue
+        if not per_row_csv.exists():
+            print(f"  WARN {label}: compute_metrics.py produced no CSV",
+                  file=sys.stderr)
+            continue
+
+        with open(per_row_csv) as f:
+            cm_rows = list(csv.DictReader(f))
+        if not cm_rows:
+            print(f"  WARN {label}: compute_metrics.py CSV was empty",
+                  file=sys.stderr)
+            continue
+        cm = cm_rows[0]
+
+        # Parse contact residues: 1-based positions that form contacts
+        # with the effector in the steered prediction.
+        contact_residues_str = cm.get("contact_residues", "")
+        steered_contact_residues = sorted(set(
+            int(p) for p in contact_residues_str.split(",")
+            if p.strip()
+        ))
+
+        # CONTAMINATION RULE
+        # ==================
+        # ANY mutated position that forms a contact with the effector
+        # in the steered prediction is contamination.  The wet-lab
+        # construct carries the original (pre-steering) sequence — it
+        # will NOT carry the steered residue at any position, whether
+        # that position is inside the protected set or not.  So a
+        # mutation at a non-protected position contacting the effector
+        # is just as invalidating as one inside the protected set:
+        # in both cases the rescue pose depends on a residue state
+        # that won't exist when the construct is expressed.
+        #
+        # positions_to_revert = mutated_positions ∩ contact_residues
+        # No protected-set filter.
+        mutated_positions_set = set(mutated_positions_1)
+        contact_set = set(steered_contact_residues)
+        positions_to_revert = sorted(mutated_positions_set & contact_set)
+
+        # CL-3 (Phase 4): collect every per-seed evaluation here, even
+        # the uncontaminated ones, so we can compute
+        # n_correctly_placed and n_contaminated per design after the
+        # loop and apply the majority gating rule.
+        per_seed_evaluations.append({
+            "design_slot": cand.get("design"),  # cycle-0 slot name,
+                                                # e.g. "design_03" — the
+                                                # CL-3 grouping key
+            "is_contaminated": bool(positions_to_revert),
+            "entry": {
+                "label": label,
+                "design_idx": design_idx,
+                "seed_index": cand.get("seed_index", 0),
+                "design_workdir": str(design_workdir),
+                "cumulative_mutations": [
+                    [p, w, m] for p, w, m in cumulative
+                ],
+                "positions_to_revert": positions_to_revert,
+                "steered_ra_eff_vs_truth": cand.get(
+                    "receptor_aligned_effector_rmsd_vs_truth"
+                ),
+                "steered_contact_residues": steered_contact_residues,
+            },
+        })
+
+    # ── CL-3 majority gating ────────────────────────────────────────
+    # Group per-seed evaluations by design_slot, then for each design:
+    #   n_correctly_placed = total seeds of this design that reached
+    #     this point (already filtered to intact + ra_eff < threshold
+    #     upstream).
+    #   n_contaminated     = subset that have positions_to_revert.
+    # Reversion runs IFF n_correctly_placed > 0 AND n_contaminated >=
+    # ceil(n_correctly_placed / 2).  See notes/phase4_architecture_
+    # spec.md §CL-3 for the rationale.  Replaces the pre-Phase-4 per-
+    # (design, seed) gate that triggered reversion on any single
+    # contaminated seed and was driving Tier-B-shaped results into
+    # unnecessary reversion attempts.
+    from collections import defaultdict
+    by_design: Dict[str, List[Dict]] = defaultdict(list)
+    for ev in per_seed_evaluations:
+        by_design[ev["design_slot"]].append(ev)
+    n_designs_evaluated = len(by_design)
+    n_designs_triggering = 0
+    for design_slot, evals in by_design.items():
+        n_correctly_placed = len(evals)
+        n_contaminated = sum(1 for e in evals if e["is_contaminated"])
+        if n_correctly_placed == 0:
+            continue
+        majority_threshold = math.ceil(n_correctly_placed / 2)
+        if n_contaminated < majority_threshold:
+            # Below-majority contamination — leave the steered result
+            # alone.  Contaminated seeds count as failures in n_pass
+            # at the aggregate level (they're not pass-equivalent), but
+            # we don't try to revert them.
+            continue
+        n_designs_triggering += 1
+        # Emit only the genuinely-contaminated entries — these are the
+        # seeds whose reverted sequence the reversion stage will
+        # predict (after dedup-by-sequence in write_reversion_plan).
+        contaminated_entries.extend(
+            e["entry"] for e in evals if e["is_contaminated"]
+        )
+
+    print(f"[build-contaminated] CL-3 gating: {n_designs_triggering} / "
+          f"{n_designs_evaluated} designs trigger reversion "
+          f"({len(contaminated_entries)} contaminated entries queued)")
+
+    (workdir / "contaminated.json").write_text(json.dumps({
+        "cycle": prefilter.get("cycle"),
+        "parent_pathway": prefilter.get("parent_pathway"),
+        "n_checked": n_checked,
+        "n_contaminated": len(contaminated_entries),
+        "contaminated": contaminated_entries,
+    }, indent=2, default=str))
+
+    # Tidy up scratch on clean runs; leave it if anything failed for
+    # post-mortem.
+    if n_checked == len(intact_candidates):
+        try:
+            shutil.rmtree(scratch_dir)
+        except Exception:
+            pass
+
+    return 0
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Subcommand: plan-reversions
+# ───────────────────────────────────────────────────────────────────────
+#
+# Runs AFTER structural filtering inside a cycle's collect phase.
+# Takes the set of structurally-passing designs, identifies which
+# ones were flagged `contaminated` by build-contaminated (i.e. have
+# any mutated residue contacting the effector in the steered pose),
+# and stages reverted Boltz YAMLs for each one under
+# <workdir>/reversions/<safe_label>/.  Produces reversion_plan.json.
+#
+# Inputs (all file-based so this subcommand can be tested standalone):
+#   <workdir>/plan.json                — for chain IDs, effector fasta,
+#                                        boltz container + hyperparams,
+#                                        ground truth path
+#   <workdir>/contaminated.json        — written by the collect phase;
+#                                        list of contaminated candidates,
+#                                        each with design_workdir +
+#                                        positions_to_revert +
+#                                        cumulative_mutations + label
+#
+# Outputs:
+#   <workdir>/reversion_plan.json      — manifest listing every staged
+#                                        reversion, consumed by
+#                                        predict-reversion-one and
+#                                        harvest-reversions
+#
+# This must run INSIDE the singularity container because it imports
+# boltz2_negative_steering.write_boltz_yaml (which lives in that
+# module's module-level scope and cannot be lazy-imported cleanly
+# without triggering the numpy+Bio imports).
+def cmd_plan_reversions(args: argparse.Namespace) -> int:
+    workdir: Path = args.workdir.resolve()
+    plan_path = workdir / "plan.json"
+    contaminated_path = workdir / "contaminated.json"
+
+    if not plan_path.exists():
+        print(f"ERROR: {plan_path} not found — plan-reversions must "
+              f"run after iterate-plan/compute-distances", file=sys.stderr)
+        return 2
+    if not contaminated_path.exists():
+        # Permissive: build-contaminated may have skipped if there
+        # were no intact candidates.  Write an empty reversion_plan.json
+        # so downstream stages no-op cleanly.
+        print("[plan-reversions] no contaminated.json — writing empty "
+              "reversion_plan.json (no reversions to stage)")
+        plan_for_chains = json.loads(plan_path.read_text())
+        (workdir / "reversion_plan.json").write_text(json.dumps({
+            "workdir": str(workdir),
+            "n_contaminated": 0,
+            "n_staged": 0,
+            "pred_receptor_chain": plan_for_chains.get("pred_receptor_chain", "A"),
+            "pred_effector_chain": plan_for_chains.get("pred_effector_chain", "B"),
+            "entries": [],
+        }, indent=2))
+        return 0
+
+    plan = json.loads(plan_path.read_text())
+    contaminated_doc = json.loads(contaminated_path.read_text())
+    contaminated_list = contaminated_doc.get("contaminated", [])
+
+    if not contaminated_list:
+        print("[plan-reversions] no contaminated designs — "
+              "writing empty reversion_plan.json")
+        (workdir / "reversion_plan.json").write_text(json.dumps({
+            "workdir": str(workdir),
+            "n_contaminated": 0,
+            "n_staged": 0,
+            "pred_receptor_chain": plan.get("pred_receptor_chain", "A"),
+            "pred_effector_chain": plan.get("pred_effector_chain", "B"),
+            "entries": [],
+        }, indent=2))
+        return 0
+
+    # Load effector sequence the same way cmd_plan does: from the
+    # ground-truth PDB's effector chain, via the steering module's
+    # get_chain_sequence.  (Or from an effector-fasta override if
+    # plan.json recorded one.)
+    script_dir = SCRIPT_DIR
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    import reversion  # type: ignore
+    from boltz2_negative_steering import get_chain_sequence  # type: ignore
+
+    ground_truth = Path(plan["ground_truth"])
+    truth_eff_chain = plan["truth_effector_chain"]
+    eff_override = plan.get("effector_fasta_override")
+    if eff_override:
+        # Single-record FASTA read, same shape as reversion's helper
+        text = Path(eff_override).read_text()
+        seq_lines: List[str] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith(">"):
+                continue
+            seq_lines.append(line)
+        effector_seq = "".join(seq_lines)
+    else:
+        effector_seq = get_chain_sequence(ground_truth, truth_eff_chain)
+
+    plan_meta = {
+        "effector_seq": effector_seq,
+        "effector_template_cif": plan.get("effector_template_cif"),
+        "pred_receptor_chain": plan.get("pred_receptor_chain", "A"),
+        "pred_effector_chain": plan.get("pred_effector_chain", "B"),
+        "base_seed": int(plan.get("seed", 0)),
+        "num_seeds": int(plan.get("num_seeds", 1)),
+        "boltz_constraints_block": plan.get("boltz_constraints_block"),
+    }
+
+    n = len(contaminated_list)
+    print(f"[plan-reversions] staging {n} reverted Boltz YAMLs")
+    manifest_path = reversion.write_reversion_plan(
+        workdir, contaminated_list, plan_meta
+    )
+    manifest = json.loads(manifest_path.read_text())
+    print(f"  wrote {manifest_path} ({manifest['n_staged']}/{n} staged)")
+    if manifest["n_staged"] < n:
+        print(f"  WARN: {n - manifest['n_staged']} contaminated design(s) "
+              f"could not be staged — see stderr above for reasons",
+              file=sys.stderr)
+    return 0
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Subcommand: predict-reversion-one
+# ───────────────────────────────────────────────────────────────────────
+#
+# GPU array task: run Boltz on one staged reversion YAML by array index.
+# Modelled on boltz2_negative_steering.cmd_predict_one.
+def cmd_predict_reversion_one(args: argparse.Namespace) -> int:
+    workdir: Path = args.workdir.resolve()
+    plan_path = workdir / "plan.json"
+    manifest_path = workdir / "reversion_plan.json"
+
+    if not plan_path.exists():
+        print(f"ERROR: {plan_path} not found", file=sys.stderr)
+        return 2
+    if not manifest_path.exists():
+        print(f"ERROR: {manifest_path} not found — run plan-reversions first",
+              file=sys.stderr)
+        return 2
+
+    plan = json.loads(plan_path.read_text())
+    manifest = json.loads(manifest_path.read_text())
+    entries = manifest.get("entries", [])
+
+    idx = args.index
+    if idx < 0 or idx >= len(entries):
+        # Out-of-range is not an error on array tasks — it just means
+        # this array slot has no work.  Exit 0 so the array completes
+        # cleanly even if the shell script over-provisioned tasks.
+        print(f"[predict-reversion-one] index {idx} out of range "
+              f"(have {len(entries)} reversions) — nothing to do")
+        return 0
+
+    entry = entries[idx]
+    label = entry["label"]
+    rev_dir = Path(entry["rev_dir"])
+    yaml_path = Path(entry["yaml"])
+
+    print(f"[predict-reversion-one] {label} (index {idx})", flush=True)
+
+    script_dir = SCRIPT_DIR
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    from boltz2_negative_steering import run_boltz  # type: ignore
+
+    try:
+        pred_pdb = run_boltz(
+            yaml_path, rev_dir,
+            plan["boltz_container"],
+            plan["recycling_steps"], plan["diffusion_samples"],
+            # Use pre-computed seed if available (new manifest schema);
+            # fall back to old formula for backward compatibility.
+            entry.get("boltz_seed",
+                       int(plan["seed"]) + 100000 + idx + 1),
+            plan["no_kernels"],
+        )
+    except Exception as e:
+        print(f"  ERROR: {e}", file=sys.stderr)
+        # Still write a stub result so harvest can report this cleanly
+        (rev_dir / "predict_error.txt").write_text(str(e))
+        return 1
+
+    # Copy the chosen PDB out to a stable name, same as predict-one does
+    shutil.copy2(pred_pdb, rev_dir / "prediction.pdb")
+    print(f"  wrote {rev_dir / 'prediction.pdb'}")
+    return 0
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Subcommand: harvest-reversions
+# ───────────────────────────────────────────────────────────────────────
+#
+# In-container harvest: for every staged reversion, compute reverted
+# structural metrics (ra_eff vs ground truth AND vs steered parent),
+# contact analysis, contamination check on the reverted prediction,
+# and the pose_holds / pose_collapses / new_contamination verdict.
+# Writes reversion_results.json.
+def cmd_harvest_reversions(args: argparse.Namespace) -> int:
+    workdir: Path = args.workdir.resolve()
+    plan_path = workdir / "plan.json"
+    manifest_path = workdir / "reversion_plan.json"
+
+    if not plan_path.exists():
+        print(f"ERROR: {plan_path} not found", file=sys.stderr)
+        return 2
+    if not manifest_path.exists():
+        # Permissive: if plan-reversions never ran (e.g. because
+        # build-contaminated found nothing or crashed upstream),
+        # write an empty results doc so kickoff-finalize /
+        # iterate-collect-finalize can still run without a reversion
+        # phase.  No verdicts will be applied; every intact design
+        # flows through as-is.
+        print("[harvest-reversions] no reversion_plan.json — writing "
+              "empty reversion_results.json")
+        (workdir / "reversion_results.json").write_text("{}\n")
+        return 0
+
+    plan = json.loads(plan_path.read_text())
+    manifest = json.loads(manifest_path.read_text())
+
+    # Resolve compute_metrics.py path (same logic as cmd_compute_final_metrics)
+    compute_metrics_script = args.compute_metrics_script
+    if compute_metrics_script is None:
+        compute_metrics_script = SCRIPT_DIR / "compute_metrics.py"
+    compute_metrics_script = Path(compute_metrics_script).resolve()
+    if not compute_metrics_script.exists():
+        print(f"ERROR: compute_metrics.py not found at {compute_metrics_script}",
+              file=sys.stderr)
+        return 2
+
+    script_dir = SCRIPT_DIR
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    import reversion  # type: ignore
+
+    print(f"[harvest-reversions] harvesting "
+          f"{len(manifest.get('entries', []))} reverted prediction(s)")
+    results = reversion.harvest_reversion_results(
+        workdir=workdir,
+        ground_truth_pdb=Path(plan["ground_truth"]),
+        truth_receptor_chain=plan["truth_receptor_chain"],
+        truth_effector_chain=plan["truth_effector_chain"],
+        compute_metrics_script=compute_metrics_script,
+        pae_cutoff=float(args.pae_cutoff),
+        contact_cutoff=float(args.contact_cutoff),
+    )
+
+    # Apply verdict classification per label.  We need the steered
+    # row to classify, which lives in contaminated.json.  Verdict
+    # threshold defaults match compute-final-metrics' RFDiffusion
+    # tier: ra_eff < 5.0 and intact.
+    contaminated_path = workdir / "contaminated.json"
+    steered_by_label: Dict[str, Dict] = {}
+    if contaminated_path.exists():
+        cdoc = json.loads(contaminated_path.read_text())
+        for c in cdoc.get("contaminated", []):
+            steered_by_label[c["label"]] = {
+                "receptor_aligned_effector_rmsd": c.get("steered_ra_eff_vs_truth"),
+                "receptor_intact": 1,  # had to be intact to make it here
+            }
+
+    # Build the contamination-gating set: union of the RFDiffusion
+    # design region and the true interface, 1-based to match the
+    # coordinate system of reverted_mutated_contact_positions.  This
+    # mirrors the pre-reversion contamination policy: only flag
+    # mutated contacts at positions inside these regions as
+    # new_contamination, since positions outside these regions
+    # were already accepted as valid steering contacts on the
+    # steered pose and are not reverted.
+    gating_1b: Set[int] = set()
+    dr = plan.get("design_region_idx") or []
+    ti = plan.get("true_interface_idx") or []
+    for i in dr:
+        gating_1b.add(int(i) + 1)
+    for i in ti:
+        gating_1b.add(int(i) + 1)
+    if gating_1b:
+        print(f"[harvest-reversions] contamination gating set: "
+              f"{len(gating_1b)} positions (design region ∪ true interface)")
+    else:
+        print("[harvest-reversions] WARN: no design_region_idx or "
+              "true_interface_idx in plan.json — falling back to "
+              "legacy ungated contamination check")
+
+    verdicts: Dict[str, Dict] = {}
+    for label, rev in results.items():
+        steered_row = steered_by_label.get(label, {})
+        verdict, reason = reversion.classify_reversion_verdict(
+            steered_row, rev,
+            structural_ra_eff_cutoff=float(args.structural_ra_eff_cutoff),
+            structural_intact_required=True,
+            contamination_gating_positions=gating_1b if gating_1b else None,
+        )
+        verdicts[label] = {
+            "verdict": verdict,
+            "reason": reason,
+            **rev,
+        }
+        print(f"  {label:30s} verdict={verdict:18s} {reason}")
+
+    out_path = workdir / "reversion_results.json"
+    out_path.write_text(json.dumps(verdicts, indent=2, default=str))
+    print(f"wrote {out_path}")
+    return 0
+
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    # ─── build-contaminated (container, phase 2b) ───────────────────
+    pbc = sub.add_parser(
+        "build-contaminated",
+        help="Container, phase 2b: read prefilter.json, run contact "
+             "analysis on every intact candidate via compute_metrics.py, "
+             "flag any design where a mutated residue contacts the "
+             "effector, write contaminated.json",
+    )
+    pbc.add_argument("--workdir", type=Path, required=True)
+    pbc.add_argument("--compute-metrics-script", type=Path, default=None,
+                     help="Path to compute_metrics.py (default: sibling "
+                          "of this script)")
+    pbc.add_argument("--pae-cutoff", type=float, default=10.0,
+                     help="PAE cutoff (Å) for ipSAE in compute_metrics.py "
+                          "(default: 10.0)")
+    pbc.add_argument("--contact-cutoff", type=float, default=5.0,
+                     help="Heavy-atom contact cutoff (Å) for the contact "
+                          "definition (default: 5.0)")
+    pbc.set_defaults(func=cmd_build_contaminated)
+
+    # ─── plan-reversions ────────────────────────────────────────────
+    ppr = sub.add_parser(
+        "plan-reversions",
+        help="Stage reverted Boltz YAMLs for contaminated designs "
+             "identified by the structural-filter phase",
+    )
+    ppr.add_argument("--workdir", type=Path, required=True,
+                     help="Collect-phase workdir containing plan.json "
+                          "and contaminated.json")
+    ppr.set_defaults(func=cmd_plan_reversions)
+
+    # ─── predict-reversion-one ──────────────────────────────────────
+    pprd = sub.add_parser(
+        "predict-reversion-one",
+        help="GPU array task: run Boltz on one staged reversion by "
+             "array index",
+    )
+    pprd.add_argument("--workdir", type=Path, required=True,
+                      help="Collect-phase workdir containing "
+                           "reversion_plan.json")
+    pprd.add_argument("--index", type=int, required=True,
+                      help="0-based array index into reversion_plan.json's "
+                           "entries list")
+    pprd.set_defaults(func=cmd_predict_reversion_one)
+
+    # ─── harvest-reversions ─────────────────────────────────────────
+    phr = sub.add_parser(
+        "harvest-reversions",
+        help="Compute reverted metrics + pose_holds/pose_collapses/"
+             "new_contamination verdicts for every staged reversion",
+    )
+    phr.add_argument("--workdir", type=Path, required=True,
+                     help="Collect-phase workdir containing "
+                          "reversion_plan.json and plan.json")
+    phr.add_argument("--structural-ra-eff-cutoff", type=float, default=5.0,
+                     help="Reverted ra_eff cutoff for the pose_holds "
+                          "verdict.  A reverted pose is classified as "
+                          "pose_collapses if reverted_ra_eff_vs_truth "
+                          "is >= this value.  Default 5.0 Å.")
+    phr.add_argument("--pae-cutoff", type=float, default=10.0,
+                     help="PAE cutoff (Å) for ipSAE on reverted "
+                          "predictions.  Forwarded to compute_metrics.py.  "
+                          "Default 10.0.")
+    phr.add_argument("--contact-cutoff", type=float, default=5.0,
+                     help="Heavy-atom contact cutoff (Å) for the "
+                          "interface contact definition on reverted "
+                          "predictions.  Default 5.0.")
+    phr.add_argument("--compute-metrics-script", type=Path, default=None,
+                     help="Path to compute_metrics.py (default: sibling "
+                          "of this script)")
+    phr.set_defaults(func=cmd_harvest_reversions)
+
+    return p
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

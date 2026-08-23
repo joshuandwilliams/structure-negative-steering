@@ -24,7 +24,17 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "bin"))
 
-import boltz2_iterate_steering as its  # noqa: E402
+import negsteer_aggregate as _agg  # noqa: E402
+import negsteer_coldstart as _cold  # noqa: E402
+import pathway_labels as pl  # noqa: E402
+import reversion as _rev  # noqa: E402
+
+_STAGE_MODULE = {
+    "kickoff-distances": _cold, "kickoff-prefilter": _cold, "kickoff-finalize": _cold,
+    "build-contaminated": _rev, "plan-reversions": _rev,
+    "predict-reversion-one": _rev, "harvest-reversions": _rev,
+    "aggregate": _agg, "compute-final-metrics": _agg, "aggregate-per-sequence": _agg,
+}
 
 FIXTURE = Path(__file__).parent / "fixtures" / "full_run" / "6G10"
 needs_run = pytest.mark.skipif(
@@ -40,8 +50,9 @@ def run_dir(tmp_path) -> Path:
 
 
 def _main(*args: str) -> int:
-    with mock.patch.object(sys, "argv", ["boltz2_iterate_steering.py", *args]):
-        rc = its.main()
+    mod = _STAGE_MODULE[args[0]]
+    with mock.patch.object(sys, "argv", [f"{mod.__name__}.py", *args]):
+        rc = mod.main()
     return 0 if rc is None else rc
 
 
@@ -202,7 +213,7 @@ def test_recorded_pathways_parse_back_to_cycle_and_design(run_dir):
     for label in labels:
         if not isinstance(label, str):
             continue
-        parsed = its.parse_pathway_label(label)
+        parsed = pl.parse_pathway_label(label)
         assert isinstance(parsed, list), f"{label!r} did not parse"
 
 

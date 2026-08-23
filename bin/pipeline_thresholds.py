@@ -99,7 +99,7 @@ class PipelineInternalThresholds:
     # ── Composite score ───────────────────────────────────────────────
     #
     # composite = true_jaccard − composite_ra_eff_weight × ra_eff.
-    # Default 0.05 from boltz2_iterate_steering.py and the plot scripts'
+    # Default 0.05 from negsteer_aggregate.py and the plot scripts'
     # COMPOSITE_RA_EFF_WEIGHT constant.
     composite_ra_eff_weight: float = 0.05
 

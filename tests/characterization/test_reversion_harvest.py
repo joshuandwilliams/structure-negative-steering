@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SMOKE = REPO_ROOT / "tests" / "characterization" / "fixtures" / "smoke_run"
+SINGLE_RUN = REPO_ROOT / "tests" / "characterization" / "fixtures" / "single_run"
 
 _spec = importlib.util.spec_from_file_location(
     "reversion_h", REPO_ROOT / "bin" / "reversion.py")
@@ -163,8 +163,8 @@ def test_no_prediction_returns_none_rather_than_raising(tmp_path):
 @pytest.mark.local_integration
 def test_chain_lengths_are_read_off_a_real_prediction():
     """6Q76 is receptor A at 73 residues and effector B at 68. Read from the
-    smoke run's own output rather than a hand-written stub."""
-    pdb = SMOKE / "cycle_0" / "steered" / "design_00" / "prediction.pdb"
+    single-run test's own output rather than a hand-written stub."""
+    pdb = SINGLE_RUN / "cycle_0" / "steered" / "design_00" / "prediction.pdb"
     rec, eff = rev._count_pdb_chain_ca_lengths(pdb, "A", "B")
     assert (rec, eff) == (73, 68)
 
@@ -173,7 +173,7 @@ def test_chain_lengths_are_read_off_a_real_prediction():
 def test_unknown_chain_ids_fall_back_to_the_two_largest_chains():
     """Chain naming is not guaranteed across predictors. Falling back beats
     returning zero lengths, which would silently skip the metrics."""
-    pdb = SMOKE / "cycle_0" / "steered" / "design_00" / "prediction.pdb"
+    pdb = SINGLE_RUN / "cycle_0" / "steered" / "design_00" / "prediction.pdb"
     rec, eff = rev._count_pdb_chain_ca_lengths(pdb, "X", "Y")
     assert rec > 0 and eff > 0
     assert {rec, eff} == {73, 68}
@@ -237,6 +237,6 @@ def test_no_cycle0_plan_anywhere_returns_none(tmp_path):
 def test_the_real_plan_supplies_the_gating_context():
     """The gating set comes from cycle_0's plan. An empty context would
     disable the gate and reclassify accepted steering as contamination."""
-    ctx = rev._load_cycle0_plan_context(SMOKE / "cycle_0" / "plan.json", 5.0)
+    ctx = rev._load_cycle0_plan_context(SINGLE_RUN / "cycle_0" / "plan.json", 5.0)
     assert isinstance(ctx, dict)
     assert "true_idx" in ctx

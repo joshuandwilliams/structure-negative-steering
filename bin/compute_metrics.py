@@ -5,7 +5,7 @@ compute_metrics.py  (minimal boltz2-only build)
 Compute confidence metrics from Boltz-2 structure prediction outputs.
 
 This is a cut-down build of the full benchmark-pipeline compute_metrics.py,
-containing only what `boltz2_iterate_steering.py compute-final-metrics`
+containing only what `negsteer_aggregate.py compute-final-metrics`
 needs: the Boltz-2 parser and the confidence / PAE-derived metrics.
 
 All structural-RMSD code (Kabsch fitting, sequence alignment, reference

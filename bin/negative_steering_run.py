@@ -46,7 +46,7 @@ def _find_boltz_outputs(
     """Locate the canonical Boltz PDB + confidence JSON in a prediction
     directory.  Returns (None, None) if either is missing.
 
-    Layout (per boltz2_iterate_steering.py:4426):
+    Layout (per negsteer_aggregate.py's aggregate-per-sequence):
       <pred_dir>/boltz_results_input/predictions/input/
           pdb/input_model_<M>.pdb
           confidence_input_model_<M>.json

@@ -21,12 +21,20 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SMOKE = REPO_ROOT / "tests" / "characterization" / "fixtures" / "smoke_run"
+SINGLE_RUN = REPO_ROOT / "tests" / "characterization" / "fixtures" / "single_run"
 
-_spec = importlib.util.spec_from_file_location(
-    "iterate_h", REPO_ROOT / "bin" / "boltz2_iterate_steering.py")
-it = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(it)
+def _load(alias: str, filename: str):
+    spec = importlib.util.spec_from_file_location(alias, REPO_ROOT / "bin" / filename)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# The helpers this file covers were split across two modules when
+# boltz2_iterate_steering.py was retired. `it` keeps the aggregation half so the
+# assertions below read unchanged; cycle statistics moved to cold-start.
+it = _load("negsteer_aggregate_h", "negsteer_aggregate.py")
+cold = _load("negsteer_coldstart_h", "negsteer_coldstart.py")
 
 
 def _args(**over) -> argparse.Namespace:
@@ -65,10 +73,10 @@ def test_unexpected_columns_are_sorted_so_the_order_is_reproducible():
 
 @pytest.mark.local_integration
 def test_every_column_the_real_run_produced_is_in_the_declared_order():
-    """Read off the smoke run rather than a stub. A column the engine writes
+    """Read off the single-run test rather than a stub. A column the engine writes
     but this function does not list would land in the unsorted tail, which is
     the difference between a stable schema and an accidental one."""
-    with (SMOKE / "aggregated_results.csv").open() as fh:
+    with (SINGLE_RUN / "aggregated_results.csv").open() as fh:
         rows = list(csv.DictReader(fh))
     assert rows, "fixture has no rows"
     fields = it._aggregate_csv_fieldnames(rows)
@@ -152,7 +160,7 @@ def test_a_row_with_no_metric_at_all_is_excluded():
 @pytest.mark.local_unit
 def test_the_statistics_file_gets_a_header_once(tmp_path):
     for i in range(2):
-        it.append_cycle_statistics(tmp_path, 0, f"p{i}", 10, 8, 6, 3,
+        cold.append_cycle_statistics(tmp_path, 0, f"p{i}", 10, 8, 6, 3,
                                    [1.0, 2.0], [3.0, 4.0])
     lines = (tmp_path / "cycle_statistics.csv").read_text().splitlines()
     assert len(lines) == 3, "expected one header and two rows"
@@ -163,7 +171,7 @@ def test_the_statistics_file_gets_a_header_once(tmp_path):
 def test_the_full_distributions_are_kept_not_just_their_summaries(tmp_path):
     """The lists are stored semicolon-joined so a later analysis can refit a
     distribution without re-walking the whole run tree."""
-    it.append_cycle_statistics(tmp_path, 0, "p0", 10, 8, 6, 3,
+    cold.append_cycle_statistics(tmp_path, 0, "p0", 10, 8, 6, 3,
                                [1.5, 2.5], [3.5, 4.5])
     with (tmp_path / "cycle_statistics.csv").open() as fh:
         row = next(csv.DictReader(fh))
@@ -174,8 +182,8 @@ def test_the_full_distributions_are_kept_not_just_their_summaries(tmp_path):
 
 @pytest.mark.local_unit
 def test_appending_a_second_cycle_does_not_overwrite_the_first(tmp_path):
-    it.append_cycle_statistics(tmp_path, 0, "p0", 1, 1, 1, 1, [], [])
-    it.append_cycle_statistics(tmp_path, 1, "p0", 2, 2, 2, 2, [], [])
+    cold.append_cycle_statistics(tmp_path, 0, "p0", 1, 1, 1, 1, [], [])
+    cold.append_cycle_statistics(tmp_path, 1, "p0", 2, 2, 2, 2, [], [])
     with (tmp_path / "cycle_statistics.csv").open() as fh:
         cycles = [r["cycle"] for r in csv.DictReader(fh)]
     assert cycles == ["0", "1"]

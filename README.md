@@ -12,7 +12,7 @@ A standalone home for the Boltz-2 negative-steering engine, so it can be run and
 
 The benchmark is complete, the committed analyses are current, and the test suite passes.
 
-Coverage over `bin/` is 66% and gated as a ratchet that may only rise. `scripts/` is at 98%. The remaining gap is concentrated in the multi-cycle loop of `boltz2_iterate_steering` and the reversion harvest in `reversion`, which need a GPU and the Boltz image. The smoke run (below) is how those are reached.
+Coverage over `bin/` is 66% and gated as a ratchet that may only rise. `scripts/` is at 98%. The remaining gap is concentrated in the multi-cycle loop of `boltz2_iterate_steering` and the reversion harvest in `reversion`, which need a GPU and the Boltz image. The single-run test (below) is how those are reached.
 
 CI runs on every push and pull request. `lint.yml` is ruff, pinned to the version in `environment.yml` so it applies the same rule set as a local run. `test.yml` runs the two local test tiers, then stub-runs the workflow to check the DAG still wires up. The `hpc` tier is not run there, since it needs a GPU, the Boltz image or a finished run.
 
@@ -24,7 +24,7 @@ The committed results were produced by the previous single-job runner, not by th
 
 One target is one `config.yml`. The two fan-outs, one Boltz-2 call per steered design and one per reverted design, were bash loops inside a single SLURM job. They are Nextflow channels now, so each prediction is a task with its own resources, retry and failure. The width of each fan-out is read from the stage that precedes it rather than from the config, because the plan legitimately stages fewer designs than asked, or none at all when the cold start already passes.
 
-Each stage appends its elapsed seconds to `run/.stage_times`, and `POSTPROCESS` sums them into `run_one_runtime_sec.txt`. That is the per-run cost the compute-cost analysis reads. It is a sum rather than a wall-clock, because the single job it replaced ran the stages in sequence, and the sum is what stays comparable with the committed benchmark.
+Each stage writes its elapsed seconds to its own file under `run/.stage_times.d/`, and `POSTPROCESS` concatenates that directory into `run/.stage_times` and sums it into `run_one_runtime_sec.txt`. One file per stage rather than one shared file, because the two fan-outs append concurrently from different nodes over a shared filesystem. The first real cluster run lost one of nine `predict_one` lines that way, which silently understates the cost. Concatenating at the end is also idempotent, so a `-resume` that re-runs `POSTPROCESS` cannot double-count. That is the per-run cost the compute-cost analysis reads. It is a sum rather than a wall-clock, because the single job it replaced ran the stages in sequence, and the sum is what stays comparable with the committed benchmark.
 
 ## Design decisions
 
@@ -161,24 +161,44 @@ singularity exec --nv --bind $REPO negsteer.img \
 
 The engine is a mid-pipeline component. It does not turn a bare PDB into results by itself. It needs both chain sequences plus a true-interface and a design-region index file, and it uses the complex as the comparison basis. Runs are config-driven, one YAML per target.
 
-The HPC is airgapped, so nothing is installed there and everything runs in a container. `negative_steering.slurm.sh` uses only `bash`, `grep` and `singularity` on the host. All Python runs inside the Boltz image, which ships `yaml`, `gemmi`, `biopython` and `numpy`. The GPU allocation is required or Boltz fails with "No supported gpu backend found!".
+The HPC is airgapped, so nothing is installed there and everything runs in a container. `negative_steering.slurm.sh` uses only `bash`, `grep` and `singularity` on the host, and the workflow's stages hold to the same rule. All Python runs inside the Boltz image, which ships `yaml`, `gemmi`, `biopython` and `numpy`. The GPU allocation is required or Boltz fails with "No supported gpu backend found!".
 
-`main.nf` is the entry point. It takes a glob, so one target and the whole benchmark are the same command. Nextflow submits each stage to SLURM itself, so run it from the login node rather than under `sbatch`.
+`tests/characterization/test_no_host_python.py` enforces that. Every `script:` block's Python must be wrapped in `singularity exec`, and every `stub:` block must need no container at all. The first cluster run failed on the one stage that broke the rule, `NEGSTEER_READ_CONFIG`, which called the host's `python3` for a driver that needs PyYAML.
+
+That stage is the awkward one, because the container path is what it is reading. `scripts/resolve_boltz_container.sh` pulls `boltz_container:` out of the YAML as plain text, the same extraction `negative_steering.slurm.sh` has always used, and the driver then runs inside that image. A config with no container is a hard error rather than a fallback. `--allow_host_python` opens the one exception, for CI, which has PyYAML installed and no image to run anything inside.
+
+`main.nf` is the entry point. It takes a glob, so one target and the whole benchmark are the same command. `scripts/run_workflow.slurm.sh` submits it. The Nextflow head process is CPU-only, and it parses the DAG, submits each stage to SLURM and then waits, so it runs as a batch job rather than on the login node.
 
 ```bash
 ./scripts/sync_to_hpc.sh                       # from the Mac. Excludes experiments/ and analysis/
 
-# on the HPC:
-export NXF_LOG_FILE=.nextflow-reports/nextflow.log     # keeps the repo root clean
-nextflow run main.nf --targets 'experiments/benchmarking/**/config.yml'
-nextflow run main.nf --targets experiments/benchmarking/unconstrained/6G10/config.yml
-nextflow run main.nf --targets tests/smoke/config.yml
+# on the HPC, from the repo root. One sbatch, nothing on the login node.
+sbatch scripts/run_workflow.slurm.sh tests/workflow_check/config.yml
+sbatch scripts/run_workflow.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml
+sbatch scripts/run_workflow.slurm.sh 'experiments/benchmarking/**/config.yml'
 
-nextflow run main.nf --targets '...' -resume     # skip what already finished
-nextflow run main.nf --targets '...' -stub-run   # walk the DAG with no Boltz calls
+# The header is a default and sbatch's own flags override it. Trim with care:
+# the head job being killed at its walltime orphans whatever it has already
+# submitted, so leave room for the GPU queue rather than for the work alone.
+sbatch -t 12:00:00 scripts/run_workflow.slurm.sh tests/workflow_check/config.yml
+
+# on a laptop, no container and no GPU:
+nextflow run main.nf -profile local --targets '...' -stub-run   # walk the DAG
 ```
 
-Every run artefact lands in `.nextflow-reports/`: the trace the compute-cost analysis reads, the HTML report and timeline, and the log. The config places the first three. The log is chosen before the config is read, so it needs `NXF_LOG_FILE` as above, or `nextflow -log .nextflow-reports/nextflow.log run ...` per invocation. Without either, Nextflow drops `.nextflow.log` in whatever directory you launched from. `.nextflow/` is Nextflow's own state directory and cannot be moved; it is hidden and gitignored.
+The wrapper resolves the JDK and the Nextflow launcher itself. Nothing is installed on the cluster. It extracts the launcher from `NextFlow.img` into this repo's own `nxf_home/` on first use, rather than borrowing a sibling repo's, so a run here cannot write into that one. `NEGSTEER_JAVA_HOME` and `NEGSTEER_NEXTFLOW_IMG` override both paths.
+
+The head process is the one thing that does not run in a container, and the reason is recorded in the pipeline's own audit. "We're OUTSIDE the container here, so sbatch is on PATH." Its whole job is to submit and poll SLURM jobs, and `sbatch` and `squeue` are host binaries. That is why the JDK at `/hpc-home/jowillia/singularity/jdk-17.0.2` exists, which is the canonical location that audit records and that all seven of the pipeline's launchers use. The Nextflow version is not a host version either. `NextFlow.def` pins 25.10.4 by URL, the launcher is extracted from that image, and the host supplies only the JVM to run it. Every pipeline stage still runs inside the Boltz image.
+
+`-resume` is always passed, so a head job that hits its walltime can be resubmitted with the identical command and skips what already finished.
+
+**Profiles here are shaped around a Nextflow version trap.** 25.10.x *replaces* a `withLabel:` block when a profile redefines the same selector, where 26.04 merges it. The cluster runs 25.10.4. An `hpc` profile that set `withLabel: gpu { executor = 'slurm' }` therefore reduced the gpu label to exactly that, dropping `queue`, `cpus`, `memory`, `time` and `clusterOptions`. Nextflow submitted a bare `sbatch`, SLURM placed the job on whatever partition it liked with one CPU and no GPU, and Boltz died with "No supported gpu backend found!". A laptop check on 26.04 could not see it.
+
+So the cluster directives live in the `process` block, `hpc` sets only `process.executor` and touches no selector, and `local` is complete in itself. There is deliberately no profile named `standard`, because Nextflow applies that one whenever `-profile` is omitted. `tests/test_nextflow_profiles.py` holds that structure, and CI resolves the config with the cluster's own pinned Nextflow and asserts `jic-gpu` and `--gres=gpu:1` survive.
+
+Every run artefact lands in `.nextflow-reports/`: the trace the compute-cost analysis reads, the HTML report and timeline, and the log. The config places the first three. The log is chosen before the config is read, so it needs `NXF_LOG_FILE`, which the submit wrapper exports, or `nextflow -log .nextflow-reports/nextflow.log run ...` on a hand-rolled invocation. Without either, Nextflow drops `.nextflow.log` in whatever directory you launched from. `.nextflow/` is Nextflow's own state directory and cannot be moved; it is hidden and gitignored.
+
+`tests/workflow_check/config.yml` is the first real run of the workflow itself. It is 6G10 at the shipped benchmark settings with `negsteer_n_designs` cut from 20 to 3, so the steering fan-out is 9 GPU tasks rather than 60. 6G10 was chosen because its cold start fails at 23.9 A against the 5 A threshold and its committed run contaminated 4 of 6 checked designs, so both fan-outs actually carry work. Like the single-run test it is not a benchmark configuration and its numbers must never be pooled with `experiments/benchmarking/`.
 
 `-stub-run` checks the wiring on a laptop in seconds, with no container and no GPU. Every stage has a stub that writes a plausible artefact, so the channel shapes, the two fan-outs and both empty-fan-out bypasses are all exercised.
 
@@ -233,6 +253,37 @@ The interface is either derived from heavy-atom contacts with `--derive --contac
 
 **The two residue files use different index bases.** `--interface-file` takes 0-based positional indices, one per line or comma-separated, with `#` comments ignored. `--design-region-file` takes a 1-based list.
 
+## The dose sweep
+
+The benchmark runs every target at `negsteer_n_designs: 20`, so the mutation-set count is constant within it and the README's "Known limits" section calls the dose axis a between-target contrast. `experiments/dose-sweep/` makes it a within-experiment one. The same 18 unconstrained targets at 3, 5, 10, 20 and 50 sets, 90 configs in all.
+
+```bash
+python3 scripts/make_dose_sweep.py            # regenerate the 90 configs
+
+sbatch scripts/run_dose_sweep.slurm.sh        # all five doses, one head job
+sbatch scripts/run_dose_sweep.slurm.sh n10    # one dose
+sbatch -p jic-medium -t 12:00:00 scripts/run_dose_sweep.slurm.sh n10   # trimmed
+```
+
+Each config is the tracked benchmark config with three lines changed, `name`, `reference_pdb` and `negsteer_n_designs`. Everything else is copied byte for byte, so the dose is the only thing that varies. The generator refuses to write a config that differs anywhere else, and `tests/characterization/test_dose_sweep_configs.py` asserts the same thing about what is committed. No structure is duplicated. Each config points back at the benchmark's copy of its PDB.
+
+`n20` is not redundant. It reproduces the committed unconstrained arm under the Nextflow workflow, where the published numbers came from the single-job runner that preceded it.
+
+One head job runs the whole sweep rather than five, so the concurrency bound applies once rather than five times over. Five sessions would each claim the full bound and queue behind each other while monopolising the partition.
+
+GPU concurrency is `params.max_gpu_jobs`, applied as `maxForks` on the `gpu` label. It is 26, every A100 on jic-gpu. That is a choice about sharing rather than a technical limit, so lower it on a busy weekday with `--max_gpu_jobs 16`. It is a per-label bound rather than `executor.queueSize` because queueSize covers the `cpu` stages too, and a 90-target sweep has plenty of those competing for the same slots.
+
+| Dose | Configs | Predictions | Storage | GPU-hours | Wall at 26 concurrent |
+|---:|---:|---:|---:|---:|---:|
+| 3 | 18 | 135 | 1.4 GB | 13 | 0.6 h |
+| 5 | 18 | 222 | 2.0 GB | 22 | 0.9 h |
+| 10 | 18 | 432 | 3.6 GB | 42 | 1.7 h |
+| 20 | 18 | 828 | 6.5 GB | 81 | 3.2 h |
+| 50 | 18 | 1992 | 15.1 GB | 194 | 7.6 h |
+| **all** | **90** | **3609** | **~29 GB** | **~351** | **~14 h** |
+
+GPU-hours are the sum across tasks and wall is that over the concurrency cap. The per-task rate used is ~350 s, measured from the workflow, not the ~100 s the committed benchmark records. Each task now pays its own container start and model load, and that overhead is real. Sizing a workflow run from `run_one_runtime_sec.txt` understates it by roughly threefold.
+
 ## Repo layout
 
 ```
@@ -241,10 +292,15 @@ modules/      negsteer_stages.nf, one process per stage
 nextflow.config  Resources per label, retry policy, trace and report
 bin/          The engine. Entry points and their import closure
 containers/   Singularity definition files. The images live on the cluster
-scripts/      negative_steering.{py,slurm.sh} run one config without Nextflow,
+scripts/      run_workflow.slurm.sh submits main.nf as a batch job,
+              run_dose_sweep.slurm.sh submits the dose sweep,
+              make_dose_sweep.py generates its configs,
+              negative_steering.{py,slurm.sh} run one config without Nextflow,
+              resolve_boltz_container.sh reads the image out of a config,
               submit_benchmarks.sh wraps them, sync_{to,from}_hpc.sh move data
 docs/         The workflow figure
 experiments/  Gitignored and HPC-authoritative, except benchmarking/'s test specs
+              and dose-sweep/'s generated configs
 analysis/     One folder per analysis, each with its own thesis-figures/ and
               supplementary-figures/
 tests/        Three tiers under characterization/, plus the SLURM wrappers
@@ -305,18 +361,18 @@ pytest -m local_unit                          # fastest
 pytest -m "local_unit or local_integration"   # everything that needs no run
 pytest                                        # adds the hpc tier
 sbatch tests/run_pytest.slurm.sh -m hpc       # against a run already on disk
-sbatch tests/run_smoke_negative_steering.slurm.sh   # produce a fresh run, then assert
+sbatch tests/run_single_run_test.slurm.sh   # produce a fresh run, then assert
 ```
 
-### The smoke run
+### The single-run test
 
-`tests/run_smoke_negative_steering.slurm.sh` runs the engine end to end on a GPU
+`tests/run_single_run_test.slurm.sh` runs the engine end to end on a GPU
 node and then asserts on what it produced. This is the only test that reaches
 the plan and collect stages of `boltz2_negative_steering`, the per-cycle loop in
 `boltz2_iterate_steering`, and the contamination and reversion harvest in
 `reversion`. None of those can run without the Boltz image.
 
-`tests/smoke/config.yml` is 6Q76 with every cost knob at its floor, one design
+`tests/single_run_test/config.yml` is 6Q76 with every cost knob at its floor, one design
 by one seed by one diffusion sample. 6Q76 was chosen because it is the smallest
 complex whose cold start fails, at 7.4 Å against the 5 Å threshold, so the
 steering path actually runs. The three smaller targets all pass at cold start
@@ -338,7 +394,7 @@ number would still look plausible.
 Validate the config on a laptop first, which needs no GPU:
 
 ```bash
-./scripts/negative_steering.py tests/smoke/config.yml --prepare-only
+./scripts/negative_steering.py tests/single_run_test/config.yml --prepare-only
 ```
 
 Most of `bin/` is the same code the pipeline ships, so most of these tests came

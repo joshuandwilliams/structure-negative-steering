@@ -2182,7 +2182,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
     # Decide all-clean: a seed is "clean" if its ra_eff <= threshold
     # AND its receptor + effector are intact (matches the per-seed
-    # clean_steered logic in boltz2_iterate_steering._per_seed_verdict_breakdown).
+    # clean_steered logic in negsteer_aggregate._per_seed_verdict_breakdown).
     n_clean = 0
     for s in cold_start_seeds:
         ra = s["ra_eff"]

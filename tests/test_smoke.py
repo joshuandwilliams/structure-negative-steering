@@ -4,7 +4,7 @@ Three things worth catching before anything heavier runs. Every engine
 Python file byte-compiles, the entry points the pipeline invokes by path
 still exist, and the README flowchart still describes the workflow it
 claims to. A real end-to-end run is an HPC-tier test, in
-characterization/test_engine_smoke_run.py.
+characterization/test_engine_single_run.py.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BIN_DIR = REPO_ROOT / "bin"
 STAGES_NF = REPO_ROOT / "modules" / "negsteer_stages.nf"
+SUBMIT_SH = REPO_ROOT / "scripts" / "run_workflow.slurm.sh"
 FLOWCHART = REPO_ROOT / "docs" / "pipeline_flowchart.svg"
 
 # Paths hard-coded in modules/negsteer_stages.nf. Renaming one without
@@ -26,7 +27,9 @@ ENTRY_POINTS = [
     "main.nf",
     "modules/negsteer_stages.nf",
     "bin/boltz2_negative_steering.py",
-    "bin/boltz2_iterate_steering.py",
+    "bin/negsteer_coldstart.py",
+    "bin/negsteer_aggregate.py",
+    "bin/pathway_labels.py",
     "bin/cross_summary_cli.py",
     "bin/extract_passing.py",
     "bin/sum_stage_times.py",
@@ -105,3 +108,22 @@ def test_flowchart_colours_the_gpu_stages_as_gpu_stages() -> None:
             assert fill == gpu_fill, f"{name} is a GPU stage but drawn as CPU"
         else:
             assert fill == cpu_fill, f"{name} is a {label} stage but drawn as GPU"
+
+
+@pytest.mark.local_unit
+def test_submit_wrapper_selects_the_cluster_profile() -> None:
+    """Nextflow auto-applies a profile named `standard` when -profile is
+    omitted, and this repo's `standard` pins every label to the local
+    executor. A wrapper that dropped -profile hpc would run Boltz inside the
+    2-CPU head job instead of submitting it, which fails slowly and looks
+    like a resource problem rather than a wiring one."""
+    assert "-profile hpc" in SUBMIT_SH.read_text()
+
+
+@pytest.mark.local_unit
+def test_submit_wrapper_head_job_asks_for_no_gpu() -> None:
+    """The head process only parses the DAG and polls squeue. A GPU or a
+    large allocation here would idle scarce hardware for the whole run."""
+    header = [ln for ln in SUBMIT_SH.read_text().splitlines()
+              if ln.startswith("#SBATCH")]
+    assert not any("gres" in ln or "jic-gpu" in ln for ln in header)

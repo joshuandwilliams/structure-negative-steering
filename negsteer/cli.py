@@ -86,7 +86,9 @@ def _find_bin() -> Path:
 BIN = _find_bin()
 
 ENGINE = BIN / "boltz2_negative_steering.py"
-ITERATE = BIN / "boltz2_iterate_steering.py"
+COLDSTART = BIN / "negsteer_coldstart.py"
+REVERSION = BIN / "reversion.py"
+AGGREGATE = BIN / "negsteer_aggregate.py"
 EXTRACT = BIN / "extract_passing.py"
 CROSS_SUMMARY = BIN / "cross_summary_cli.py"
 
@@ -249,37 +251,37 @@ def cmd_run(a: argparse.Namespace) -> int:
     _run(_stage(ENGINE, "collect", "--workdir", cycle0), dry=a.dry_run)
 
     print("\n--- 4/9 reversion prep", flush=True)
-    for sub, where in (("kickoff-distances", ("--experiment-root", outdir)),
-                       ("kickoff-prefilter", ("--experiment-root", outdir)),
-                       ("build-contaminated", ("--workdir", cycle0)),
-                       ("plan-reversions", ("--workdir", cycle0))):
-        _run(_stage(ITERATE, sub, *where), dry=a.dry_run)
+    for script, sub, where in ((COLDSTART, "kickoff-distances", ("--experiment-root", outdir)),
+                               (COLDSTART, "kickoff-prefilter", ("--experiment-root", outdir)),
+                               (REVERSION, "build-contaminated", ("--workdir", cycle0)),
+                               (REVERSION, "plan-reversions", ("--workdir", cycle0))):
+        _run(_stage(script, sub, *where), dry=a.dry_run)
 
     n_reversions = _count(cycle0 / "reversion_plan.json", "entries")
     print(f"\n--- 5/9 predict-reversion-one x {n_reversions}", flush=True)
     for i in range(n_reversions):
-        _run(_stage(ITERATE, "predict-reversion-one", "--workdir", cycle0, "--index", i),
+        _run(_stage(REVERSION, "predict-reversion-one", "--workdir", cycle0, "--index", i),
              tolerate=PER_DESIGN_FAILURE, dry=a.dry_run)
 
     print("\n--- 6/9 harvest + finalize", flush=True)
-    _run(_stage(ITERATE, "harvest-reversions", "--workdir", cycle0), dry=a.dry_run)
+    _run(_stage(REVERSION, "harvest-reversions", "--workdir", cycle0), dry=a.dry_run)
     # --max-cycles 0 finalises this cycle without spawning another. This tool
     # is single-cycle by construction and has no path to submit a follow-up.
-    _run(_stage(ITERATE, "kickoff-finalize",
+    _run(_stage(COLDSTART, "kickoff-finalize",
                 "--experiment-root", outdir,
                 "--max-cycles", 0,
                 "--max-passing", a.max_passing,
                 "--novelty-cutoff", a.novelty_cutoff), dry=a.dry_run)
 
     print("\n--- 7/9 aggregate + metrics", flush=True)
-    _run(_stage(ITERATE, "aggregate", "--experiment-root", outdir), dry=a.dry_run)
-    _run(_stage(ITERATE, "compute-final-metrics",
+    _run(_stage(AGGREGATE, "aggregate", "--experiment-root", outdir), dry=a.dry_run)
+    _run(_stage(AGGREGATE, "compute-final-metrics",
                 "--experiment-root", outdir,
                 "--rmsd-threshold", a.postprocess_rmsd_threshold,
                 "--metric-column", a.metric_column,
                 "--contact-cutoff", a.postprocess_contact_cutoff,
                 *(["--populate-all"] if a.populate_all else [])), dry=a.dry_run)
-    _run(_stage(ITERATE, "aggregate-per-sequence", "--experiment-root", outdir),
+    _run(_stage(AGGREGATE, "aggregate-per-sequence", "--experiment-root", outdir),
          dry=a.dry_run)
 
     # Stamped before extract_passing so it measures the Boltz and metrics work,

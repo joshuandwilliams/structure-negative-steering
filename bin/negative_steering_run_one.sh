@@ -110,9 +110,11 @@ for f in "$GROUND_TRUTH" "$RECEPTOR_FASTA" "$EFFECTOR_FASTA" \
 done
 
 PY_NS="${BIN_DIR}/boltz2_negative_steering.py"
-PY_ITER="${BIN_DIR}/boltz2_iterate_steering.py"
+PY_COLD="${BIN_DIR}/negsteer_coldstart.py"
+PY_REV="${BIN_DIR}/reversion.py"
+PY_AGG="${BIN_DIR}/negsteer_aggregate.py"
 PY_EXTRACT="${BIN_DIR}/extract_passing.py"
-for py in "$PY_NS" "$PY_ITER" "$PY_EXTRACT"; do
+for py in "$PY_NS" "$PY_COLD" "$PY_REV" "$PY_AGG" "$PY_EXTRACT"; do
     if [[ ! -f "$py" ]]; then
         echo "ERROR: required Python script not found: $py" >&2
         exit 2
@@ -283,12 +285,18 @@ else
     for (( i=0; i<N_DESIGNS; i++ )); do
         echo ""
         echo "  ── predict-one $i / $((N_DESIGNS - 1)) ──"
-        set +e
+        # errexit is deliberately NOT enabled for this script (`set -uo pipefail`
+        # above), so a non-zero rc here already does not abort. Capturing rc is
+        # all that is needed. This block used to be wrapped in `set +e` ... `set
+        # -e`, and that trailing `set -e` switched errexit ON for everything
+        # after the first loop iteration, which is not what the script runs
+        # under anywhere else. The visible symptom was the `ls *.csv` at the
+        # very end aborting an otherwise successful run with exit 1 whenever it
+        # matched nothing.
         sing_gpu python "$PY_NS" predict-one \
             --workdir "$CYCLE0_ABS" \
             --index   "$i"
         rc=$?
-        set -e
         if [[ $rc -eq 0 ]]; then
             N_PRED_OK=$((N_PRED_OK + 1))
         elif [[ $rc -eq 1 ]]; then
@@ -315,19 +323,19 @@ sing_cpu python "$PY_NS" collect --workdir "$CYCLE0_ABS" \
 # ═════════════════════════════════════════════════════════════════════
 echo ""
 echo "─── STAGE 4: reversion prep ──────────────────────────────────"
-sing_cpu python "$PY_ITER" kickoff-distances \
+sing_cpu python "$PY_COLD" kickoff-distances \
     --experiment-root "$WORKDIR_ABS" \
     || fail "kickoff-distances failed"
 
-sing_cpu python "$PY_ITER" kickoff-prefilter \
+sing_cpu python "$PY_COLD" kickoff-prefilter \
     --experiment-root "$WORKDIR_ABS" \
     || fail "kickoff-prefilter failed"
 
-sing_cpu python "$PY_ITER" build-contaminated \
+sing_cpu python "$PY_REV" build-contaminated \
     --workdir "$CYCLE0_ABS" \
     || fail "build-contaminated failed"
 
-sing_cpu python "$PY_ITER" plan-reversions \
+sing_cpu python "$PY_REV" plan-reversions \
     --workdir "$CYCLE0_ABS" \
     || fail "plan-reversions failed"
 
@@ -357,12 +365,11 @@ else
     for (( i=0; i<N_REVERSIONS; i++ )); do
         echo ""
         echo "  ── predict-reversion-one $i / $((N_REVERSIONS - 1)) ──"
-        set +e
-        sing_gpu python "$PY_ITER" predict-reversion-one \
+        # As in stage 2: no errexit to suspend, and no errexit to restore.
+        sing_gpu python "$PY_REV" predict-reversion-one \
             --workdir "$CYCLE0_ABS" \
             --index   "$i"
         rc=$?
-        set -e
         if [[ $rc -eq 0 ]]; then
             N_REV_OK=$((N_REV_OK + 1))
         elif [[ $rc -eq 1 ]]; then
@@ -384,11 +391,11 @@ fi
 # max_cycles < 1 — see cmd_kickoff_finalize).
 echo ""
 echo "─── STAGE 6: harvest + finalize ──────────────────────────────"
-sing_cpu python "$PY_ITER" harvest-reversions \
+sing_cpu python "$PY_REV" harvest-reversions \
     --workdir "$CYCLE0_ABS" \
     || fail "harvest-reversions failed"
 
-sing_cpu python "$PY_ITER" kickoff-finalize \
+sing_cpu python "$PY_COLD" kickoff-finalize \
     --experiment-root "$WORKDIR_ABS" \
     --max-cycles      0 \
     --max-passing     5 \
@@ -413,11 +420,11 @@ if [[ "$PP_POPULATE_ALL" -eq 1 ]]; then
     POPULATE_FLAG=(--populate-all)
 fi
 
-sing_cpu python "$PY_ITER" aggregate \
+sing_cpu python "$PY_AGG" aggregate \
     --experiment-root "$WORKDIR_ABS" \
     || fail "aggregate failed"
 
-sing_cpu python "$PY_ITER" compute-final-metrics \
+sing_cpu python "$PY_AGG" compute-final-metrics \
     --experiment-root "$WORKDIR_ABS" \
     --rmsd-threshold  "$PP_RMSD_THRESHOLD" \
     --metric-column   "$PP_METRIC_COLUMN" \
@@ -425,7 +432,7 @@ sing_cpu python "$PY_ITER" compute-final-metrics \
     "${POPULATE_FLAG[@]}" \
     || fail "compute-final-metrics failed"
 
-sing_cpu python "$PY_ITER" aggregate-per-sequence \
+sing_cpu python "$PY_AGG" aggregate-per-sequence \
     --experiment-root "$WORKDIR_ABS" \
     || fail "aggregate-per-sequence failed"
 
@@ -453,6 +460,8 @@ echo "────────────────────────�
 echo "negative_steering_run_one DONE — $SEQ_NAME"
 echo "  workdir: $WORKDIR_ABS"
 echo "  wall-clock: ${_MIN}m ${_SEC}s (${_RUN_ONE_ELAPSED}s)"
-ls -1 "$WORKDIR_ABS"/*.csv 2>/dev/null | sed 's/^/    /'
+# A cosmetic listing. `|| true` so that matching nothing can never decide the
+# exit code of the run, whatever errexit is doing.
+ls -1 "$WORKDIR_ABS"/*.csv 2>/dev/null | sed 's/^/    /' || true
 echo "──────────────────────────────────────────────────────────────"
 exit 0

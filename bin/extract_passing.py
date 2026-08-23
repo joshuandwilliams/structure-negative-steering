@@ -436,7 +436,7 @@ def extract_row(r, per_seed_rows=None):
     outcome = r.get("outcome") or ""
     # Reversion was attempted iff the outcome is one the reversion
     # classifier produces.  See _classify_outcome in
-    # boltz2_iterate_steering.py for the canonical list.
+    # negsteer_aggregate.py for the canonical list.
     reversion_attempted = outcome in (
         "pose_holds",
         "pose_collapses",

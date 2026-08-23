@@ -21,11 +21,13 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "bin"))
 
-import boltz2_iterate_steering as its  # noqa: E402
 import boltz2_negative_steering as bns  # noqa: E402
 import extract_passing as ep  # noqa: E402
+import negsteer_aggregate as agg  # noqa: E402
+import negsteer_coldstart as cold  # noqa: E402
 import negsteer_plots as npl  # noqa: E402
 import negsteer_within_sequence_plots as nwp  # noqa: E402
+import pathway_labels as pl  # noqa: E402
 
 # ── jaccard: how interface overlap is measured everywhere ────────────────────
 
@@ -185,32 +187,32 @@ def test_single_sequence_a3m_is_written_in_the_expected_shape(tmp_path):
 
 @pytest.mark.local_unit
 def test_pathway_labels_round_trip():
-    label = its.make_pathway_label(None, 0, 3)
-    assert its.parse_pathway_label(label) == [(0, 3)]
-    deeper = its.make_pathway_label(label, 1, 7)
-    assert its.parse_pathway_label(deeper) == [(0, 3), (1, 7)]
+    label = pl.make_pathway_label(None, 0, 3)
+    assert pl.parse_pathway_label(label) == [(0, 3)]
+    deeper = pl.make_pathway_label(label, 1, 7)
+    assert pl.parse_pathway_label(deeper) == [(0, 3), (1, 7)]
 
 
 @pytest.mark.local_unit
 def test_parent_of_a_cycle_zero_label_is_none():
-    leaf = its.make_pathway_label(None, 0, 3)
-    assert its.parent_pathway_label(leaf) is None
+    leaf = pl.make_pathway_label(None, 0, 3)
+    assert pl.parent_pathway_label(leaf) is None
 
 
 @pytest.mark.local_unit
 def test_parent_drops_exactly_one_segment():
-    a = its.make_pathway_label(None, 0, 3)
-    b = its.make_pathway_label(a, 1, 7)
-    c = its.make_pathway_label(b, 2, 1)
-    assert its.parent_pathway_label(c) == b
-    assert its.parent_pathway_label(b) == a
+    a = pl.make_pathway_label(None, 0, 3)
+    b = pl.make_pathway_label(a, 1, 7)
+    c = pl.make_pathway_label(b, 2, 1)
+    assert pl.parent_pathway_label(c) == b
+    assert pl.parent_pathway_label(b) == a
 
 
 # ── mutation bookkeeping ─────────────────────────────────────────────────────
 
 @pytest.mark.local_unit
 def test_mutation_strings_carry_position_and_both_residues():
-    chimerax, aa = its.format_mutation_strings([(5, "K", "E"), (7, "V", "D")], "A")
+    chimerax, aa = agg.format_mutation_strings([(5, "K", "E"), (7, "V", "D")], "A")
     assert "5" in chimerax and "7" in chimerax
     assert "A" in chimerax
     for token in ("K5E", "V7D"):
@@ -219,7 +221,7 @@ def test_mutation_strings_carry_position_and_both_residues():
 
 @pytest.mark.local_unit
 def test_no_mutations_gives_empty_strings():
-    chimerax, aa = its.format_mutation_strings([], "A")
+    chimerax, aa = agg.format_mutation_strings([], "A")
     assert chimerax in ("", None) or "A" not in str(chimerax)
     assert aa in ("", None)
 
@@ -233,7 +235,7 @@ def test_no_mutations_gives_empty_strings():
     ("junk", []),
 ])
 def test_position_csv_parsing(raw, expected):
-    assert its._parse_position_csv(raw) == expected
+    assert agg._parse_position_csv(raw) == expected
 
 
 @pytest.mark.local_unit
@@ -251,7 +253,7 @@ def test_chimerax_position_parsing(raw, expected):
 
 @pytest.mark.local_unit
 def test_continuous_aggregate_is_the_median_with_a_spread_and_a_count():
-    median, mad, n = its._agg_continuous([1.0, 2.0, 3.0])
+    median, mad, n = agg._agg_continuous([1.0, 2.0, 3.0])
     assert median == pytest.approx(2.0)
     assert n == 3
     assert mad >= 0
@@ -259,14 +261,14 @@ def test_continuous_aggregate_is_the_median_with_a_spread_and_a_count():
 
 @pytest.mark.local_unit
 def test_continuous_aggregate_ignores_missing_values():
-    median, mad, n = its._agg_continuous([1.0, None, 3.0, float("nan")])
+    median, mad, n = agg._agg_continuous([1.0, None, 3.0, float("nan")])
     assert n == 2, f"expected 2 usable values, counted {n}"
     assert median == pytest.approx(2.0)
 
 
 @pytest.mark.local_unit
 def test_continuous_aggregate_of_nothing_is_not_a_crash():
-    median, mad, n = its._agg_continuous([])
+    median, mad, n = agg._agg_continuous([])
     assert n == 0
     assert median is None or (isinstance(median, float) and median != median)
 
@@ -279,7 +281,7 @@ def test_continuous_aggregate_of_nothing_is_not_a_crash():
     ([0, 0, 1], 0),
 ])
 def test_binary_majority_aggregate(values, expected):
-    got = its._agg_majority_binary(values)
+    got = agg._agg_majority_binary(values)
     got = got[0] if isinstance(got, tuple) else got
     assert int(got) == expected
 
@@ -288,7 +290,7 @@ def test_binary_majority_aggregate(values, expected):
 def test_ranking_composite_matches_the_documented_formula():
     """composite = true_jaccard - 0.05 x ra_eff_vs_truth."""
     row = {"true_jaccard": "0.8", "ra_eff_vs_truth": "4.0"}
-    got = its._ranking_composite(row)
+    got = agg._ranking_composite(row)
     if got is not None:
         assert got == pytest.approx(0.8 - 0.05 * 4.0)
 
@@ -298,7 +300,7 @@ def test_ranking_composite_matches_the_documented_formula():
     (float("nan"), True), (1.0, False), (0.0, False),
 ])
 def test_nan_detection(value, expected):
-    assert its._is_nan(value) is expected
+    assert cold._is_nan(value) is expected
 
 
 @pytest.mark.local_unit
@@ -306,7 +308,7 @@ def test_nan_detection(value, expected):
     ("3.5", 3.5), ("", None), ("x", None), (None, None),
 ])
 def test_float_or_none(raw, expected):
-    got = its._float_or_none(raw)
+    got = agg._float_or_none(raw)
     if expected is None:
         assert got is None
     else:
@@ -319,7 +321,7 @@ def test_float_or_none(raw, expected):
 def test_maximin_returns_at_most_k():
     cands = [(f"d{i}", {}) for i in range(10)]
     try:
-        got = its.maximin_select(cands, 3)
+        got = cold.maximin_select(cands, 3)
     except Exception:
         pytest.skip("maximin_select needs a distance structure not built here")
     assert len(got) <= 3
@@ -329,7 +331,7 @@ def test_maximin_returns_at_most_k():
 def test_maximin_of_fewer_than_k_returns_everything():
     cands = [(f"d{i}", {}) for i in range(2)]
     try:
-        got = its.maximin_select(cands, 5)
+        got = cold.maximin_select(cands, 5)
     except Exception:
         pytest.skip("maximin_select needs a distance structure not built here")
     assert len(got) == 2
