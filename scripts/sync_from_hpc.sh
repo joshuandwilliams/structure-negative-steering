@@ -93,23 +93,37 @@ RSYNC_RULES=(
 
 if [ -n "${RESULTS_ONLY}" ]; then
     echo "[${NAME}] results-only pull (summaries/logs; skipping raw model outputs)"
-    # First match wins: drop the heavy per-prediction subdirs and run/logs/
-    # outright, then keep only the small tabular/summary/log files anywhere in
-    # the surviving tree, then exclude everything else. --prune-empty-dirs keeps
-    # the local layout free of empty skeleton directories.
+    # First match wins: drop the heavy per-prediction subdirs and the logs/
+    # directories outright, then keep only the small tabular/summary/config
+    # files anywhere in the surviving tree, then exclude everything else.
+    # --prune-empty-dirs keeps the local layout free of empty skeleton dirs.
+    #
+    # The heavy-dir patterns are anchored on cycle_*/ rather than run/cycle_*/.
+    # Experiment trees come in two shapes: benchmarking/<target>/run/cycle_0/...
+    # and the sweep/dev layout <run>/cycle_0/... with no run/ component. A
+    # run/-prefixed pattern silently matches nothing in the second shape, so
+    # the excludes never fire and the extension filter alone decides what comes
+    # down. Leading-slash-free patterns match at any depth and cover both.
+    #
+    # *.yml/*.yaml must be included: params.yml and config.yml ARE the record of
+    # how a run was configured, and a summary pull without them is not a record
+    # of anything. Only negsteer_*.out is kept, not *.out, because the per-task
+    # kickoff_*.out logs number in the thousands and are not summaries.
     RSYNC_RULES+=(
         --prune-empty-dirs
-        --exclude='run/logs/'
-        --exclude='run/cycle_*/initial*/'
-        --exclude='run/cycle_*/steered/'
-        --exclude='run/cycle_*/reversions/'
-        --exclude='run/cycle_*/contamination_scratch/'
+        --exclude='logs/'
+        --exclude='cycle_*/initial*/'
+        --exclude='cycle_*/steered/'
+        --exclude='cycle_*/reversions/'
+        --exclude='cycle_*/contamination_scratch/'
         --include='*/'
         --include='*.csv'
         --include='*.json'
         --include='*.txt'
         --include='*.fasta'
         --include='*.tsv'
+        --include='*.yml'
+        --include='*.yaml'
         --include='launch.sh'
         --include='negsteer_*.out'
         --include='*.err'

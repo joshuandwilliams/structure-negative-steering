@@ -56,3 +56,12 @@ dependencies:
   - pytest=9.1.1
   - pytest-cov=7.1.0
   - ruff=0.15.21              # pin, or CI fails on rules a newer release adds
+
+  # tests/characterization/test_run_one_shell.py runs
+  # bin/negative_steering_run_one.sh directly. That script expands empty arrays
+  # under `set -u`, which is an error in bash 3.2 — still the system bash on
+  # macOS. Supplying bash here keeps the environment self-contained rather than
+  # depending on a Homebrew install. Linux and CI are already on 5.x, so the
+  # test finds one there without this. Absent either, those tests skip with an
+  # explicit reason rather than passing silently.
+  - bash=5.2.37
