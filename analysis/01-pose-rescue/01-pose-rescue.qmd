@@ -453,7 +453,63 @@ plt.show()
 
 ---
 
-## 5. Relationship to complex size
+## 5. Dose response: how many poses does each steering-set count rescue?
+
+The rest of this document uses the shipped 20-set benchmark. This section adds
+the dose sweep (`experiments/dose-sweep/`), the same 18 targets re-run at 3,
+5, 10 and 50 steering sets, so the 20-set point sits inside a trend rather than
+standing alone. Dose 0 is the cold start, before any steering.
+
+Correctly posed here means the representative design's `ra_eff` (or, at dose
+0, the cold start's own `ra_eff`) is below the 5 Å threshold used throughout
+this document. Data is `dose_sweep_pass_counts.csv`, built by
+`dose_sweep_pass_counts.py` from the dose-sweep run trees, committed so this
+renders without the (gitignored, HPC) run data present.
+
+```{python}
+dose_path = HERE / "dose_sweep_pass_counts.csv"
+if not dose_path.exists():
+    dose_path = Path("analysis/01-pose-rescue/dose_sweep_pass_counts.csv")
+dose_df = pd.read_csv(dose_path)
+dose_df
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(6.4, 4.4))
+ax.plot(dose_df["dose"], dose_df["n_pass"], marker="o", markersize=8,
+        color="#2ca02c", markerfacecolor="#2ca02c", markeredgecolor="black",
+        markeredgewidth=0.7, linewidth=1.6, zorder=3)
+for _, r in dose_df.iterrows():
+    # Doses 3 and 5 share n_pass=9 and sit close together on x, so the default
+    # above-point offset collides; drop dose 5's label below its point instead.
+    dy = -16 if r["dose"] == 5 else 10
+    va = "top" if r["dose"] == 5 else "bottom"
+    ax.annotate(f"{int(r['n_pass'])}/{int(r['n_total'])}",
+               (r["dose"], r["n_pass"]), textcoords="offset points",
+               xytext=(0, dy), ha="center", va=va, fontsize=9.5)
+ax.set_xticks(dose_df["dose"])
+ax.set_xlabel("Steering sets (negsteer_n_designs); 0 = cold start, no steering")
+ax.set_ylabel(f"Targets correctly posed (< {RA_EFF_THRESHOLD:g} Å) out of 18")
+ax.set_ylim(0, 18.8)
+ax.grid(axis="y", ls=":", color="#CCCCCC", lw=0.6, zorder=0)
+ax.set_axisbelow(True)
+for spine in ("top", "right"):
+    ax.spines[spine].set_visible(False)
+save_fig(fig, "dose_sweep_pass_count", THESIS_FIGDIR)
+plt.show()
+```
+
+- Steering rescues most of its gain immediately. The smallest dose tested, 3
+  sets, more than doubles the cold start's 4/18, and every larger dose adds to
+  that rather than needing many sets before the method does anything.
+- The curve does not plateau by 50 sets. Each doubling of the dose (10 → 20 →
+  50 is not quite doubling, but close) keeps adding 2 targets, so the ceiling
+  of what steering can rescue on this benchmark has not been found within the
+  doses tested.
+
+## 6. Relationship to complex size
+
+
 
 ### 5.1 Combined sequence length vs representative `ra_eff`
 
@@ -481,7 +537,7 @@ plt.show()
 
 ---
 
-## 6. Summary
+## 7. Summary
 
 ### 6.1 Headline numbers
 
@@ -497,7 +553,7 @@ print(f"improved (change<0): {(rep['change_ra_eff'] < 0).sum()}, "
       f"worsened (change>0): {(rep['change_ra_eff'] > 0).sum()}")
 ```
 
-## 7. Discussion
+## 8. Discussion
 
 - Negative steering improves the predicted effector pose for the large majority of
   the 18 HMA decoy + AVR benchmark targets, and rescues a meaningful fraction from
