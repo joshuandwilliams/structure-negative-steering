@@ -1,13 +1,13 @@
 """HPC tier: assert on a real end-to-end engine run.
 
-Produced by tests/run_smoke_negative_steering.slurm.sh, which drives the same
-entry point a benchmark target uses against tests/smoke/config.yml. The whole
+Produced by tests/run_single_run_test.slurm.sh, which drives the same
+entry point a benchmark target uses against tests/single_run_test/config.yml. The whole
 point is to reach the code a laptop cannot: the plan and collect stages of
 boltz2_negative_steering, the per-cycle loop in boltz2_iterate_steering, the
 contamination and reversion harvest in reversion, and extract_passing.
 
-These skip cleanly when no smoke run is present. Point elsewhere with
-NEGSTEER_SMOKE_DIR.
+These skip cleanly when no single-run test is present. Point elsewhere with
+NEGSTEER_SINGLE_RUN_DIR.
 
 What is deliberately NOT asserted: the pose. One design, one seed and one
 diffusion sample is far too little sampling to expect a rescue, and asserting
@@ -26,14 +26,14 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SMOKE = Path(os.environ.get("NEGSTEER_SMOKE_DIR", REPO_ROOT / "tests" / "smoke"))
-RUN = SMOKE / "run"
+SINGLE_RUN = Path(os.environ.get("NEGSTEER_SINGLE_RUN_DIR", REPO_ROOT / "tests" / "single_run_test"))
+RUN = SINGLE_RUN / "run"
 CYCLE0 = RUN / "cycle_0"
 
 needs_run = pytest.mark.skipif(
     not (RUN / "raw_per_seed_results.csv").is_file(),
-    reason=f"no smoke run under {RUN}. "
-           "Run: sbatch tests/run_smoke_negative_steering.slurm.sh")
+    reason=f"no single-run test under {RUN}. "
+           "Run: sbatch tests/run_single_run_test.slurm.sh")
 
 
 def _read(path: Path) -> list[dict]:
@@ -46,7 +46,7 @@ def _read(path: Path) -> list[dict]:
 @pytest.mark.hpc
 @needs_run
 def test_prepare_derived_all_four_engine_inputs():
-    inputs = SMOKE / "inputs"
+    inputs = SINGLE_RUN / "inputs"
     for name in ("receptor.fasta", "effector.fasta",
                  "true_interface.txt", "design_region.txt"):
         assert (inputs / name).is_file(), f"prepare did not write {name}"
@@ -116,7 +116,7 @@ def test_steering_mutations_avoid_the_protected_interface():
 @pytest.mark.hpc
 @needs_run
 def test_every_configured_design_and_seed_produced_a_row():
-    """The smoke config asks for 1 design x 1 seed, so that is what must appear.
+    """The single-run config asks for 1 design x 1 seed, so that is what must appear.
 
     The engine tolerates per-design failure, so a design that silently died
     leaves a shorter table rather than an error. Counting is the only check.
@@ -171,8 +171,8 @@ def test_passing_summary_and_cross_summary_were_written():
     rows = _read(xs)
     assert len(rows) == 1, f"expected one representative row, got {len(rows)}"
     assert rows[0]["cross_tier"] in {"A", "B", "C", "none"}
-    assert rows[0]["mpnn_sequence"] == "6Q76_smoke", \
-        f"cross summary is keyed {rows[0]['mpnn_sequence']!r}, expected 6Q76_smoke"
+    assert rows[0]["mpnn_sequence"] == "6Q76_single_run", \
+        f"cross summary is keyed {rows[0]['mpnn_sequence']!r}, expected 6Q76_single_run"
 
 
 @pytest.mark.hpc
@@ -229,7 +229,7 @@ def test_launch_script_records_the_configured_knobs():
     for flag in ("--n-designs 1", "--num-seeds 1", "--diffusion-samples 1"):
         assert flag in body, f"launch.sh does not carry {flag!r}"
     assert "--boltz-constraints" not in body, \
-        "the smoke config is unconstrained but the run carried constraints"
+        "the single-run config is unconstrained but the run carried constraints"
 
 
 @pytest.mark.hpc

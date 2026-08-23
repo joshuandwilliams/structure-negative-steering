@@ -10,7 +10,7 @@ Getting this wrong does not raise. It silently scores contaminated designs as
 clean rescues, which inflates every headline number. That is why it is tested
 in detail despite needing no GPU.
 
-The smoke run on the cluster produced zero contaminated designs, so it cannot
+The single-run test on the cluster produced zero contaminated designs, so it cannot
 exercise any of this. These build the inputs directly instead.
 """
 
@@ -257,7 +257,7 @@ def test_a_design_whose_sequence_contradicts_its_history_is_skipped(tmp_path):
 
 @pytest.mark.local_integration
 def test_no_contaminated_designs_still_writes_a_plan(tmp_path):
-    """This is the common case, and the one the smoke run hit. The harvest
+    """This is the common case, and the one the single-run test hit. The harvest
     reads reversion_plan.json unconditionally, so its absence would turn a
     normal outcome into a crash."""
     wd = tmp_path / "cycle_0"

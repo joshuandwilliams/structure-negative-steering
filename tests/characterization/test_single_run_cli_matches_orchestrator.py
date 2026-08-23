@@ -4,11 +4,11 @@ test_negsteer_cli.py asserts the CLI emits the same stage commands as
 bin/negative_steering_run_one.sh. That is an argv-level claim. It cannot catch
 a difference in what those commands do once a GPU is involved.
 
-This closes that gap. Both paths run tests/smoke/config.yml on the same
+This closes that gap. Both paths run tests/single_run_test/config.yml on the same
 hardware with the same seed, and their run directories are compared:
 
-    sbatch tests/run_smoke_negative_steering.slurm.sh            -> run/
-    sbatch tests/run_smoke_negative_steering.slurm.sh --via-cli  -> run_cli/
+    sbatch tests/run_single_run_test.slurm.sh            -> run/
+    sbatch tests/run_single_run_test.slurm.sh --via-cli  -> run_cli/
 
 Skips cleanly unless both exist, so it costs nothing when only one has run.
 
@@ -30,9 +30,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SMOKE = Path(os.environ.get("NEGSTEER_SMOKE_BASE", REPO_ROOT / "tests" / "smoke"))
-ORCH = SMOKE / "run"
-CLI = SMOKE / "run_cli"
+SINGLE_RUN = Path(os.environ.get("NEGSTEER_SINGLE_RUN_BASE", REPO_ROOT / "tests" / "single_run_test"))
+ORCH = SINGLE_RUN / "run"
+CLI = SINGLE_RUN / "run_cli"
 
 # Kernel scheduling moves the last decimal place, not the answer.
 RMSD_TOL_A = 0.15
@@ -40,7 +40,7 @@ RMSD_TOL_A = 0.15
 needs_both = pytest.mark.skipif(
     not ((ORCH / "raw_per_seed_results.csv").is_file()
          and (CLI / "raw_per_seed_results.csv").is_file()),
-    reason=f"needs both {ORCH} and {CLI}. Run the smoke job twice, once with "
+    reason=f"needs both {ORCH} and {CLI}. Run the single-run job twice, once with "
            "--via-cli.")
 
 
@@ -136,6 +136,6 @@ def test_only_the_cli_run_carries_a_result_manifest():
     assert not (ORCH / "negsteer_result.json").exists()
 
     payload = json.loads(manifest.read_text())
-    assert payload["name"] == "6Q76_smoke"
+    assert payload["name"] == "6Q76_single_run"
     assert payload["status"] in {"ok", "skipped_steering"}
     assert payload["runtime_seconds"] > 0

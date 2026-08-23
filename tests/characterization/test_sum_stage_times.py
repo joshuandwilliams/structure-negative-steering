@@ -82,7 +82,7 @@ def test_main_writes_the_total_with_a_trailing_newline(tmp_path: Path) -> None:
 @pytest.mark.local_unit
 def test_main_writes_a_zero_rather_than_nothing_when_the_file_is_missing(
         tmp_path: Path) -> None:
-    """test_engine_smoke_run asserts run_one_runtime_sec.txt parses as a float.
+    """test_engine_single_run asserts run_one_runtime_sec.txt parses as a float.
     Writing no file at all would fail that instead of reporting a zero."""
     out = tmp_path / "run_one_runtime_sec.txt"
     assert sst.main(["--stage-times", str(tmp_path / "absent"),

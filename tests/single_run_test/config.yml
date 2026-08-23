@@ -1,7 +1,7 @@
 # =============================================================================
 # Smoke run: the whole engine end to end, as cheaply as it will go.
 # =============================================================================
-# Consumed by tests/run_smoke_negative_steering.slurm.sh, which drives the same
+# Consumed by tests/run_single_run_test.slurm.sh, which drives the same
 # scripts/negative_steering.slurm.sh entry point a real benchmark target uses.
 # The point is to exercise the code paths that need a GPU and the Boltz image,
 # so the hpc tier has something real to assert against.
@@ -21,7 +21,7 @@
 # anything under experiments/benchmarking/ and must never be pooled with them.
 # =============================================================================
 
-name: "6Q76_smoke"
+name: "6Q76_single_run"
 
 # The tracked reference for 6Q76, reused rather than duplicated.
 reference_pdb:   "../../experiments/benchmarking/unconstrained/6Q76/6Q76.pdb"
