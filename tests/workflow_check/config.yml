@@ -1,0 +1,59 @@
+# =============================================================================
+# Workflow check: the Nextflow workflow end to end on one real target.
+# =============================================================================
+# The committed benchmark under experiments/benchmarking/ was produced by the
+# previous single-job SLURM runner. main.nf replaced that runner and has only
+# ever been exercised with -stub-run. This config is the first real run of it.
+#
+# 6G10 was chosen because its cold start fails badly, 23.9 A against the 5 A
+# threshold, so the plan stages designs and the steering fan-out actually runs.
+# Its committed run also contaminated 4 of 6 checked designs, so the reversion
+# fan-out is exercised too. Both empty-fan-out bypasses in main.nf are therefore
+# NOT covered here; -stub-run is what covers those.
+#
+# Everything is the shipped 6G10 benchmark configuration except negsteer_n_designs,
+# which is 3 rather than 20. That is the only cost knob turned down, so the fan-out
+# is 3 designs x 3 seeds = 9 NEGSTEER_PREDICT_ONE tasks instead of 60.
+#
+# Cycles: the workflow is single-cycle by construction. modules/negsteer_stages.nf
+# passes --max-cycles 0 to the harvest stage, which finalises this cycle without
+# submitting another, so there is no config knob to set. One cycle is what runs.
+#
+# This is NOT a benchmark configuration. Its numbers are not comparable with
+# anything under experiments/benchmarking/ and must never be pooled with them.
+# =============================================================================
+
+name: "6G10_workflow_check"
+
+# The tracked reference for 6G10, reused rather than duplicated.
+reference_pdb:   "../../experiments/benchmarking/unconstrained/6G10/6G10.pdb"
+receptor_chain:  "A"          # the protein being steered
+effector_chain:  "B"          # what it should be steered AWAY from binding
+
+interface_mode:           "derive"
+interface_contact_cutoff: 5.0
+
+design_region: "none"
+
+# ── Steering knobs: the 6G10 benchmark values, except n_designs ──────────────
+negsteer_mode:                 "mild"
+negsteer_n_designs:            3     # benchmark uses 20
+negsteer_num_seeds:            3
+negsteer_max_mutations:        6
+negsteer_candidate_pool_size:  12
+negsteer_protected_set_source: "true_interface"
+negsteer_effector_template:    true
+negsteer_diffusion_samples:    5
+negsteer_recycling_steps:      3
+negsteer_seed:                 0
+negsteer_rmsd_threshold:       5.0
+negsteer_contact_cutoff:       5.0
+negsteer_no_kernels:           false
+negsteer_boltz_constraints:    false
+
+negsteer_postprocess_rmsd_threshold:  5.0
+negsteer_postprocess_metric_column:   "steered_ra_eff_vs_truth"
+negsteer_postprocess_contact_cutoff:  5.0
+
+# ── Runtime (HPC + GPU) ──────────────────────────────────────────────────────
+boltz_container: "/hpc-home/jowillia/receptor_design/receptor-resurfacing-pipeline/containers/boltz2_negsteer.img"

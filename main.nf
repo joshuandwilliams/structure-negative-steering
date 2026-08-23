@@ -2,12 +2,12 @@
 // Negative steering over one or more benchmark targets.
 //
 //   nextflow run main.nf --targets "experiments/benchmarking/**/config.yml"
-//   nextflow run main.nf --targets tests/smoke/config.yml
+//   nextflow run main.nf --targets tests/single_run_test/config.yml
 //
 // The two fan-outs, one Boltz call per steered design and one per reverted
 // design, were bash loops inside a single SLURM job. They are channels now, so
 // each prediction is a task with its own resources, retry and failure.
-// boltz2_iterate_steering.py's sbatch self-resubmission is not wired in: this
+// The sbatch self-resubmission was removed with the multi-cycle harness: this
 // repo always ran with --max-cycles 0, so it never fired here.
 //
 // Config is read by scripts/negative_steering.py --emit-json rather than parsed
@@ -30,17 +30,10 @@ include {
 
 
 // ---- Parameters ------------------------------------------------------------
-params.targets = null
-
-// Cycle-follow-up knobs. max_cycles is fixed at 0 in the harvest stage: this
-// workflow is single-cycle by construction, and re-enabling follow-up cycles
-// means adding them here as channels, not letting Python call sbatch again.
-params.max_passing    = 5
-params.novelty_cutoff = 10.0
-params.postprocess_populate_all = false
-
-// Only a fallback. Each config carries its own boltz_container.
-params.boltz_container = null
+// Declared in nextflow.config's `params {}` block, NOT here. A `params.x = ...`
+// in this script's body is not visible to modules/negsteer_stages.nf on the
+// Nextflow the cluster runs, and renders as the string "null" inside a task
+// script. See the comment above that block.
 
 
 workflow {

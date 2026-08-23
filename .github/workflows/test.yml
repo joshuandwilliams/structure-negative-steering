@@ -40,6 +40,11 @@ jobs:
   # up and both fan-outs and both bypass branches resolve.
   workflow:
     runs-on: ubuntu-latest
+    # Job-wide, so the launcher cannot quietly resolve to a newer Nextflow on
+    # any step. This is the version containers/NextFlow.def bakes in and the
+    # cluster therefore runs.
+    env:
+      NXF_VER: 25.10.4
     steps:
       - uses: actions/checkout@v5
 
@@ -63,11 +68,31 @@ jobs:
       - name: Install the config driver's dependencies
         run: pip install -e .[test]
 
-      - name: Install Nextflow
+      # Pinned to the version the cluster runs, which is the version
+      # containers/NextFlow.def bakes in. CI on a newer Nextflow is CI that
+      # cannot see the config bug that took a run down: 25.10 replaces a
+      # `withLabel:` block when a profile redefines it, 26.04 merges.
+      - name: Install Nextflow, pinned to the cluster's version
         run: |
           curl -s https://get.nextflow.io | bash
           sudo mv nextflow /usr/local/bin/
           nextflow -version
 
+      # The stub run below exercises the DAG, not the cluster directives, so
+      # assert those directly. A gpu stage that loses its queue or its --gres
+      # gets scheduled on whatever partition SLURM likes, with no GPU.
+      - name: Assert the cluster profile keeps its resources
+        run: |
+          nextflow config -profile hpc > resolved.config
+          grep -q "queue = 'jic-gpu'"                  resolved.config
+          grep -q "clusterOptions = '--gres=gpu:1'"    resolved.config
+          grep -q "queue = 'jic-short'"                resolved.config
+          echo "cluster directives survive profile resolution"
+
       - name: Stub-run the workflow
-        run: nextflow run main.nf --targets tests/smoke/config.yml -stub-run -profile standard
+        # --allow_host_python because a runner has no Boltz image. READ_CONFIG
+        # has no stub, so it runs the real driver against pip-installed PyYAML.
+        # Nothing else in the workflow may take that path.
+        run: |
+          nextflow run main.nf --targets tests/single_run_test/config.yml \
+            -stub-run -profile local --allow_host_python
