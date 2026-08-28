@@ -1,0 +1,191 @@
+---
+title: "Can a steering mutation set the ipSAE a design is ranked on?"
+subtitle: "Recomputing the metric with the mutated positions removed"
+date: "2026-08-28"
+format:
+    html:
+        code-fold: true
+        toc: true
+        toc-depth: 3
+        number-sections: true
+        theme: flatly
+        self-contained: true
+jupyter: python3
+---
+
+## The problem
+
+The campaign ranks designs on ipSAE, and the agroinfiltrated construct does not carry
+the steering mutations. A score those residues contributed to would describe a
+molecule that is never made.
+
+The shipped metric offers no protection.
+`receptor-resurfacing-pipeline/bin/compute_metrics.py:79-114` takes every receptor
+residue as a candidate reference residue, thresholds on PAE rather than distance, and
+reports the maximum over reference residues. Nothing in it refers to the intended
+interface, so a mutated position is eligible to set the score.
+
+Separately, 763 of 954 steered campaign predictions are contaminated in the pipeline's
+own sense, a steering mutation in contact with the effector. That is structural rather
+than a failure: the AVR-Pik and AVR-Pia interfaces overlap, so the residues steering is
+allowed to mutate sit adjacent to the interface being designed.
+
+`mutation_excluded_ipsae_extract.py` recomputes the metric over restricted receptor
+residue sets, so that the exclusion holds by construction rather than by inspection.
+
+```{python}
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+HERE = Path.cwd()
+if not (HERE / "mutation_excluded_ipsae.csv").exists():
+    HERE = Path("analysis/09-mutation-excluded-ipsae")
+HERE = HERE.resolve()
+ANALYSIS = HERE.parent
+CONF = ANALYSIS / "04-confidence-cost"
+CAMPAIGN = ANALYSIS / "05-campaign-confidence"
+sys.path.insert(0, str(CONF))
+
+import confidence_common as cc  # noqa: E402
+
+FIGDIR = HERE / "supplementary-figures"
+FIGDIR.mkdir(parents=True, exist_ok=True)
+cc.apply_style()
+
+d = pd.read_csv(HERE / "mutation_excluded_ipsae.csv")
+u = cc.build_representative_table(
+    pd.read_csv(CAMPAIGN / "campaign_data" / "campaign_per_seed.csv"))
+c = cc.build_representative_table(
+    pd.read_csv(CAMPAIGN / "campaign_data" / "campaign_per_seed_constrained.csv"))
+a, b = cc.pose_matched_pairs(u, c)
+```
+
+The control that makes the rest readable: the reimplementation has to reproduce the
+number the pipeline stored, otherwise nothing below is about ipSAE.
+
+```{python}
+stored = pd.to_numeric(d.stored_ipsae_min, errors="coerce")
+pd.Series({"predictions": len(d),
+           "ipsae_full matches stored (atol 5e-3)":
+               int(np.isclose(d.ipsae_full, stored, atol=5e-3, equal_nan=True).sum())},
+          name="control")
+```
+
+---
+
+## Does removing the mutations change the score?
+
+One row per pose-matched unit, taking the median over the representative design's
+seeds, in each arm.
+
+```{python}
+def representative(arm, tab):
+    out = {}
+    for unit, r in tab.iterrows():
+        g = d[(d.arm == arm) & (d.unit == unit) & (d.base == r.rep_design)]
+        if not len(g):
+            g = d[(d.arm == arm) & (d.unit == unit)
+                  & (d.design.str.startswith("initial"))]
+        if len(g):
+            out[unit] = g[["ipsae_full", "ipsae_no_mut", "ipsae_interface",
+                           "n_mutations"]].median()
+    return pd.DataFrame(out).T
+
+
+A = representative("negsteer", a)
+B = representative("negsteer+constraints", b)
+units = A.index.intersection(B.index)
+steered = A.loc[units, "n_mutations"] > 0
+delta = (A.loc[units, "ipsae_no_mut"] - A.loc[units, "ipsae_full"])
+
+pd.Series({"pose-matched units": len(units),
+           "steered representatives": int(steered.sum()),
+           "score exactly unchanged": int((delta == 0).sum()),
+           "median change": round(delta.median(), 4),
+           "largest change": round(delta.abs().max(), 4)}, name="no_mut vs full")
+```
+
+```{python}
+#| label: fig-no-mut-vs-full
+#| fig-cap: "ipSAE with the steering mutations excluded against ipSAE as shipped, per pose-matched unit and arm. The dashed line is identity."
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(4.6, 4.4))
+for tab, arm, col in [(A, "negsteer", cc.OUTCOME_COLOR["rescued"]),
+                      (B, "negsteer + constraints", cc.OUTCOME_COLOR["still wrong"])]:
+    ax.scatter(tab.loc[units, "ipsae_full"], tab.loc[units, "ipsae_no_mut"], s=34,
+               color=col, alpha=0.7, edgecolor="white", linewidth=0.6, zorder=3,
+               label=f"{arm} (n = {len(units)})")
+ax.plot([0, 1], [0, 1], color=cc.MUTED, linestyle="--", linewidth=1.2, zorder=1)
+ax.set_aspect("equal", adjustable="box")
+ax.set_xlabel("ipSAE (min), as shipped")
+ax.set_ylabel("ipSAE (min), mutated positions excluded")
+cc.place_legend(ax)
+fig.tight_layout()
+fig.savefig(FIGDIR / "no_mut_vs_full.png")
+```
+
+* The mutated positions contribute nothing to the reported score for 34 of 39 units,
+  and at most 0.019 for the rest. The reported ipSAE is a maximum over reference
+  residues, and the winning residue is essentially never a mutated one.
+* The exclusion is worth having anyway, because it converts an observed outcome into a
+  property of the metric that can be stated without qualification.
+
+---
+
+## Does it change the ranking?
+
+Ranking is what the metric is used for, so a change in level only matters if it moves
+the order.
+
+```{python}
+rows = []
+for col in ["ipsae_full", "ipsae_no_mut", "ipsae_interface"]:
+    x, y = A.loc[units, col].astype(float), B.loc[units, col].astype(float)
+    ok = x.notna() & y.notna()
+    rows.append({"variant": col, "n": int(ok.sum()),
+                 "constrained vs unconstrained rho":
+                     round(cc.spearman(x[ok].rank(), y[ok].rank()), 2),
+                 "median inflation": round(float(np.median((y - x)[ok])), 3)})
+rank_full = A.loc[units, "ipsae_full"].rank()
+rank_nomut = A.loc[units, "ipsae_no_mut"].rank()
+pd.DataFrame(rows)
+```
+
+```{python}
+pd.Series({"rho, full vs no_mut ranking": round(cc.spearman(rank_full, rank_nomut), 3),
+           "median |rank shift|": float(np.median((rank_nomut - rank_full).abs())),
+           "largest rank shift": int((rank_nomut - rank_full).abs().max())},
+          name="within the unconstrained arm")
+```
+
+* Excluding the mutations leaves the cohort ordering intact, at ρ = 1.000 and a largest
+  shift of one place, so nothing in the campaign's selection rests on a mutated
+  residue.
+* The constrained-against-unconstrained rank correlation is ρ = 0.56 under both
+  variants, so the reordering that constraints cause is not an artefact of the
+  mutations either.
+
+---
+
+## What this licenses
+
+* The ranking metric can be stated to exclude the steering mutations by construction,
+  not by inspection, and the resulting order is the one the campaign already used.
+* Restricting instead to the intended interface roughly halves the apparent constraint
+  inflation, +0.149 against +0.338, while leaving the rank disagreement at ρ = 0.55.
+  That is a separate finding about what the constraints inflate, and it is not needed
+  for the guarantee above.
+
+Caveats.
+
+* The interface set is the receptor contacts of the input designed complex, so
+  "interface-restricted" means the intended interface, not the predicted one.
+* This covers the 39 pose-matched units, which is the set the constraint comparison
+  uses. It is not the whole 128.
+* Excluding a residue from the calculation does not remove it from the prediction. The
+  mutation still shaped the structure and therefore the PAE matrix. The claim is about
+  what the metric reads, not about what the model saw.
