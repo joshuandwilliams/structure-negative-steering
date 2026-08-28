@@ -213,35 +213,42 @@ _ = cc.fig_rank_agreement(
 
 Holding the pose fixed does not hold the sequence fixed. Constraints change the cold
 start, the steering plan is derived from that prediction, and a unit whose constrained
-cold start already passes never steers, so the two arms can be comparing different
-molecules. In the benchmark they usually are: only 3 of its 12 pose-matched targets
-carry the same steering mutations in both arms, and the mismatch is systematic, because
-the unconstrained representative always carries the larger mutation budget. That is not
-a constraint effect held at fixed pose, so the benchmark is dropped from the thesis
-figure and only the campaign is shown.
+cold start already passes never steers at all. A unit that steered in one arm and
+short-circuited in the other therefore carries a sequence difference on top of the
+constraint difference, and its paired difference is not a constraint effect.
+
+The benchmark is mostly made of those units. Only 3 of its 12 pose-matched targets
+steered in both arms, and the mismatch runs one way, since the unconstrained
+representative always carries the larger mutation budget. The campaign has enough
+same-in-both units to separate the two, so the thesis figure shows the campaign alone.
+
+```{python}
+u_camp, c_camp = cc.pose_matched_pairs(cohorts["campaign (negsteer)"],
+                                       cohorts["campaign (negsteer + constraints)"])
+groups = cc.arm_groups(u_camp, c_camp)
+groups.value_counts().reindex(cc.ARM_GROUPS).rename("units")
+```
+
+Splitting on what each arm did is not the same as splitting on sequence identity, since
+two designs steered from different cold starts rarely land on the same mutations.
+`sequence_match.csv` records the mutation sets themselves, and says how far the
+`steered in both` group is from being a true sequence match.
 
 ```{python}
 match = (pd.read_csv(HERE / "sequence_match.csv")
-         .set_index("unit")["sequence_matched"].astype(bool))
-u_camp, c_camp = cc.pose_matched_pairs(cohorts["campaign (negsteer)"],
-                                       cohorts["campaign (negsteer + constraints)"])
-matched = match.reindex(u_camp.index)
-pd.Series({"pose-matched": len(matched),
-           "same steering mutations": int(matched.sum()),
-           "of which never steered in either arm":
-               int((matched & u_camp.steering_skipped & c_camp.steering_skipped).sum()),
-           "different steering mutations": int((~matched).sum())}, name="units")
+         .set_index("unit")["sequence_matched"].astype(bool).reindex(groups.index))
+pd.crosstab(groups.rename("arms"), match.rename("same mutation set"))
 ```
 
 The merged thesis figure. The level row and the rank row are the two halves of one
-argument, so they belong on one figure, and the colour splits each of them by whether
-the sequence was held fixed too.
+argument, so they belong on one figure, and the colour separates the units whose two
+points describe the same molecule from those where they do not.
 
 ```{python}
 #| label: fig-constraint-level-and-rank
-#| fig-cap: "Interface metric level and within-cohort rank under negative steering with Boltz-2 constraints against without, for the pose-matched campaign sequences. Colour is whether the representative design carries the same steering mutations in both arms. The dashed line is identity."
+#| fig-cap: "Interface metric level and within-cohort rank under negative steering with Boltz-2 constraints against without, for the pose-matched campaign sequences. Colour is what each arm did to the unit. The dashed line is identity."
 _ = cc.fig_constraint_level_and_rank(
-    u_camp, c_camp, matched,
+    u_camp, c_camp, groups,
     THESISDIR / "constraint_level_and_rank.png")
 ```
 

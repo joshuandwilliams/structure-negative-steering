@@ -841,46 +841,65 @@ def fig_reversion_representative(groups: dict, outpath, figsize=(7.0, 4.2)):
 RANK_METRICS = ["iptm", "ipsae_min"]
 
 
-SEQ_MATCH_COLOR = {True: "#0072B2", False: "#E69F00"}
-SEQ_MATCH_LABEL = {True: "same steering mutations",
-                   False: "different steering mutations"}
+# What each arm actually predicted for a unit, which decides whether its two
+# points describe the same molecule. Ordered clean cases first.
+ARM_GROUPS = ["initial in both", "steered in both", "steered in one arm only"]
+ARM_GROUP_COLOR = {"initial in both": "#0072B2",
+                   "steered in both": "#009E73",
+                   "steered in one arm only": "#E69F00"}
 
 
-def fig_constraint_level_and_rank(unconstrained, constrained, matched, outpath,
-                                  metrics=RANK_METRICS, size=34, figsize=(8.0, 7.6)):
+def arm_groups(unconstrained, constrained) -> pd.Series:
+    """Unit -> which of ARM_GROUPS it falls in.
+
+    Constraints change the cold start, so a unit can steer in one arm and
+    short-circuit in the other. Those units carry a sequence difference on top
+    of the constraint difference and cannot be read as a constraint effect. The
+    two same-in-both groups can, and they are kept apart rather than pooled so
+    that steering is not assumed to be irrelevant before it has been shown.
+    """
+    a = unconstrained.steering_skipped.astype(bool)
+    b = constrained.reindex(unconstrained.index).steering_skipped.astype(bool)
+    return pd.Series(np.select([a & b, ~a & ~b],
+                               ARM_GROUPS[:2], default=ARM_GROUPS[2]),
+                     index=unconstrained.index)
+
+
+def fig_constraint_level_and_rank(unconstrained, constrained, groups, outpath,
+                                  metrics=RANK_METRICS, size=34, figsize=(8.4, 8.0)):
     """What constraints do to an interface metric's level, and to its order.
 
-    One cohort, split by whether the unit's representative design carries the
-    same steering mutations in both arms. Where it does, the sequence is
-    identical on the two axes and the whole displacement is the constraints;
-    where it does not, a sequence change is confounded with them.
+    One cohort, split by what each arm did to the unit. Where both arms took
+    the same route the sequence is identical on the two axes and the whole
+    displacement is the constraints; where they diverged it is not.
 
     The rows answer different questions and both are needed. Inflating every
     score does not on its own stop a metric ranking designs, which needs only
     the order to survive, so the level row is read against the rank row beneath
     it. Ranks are within cohort and computed over all plotted units, not within
-    each match group, since the ranking a campaign would actually use is over
-    the whole cohort.
+    each group, since the ranking a campaign would actually use is over the
+    whole cohort.
 
-    `matched` is a boolean Series indexed by unit.
+    `groups` is a Series of ARM_GROUPS values indexed by unit.
     """
     fig, axes = plt.subplots(2, len(metrics), figsize=figsize)
-    groups = [(f, matched.index[matched == f]) for f in (True, False)]
+    present = [(g, groups.index[groups == g]) for g in ARM_GROUPS
+               if (groups == g).any()]
     for col, m in enumerate(metrics):
-        x_raw = unconstrained.loc[matched.index, f"rep_{m}"].astype(float)
-        y_raw = constrained.loc[matched.index, f"rep_{m}"].astype(float)
+        x_raw = unconstrained.loc[groups.index, f"rep_{m}"].astype(float)
+        y_raw = constrained.loc[groups.index, f"rep_{m}"].astype(float)
         rows = (("score", x_raw, y_raw, lambda d, _m=m: FMT[_m].format(np.median(d))),
                 ("within-cohort rank", x_raw.rank(), y_raw.rank(), None))
         for row, (kind, x, y, fmt) in enumerate(rows):
             ax = axes[row, col]
             titles = []
-            for flag, idx in groups:
-                ax.scatter(x[idx], y[idx], s=size, color=SEQ_MATCH_COLOR[flag],
-                           alpha=0.7, zorder=3, edgecolor="white", linewidth=0.6,
-                           label=f"{SEQ_MATCH_LABEL[flag]} (n = {len(idx)})")
+            for g, idx in present:
+                ax.scatter(x[idx], y[idx], s=size, color=ARM_GROUP_COLOR[g],
+                           alpha=0.75, zorder=3, edgecolor="white", linewidth=0.6,
+                           label=f"{g} (n = {len(idx)})")
                 stat = (fmt((y - x)[idx]) if fmt
                         else f"ρ = {spearman(x[idx], y[idx]):+.2f}")
-                titles.append(f"{SEQ_MATCH_LABEL[flag]}: {stat}")
+                titles.append(f"{g}: {stat}")
             lims = [v for v in np.concatenate([x.values, y.values]) if np.isfinite(v)]
             lo, hi = min(lims), max(lims)
             pad = 0.05 * (hi - lo)
