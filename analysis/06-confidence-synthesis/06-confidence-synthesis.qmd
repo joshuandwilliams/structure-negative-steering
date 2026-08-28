@@ -75,6 +75,9 @@ COHORT_FILES = {
 
 cohorts = {lab: cc.build_representative_table(pd.read_csv(p))
            for lab, p in COHORT_FILES.items()}
+# Kept per-seed as well, since the rank noise floor needs individual seeds
+# rather than the representative's median over them.
+pred_camp = pd.read_csv(COHORT_FILES["campaign (negsteer)"])
 
 pd.DataFrame([{"cohort": lab, "units": len(df),
                "actually steered": int((~df.steering_skipped).sum()),
@@ -211,42 +214,57 @@ _ = cc.fig_rank_agreement(
 
 ### The thesis figure
 
+First, what the constraints bought. Both arms are the same 128 designed sequences, so
+this is what applying the intended interface as a Boltz-2 constraint does to the pipeline's
+own success rate.
+
+```{python}
+pd.DataFrame([{"arm": lab,
+               "cold start correct": int((d.cold_ra_eff <= cc.RA_EFF_THRESHOLD).sum()),
+               "representative correct": int((d.rep_ra_eff <= cc.RA_EFF_THRESHOLD).sum()),
+               "units": len(d)}
+              for lab, d in cohorts.items() if lab.startswith("campaign")])
+```
+
 Holding the pose fixed does not hold the sequence fixed. Constraints change the cold
 start, the steering plan is derived from that prediction, and a unit whose constrained
-cold start already passes never steers at all. A unit that steered in one arm and
-short-circuited in the other therefore carries a sequence difference on top of the
-constraint difference, and its paired difference is not a constraint effect.
+cold start already passes never steers at all, so a pose match does not imply a sequence
+match. `sequence_match.csv` records the mutation sets of both representatives, which is
+what decides whether a unit's two points are the same molecule.
 
-The benchmark is mostly made of those units. Only 3 of its 12 pose-matched targets
-steered in both arms, and the mismatch runs one way, since the unconstrained
-representative always carries the larger mutation budget. The campaign has enough
-same-in-both units to separate the two, so the thesis figure shows the campaign alone.
+The benchmark is mostly units where they are not: only 3 of its 12 pose-matched targets
+carry the same mutations in both arms, and the mismatch runs one way, since the
+unconstrained representative always carries the larger budget. The campaign has enough
+same-sequence units to separate the two, so the thesis figure shows the campaign alone.
 
 ```{python}
 u_camp, c_camp = cc.pose_matched_pairs(cohorts["campaign (negsteer)"],
                                        cohorts["campaign (negsteer + constraints)"])
-groups = cc.arm_groups(u_camp, c_camp)
-groups.value_counts().reindex(cc.ARM_GROUPS).rename("units")
+match = (pd.read_csv(HERE / "sequence_match.csv")
+         .set_index("unit")["sequence_matched"].astype(bool).reindex(u_camp.index))
+groups = pd.Series(np.where(match, *cc.SEQ_GROUPS), index=u_camp.index)
+groups.value_counts().reindex(cc.SEQ_GROUPS).rename("units")
 ```
 
-Splitting on what each arm did is not the same as splitting on sequence identity, since
-two designs steered from different cold starts rarely land on the same mutations.
-`sequence_match.csv` records the mutation sets themselves, and says how far the
-`steered in both` group is from being a true sequence match.
+A rank shift only means something against how far the ranking moves for free. This ranks
+the same units on one Boltz-2 seed of their representative design against another seed of
+the same design in the same arm, where nothing differs but the diffusion sample.
 
 ```{python}
-match = (pd.read_csv(HERE / "sequence_match.csv")
-         .set_index("unit")["sequence_matched"].astype(bool).reindex(groups.index))
-pd.crosstab(groups.rename("arms"), match.rename("same mutation set"))
+pd.DataFrame([{"metric": cc.METRICS[m], "seeds": f"{i} vs {j}", "n": n,
+               "median |rank shift|": med, "spearman": rho}
+              for m in cc.RANK_METRICS
+              for (i, j), (n, med, rho) in cc.rank_noise_floor(
+                  pred_camp, u_camp.rep_design.to_dict(), m).items()])
 ```
 
 The merged thesis figure. The level row and the rank row are the two halves of one
 argument, so they belong on one figure, and the colour separates the units whose two
-points describe the same molecule from those where they do not.
+points are the same molecule from those where they are not.
 
 ```{python}
 #| label: fig-constraint-level-and-rank
-#| fig-cap: "Interface metric level and within-cohort rank under negative steering with Boltz-2 constraints against without, for the pose-matched campaign sequences. Colour is what each arm did to the unit. The dashed line is identity."
+#| fig-cap: "Interface metric level and within-cohort rank under negative steering with Boltz-2 constraints against without, for the pose-matched campaign sequences. Colour is whether the two arms' representative designs are the same sequence. The dashed line is identity."
 _ = cc.fig_constraint_level_and_rank(
     u_camp, c_camp, groups,
     THESISDIR / "constraint_level_and_rank.png")
