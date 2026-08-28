@@ -197,17 +197,6 @@ _ = cc.fig_constraint_scatter(
     FIGDIR / "constraint_inflation_all_metrics.png")
 ```
 
-The thesis version of the same figure. The statistics move to the caption, and the
-metric name is carried by the panel title alone rather than repeated on both axes.
-
-```{python}
-#| output: false
-_ = cc.fig_constraint_scatter(
-    CONSTRAINT_ARGS,
-    THESISDIR / "constraint_metric_inflation.png",
-    stats_in_title=False, metric_in_axes=False, legend="top")
-```
-
 Inflating every score does not on its own make a metric useless for ranking designs,
 which only needs the order to survive. This ranks the same pose-matched units under each
 variant, within cohort, for the two interface metrics.
@@ -217,7 +206,43 @@ variant, within cohort, for the two interface metrics.
 #| fig-cap: "Within-cohort rank of each pose-matched unit under negative steering alone against negative steering with constraints, for the two interface metrics. The dashed line is identity."
 _ = cc.fig_rank_agreement(
     CONSTRAINT_ARGS,
-    THESISDIR / "constraint_rank_agreement.png")
+    FIGDIR / "constraint_rank_agreement.png")
+```
+
+### The thesis figure
+
+Holding the pose fixed does not hold the sequence fixed. Constraints change the cold
+start, the steering plan is derived from that prediction, and a unit whose constrained
+cold start already passes never steers, so the two arms can be comparing different
+molecules. In the benchmark they usually are: only 3 of its 12 pose-matched targets
+carry the same steering mutations in both arms, and the mismatch is systematic, because
+the unconstrained representative always carries the larger mutation budget. That is not
+a constraint effect held at fixed pose, so the benchmark is dropped from the thesis
+figure and only the campaign is shown.
+
+```{python}
+match = (pd.read_csv(HERE / "sequence_match.csv")
+         .set_index("unit")["sequence_matched"].astype(bool))
+u_camp, c_camp = cc.pose_matched_pairs(cohorts["campaign (negsteer)"],
+                                       cohorts["campaign (negsteer + constraints)"])
+matched = match.reindex(u_camp.index)
+pd.Series({"pose-matched": len(matched),
+           "same steering mutations": int(matched.sum()),
+           "of which never steered in either arm":
+               int((matched & u_camp.steering_skipped & c_camp.steering_skipped).sum()),
+           "different steering mutations": int((~matched).sum())}, name="units")
+```
+
+The merged thesis figure. The level row and the rank row are the two halves of one
+argument, so they belong on one figure, and the colour splits each of them by whether
+the sequence was held fixed too.
+
+```{python}
+#| label: fig-constraint-level-and-rank
+#| fig-cap: "Interface metric level and within-cohort rank under negative steering with Boltz-2 constraints against without, for the pose-matched campaign sequences. Colour is whether the representative design carries the same steering mutations in both arms. The dashed line is identity."
+_ = cc.fig_constraint_level_and_rank(
+    u_camp, c_camp, matched,
+    THESISDIR / "constraint_level_and_rank.png")
 ```
 
 ---

@@ -1,0 +1,129 @@
+unit,mutations_negsteer,mutations_constrained,sequence_matched
+design_0_seq_0,K5E V7R K9E N15E R18K D32E,,False
+design_0_seq_1,K5E M22R A26R,R18K V50E E72R,False
+design_10_seq_0,M22E A26E D32K,V7K M22E E69D,False
+design_10_seq_1,M22D V31K D32R,M22E A23E D32K,False
+design_11_seq_0,K9E M12D N15D R18K R66E D71K,,False
+design_11_seq_1,V7E K9D M22K,V7E K9D M22K,True
+design_12_seq_0,K5R V7E K9R S19R M22R V31K,K5E R68K D73K,False
+design_12_seq_1,,V7E K9D D73R,False
+design_13_seq_0,K9E D32R Y47E,,False
+design_13_seq_1,,M22D D32K I52R,False
+design_14_seq_0,K5R V7E M22K,,False
+design_14_seq_1,K5E M22R D32K,K5E N15E R18K S19R M22R A26K,False
+design_15_seq_0,K5E R64K A70R,I57D D69K A70R,False
+design_15_seq_1,,,True
+design_16_seq_0,,K5R E69D,False
+design_16_seq_1,M22D V31K D32R,V7E R18K M22E,False
+design_17_seq_0,,,True
+design_17_seq_1,K5E D32R E69D,,False
+design_18_seq_0,N15R R18E S19R K20E A23E D32R,V7E R58D D63R,False
+design_18_seq_1,K5D V7D K9R M22K A26R D32R,V7K R58K D63K,False
+design_19_seq_0,,,True
+design_19_seq_1,L2E K5E V7D M22D A26K D32K,V7R R18E D32R,False
+design_1_seq_0,K5E K9R S19E M22R A23R S27K,K5E R18E S19K A23R A26K D32R,False
+design_1_seq_1,K5E K9E A11R S19K A26E Y53E,K5E A11R E72K,False
+design_20_seq_0,Q4K K9D A26D D32R,V7K K9R M22E,False
+design_20_seq_1,,K5R V7E K9E M22D A26D D32R,False
+design_21_seq_0,K5D E74K,,False
+design_21_seq_1,K5E M22E A23R A26R S27K D32E,,False
+design_22_seq_0,K5E V7K M22E A26R D32K,K5E V7K R18D M22D A26D D32R,False
+design_22_seq_1,K9E A26E D32R,,False
+design_23_seq_0,M22E A26E D32K,K5E V7E M22K,False
+design_23_seq_1,K5E V7E M22K,V7E M22E A26K,False
+design_24_seq_0,K9E A11D E13K D73K E75K,K5R V7E K9R,False
+design_24_seq_1,K5E K9E R18E M22K V31E D32R,K5E A26R D32K,False
+design_25_seq_0,V7E K9D M22K,A11D R65E E72R,False
+design_25_seq_1,K5R V7K K9R R18K S19E D32K,K5E R65K E72K,False
+design_26_seq_0,K5E R18K A26R,,False
+design_26_seq_1,M22E A26E V31K,,False
+design_27_seq_0,M22E A26E D32K,Q4K K9R D32E,False
+design_27_seq_1,V7D K9R D32K,K9E D32R E65D,False
+design_28_seq_0,N15R S19K K20E A23K S27E K62R,K9E R18E D32R,False
+design_28_seq_1,,K5E A26R D32K,False
+design_29_seq_0,,,True
+design_29_seq_1,K5E A26R D32K,V7E R18K M22E,False
+design_2_seq_0,,,True
+design_2_seq_1,V7E M22E A26K,M22E A26E D32K,False
+design_30_seq_0,,M22K A26E Y50E,False
+design_30_seq_1,nan,M22D A26K D32R,False
+design_31_seq_0,K5R S19E A23K S27D D32R Y52D,,False
+design_31_seq_1,K5E V7K R18D M22D A26D D32R,K5E K9R E71K,False
+design_32_seq_0,K5E K9E M22K V31R D32K Y48E,Q4K K5R K9R,False
+design_32_seq_1,,K9D Y48D D65R,False
+design_33_seq_0,A23E A26R S27R K59R S62K A63D,K5E K9R V50R,False
+design_33_seq_1,,,True
+design_34_seq_0,K5E A26R D32K,M22D V31K D32R,False
+design_34_seq_1,,,True
+design_35_seq_0,,,True
+design_35_seq_1,,K9E R18E D32R,False
+design_36_seq_0,,K5E R64K A70R,False
+design_36_seq_1,R18E M22K D32R,K5E M22E A23K,False
+design_37_seq_0,,,True
+design_37_seq_1,,,True
+design_38_seq_0,D32E D66K A67R,N15K R18K Y49E,False
+design_38_seq_1,V7E K9D D66R,,False
+design_39_seq_0,,,True
+design_39_seq_1,K5E A26R D32K,,False
+design_3_seq_0,M22D V31K D32R,,False
+design_3_seq_1,,K9E A11K R18K A26E D32R I59R,False
+design_40_seq_0,,,True
+design_40_seq_1,,,True
+design_41_seq_0,N15K R18K K20R A26E D32K K66D,K5E V7R D32K,False
+design_41_seq_1,K5E V7K K9E R18E M22E,V7E D32R E72D,False
+design_42_seq_0,,,True
+design_42_seq_1,N15K R18K K20R A26E V31K D32E,,False
+design_43_seq_0,R18E K20E M22R A26K V31E A58E,,False
+design_43_seq_1,K9E D32R E67D,,False
+design_44_seq_0,V7K R64K A70R,,False
+design_44_seq_1,K5E V7E R18K M22R A26R V31K,V7E R18K M22E,False
+design_45_seq_0,,,True
+design_45_seq_1,R18E M22K D32R,,False
+design_46_seq_0,,,True
+design_46_seq_1,K9E M22E V31K I56D S60D R63K,K9E A11K R18K A26E D32R I59R,False
+design_47_seq_0,,,True
+design_47_seq_1,,,True
+design_48_seq_0,,K9E A26R D32K,False
+design_48_seq_1,K9E R18K A26E,K5E V7K K9E R18E A26E D32R,False
+design_49_seq_0,,,True
+design_49_seq_1,,,True
+design_4_seq_0,K9D N15D M22K,V7E K9D D67R,False
+design_4_seq_1,M22E A26E D32K,,False
+design_50_seq_0,V7K A26R D32K,,False
+design_50_seq_1,V7K K9D A26D V31K D32K Y46D,V7D K9R Y46K,False
+design_51_seq_0,,,True
+design_51_seq_1,,,True
+design_52_seq_0,K5E V7R K9E M22E A26E D32K,K5E V7R K9E M22E A26E D32K,True
+design_52_seq_1,,V7E K9D R60K,False
+design_53_seq_0,K5R N15K R18K M22E D32K,V7E K9R Y56E,False
+design_53_seq_1,K5E D32R D73K,V7E K9D D73R,False
+design_54_seq_0,N15K R18K M22E A26K V31D D32R,,False
+design_54_seq_1,N16E S19R K20E A26K S27D V31D,,False
+design_55_seq_0,K5E M22R D32K,M22D V31K D32R,False
+design_55_seq_1,,M22D V31K D32R,False
+design_56_seq_0,V7K K9R R66D,K5E K9R R66E,False
+design_56_seq_1,N16R S19R A23K S27R D32K Y54E,K5E K9R Y54R,False
+design_57_seq_0,R18E M22K D32R,R18K M22E D32R,False
+design_57_seq_1,,,True
+design_58_seq_0,N16R S19K M22R A23K S27E A61E,K5E D32K,False
+design_58_seq_1,R18D A26K D32R,R18D A26K D32R,True
+design_59_seq_0,K9D D64E A65K,V7K K9R D64K,False
+design_59_seq_1,,,True
+design_5_seq_0,,,True
+design_5_seq_1,,,True
+design_60_seq_0,,V7D R18K D32K,False
+design_60_seq_1,,K5E V7K M22R A26K D32R,False
+design_61_seq_0,,K5E D32R E74K,False
+design_61_seq_1,N15K R18K D32K,,False
+design_62_seq_0,K5E V7K R18E M22K A26E,,False
+design_62_seq_1,K5E K9R R18K M22E V25R V31R,,False
+design_63_seq_0,L2K V7R K9E M22E A26E D32K,,False
+design_63_seq_1,K5E V7K K9E M22K V31E D32R,,False
+design_6_seq_0,,,True
+design_6_seq_1,,,True
+design_7_seq_0,K5E K9E R18E M22K D32R E68D,Q4K V7D K9R R18D M22K D32K,False
+design_7_seq_1,N16R S19K K20E A23K S27E A59E,Q4K D32R E68K,False
+design_8_seq_0,M22E A26E D32K,K5E A26R D32K,False
+design_8_seq_1,I54D D66K A67R,K5R K9E D32R,False
+design_9_seq_0,K9E I61K E75R,,False
+design_9_seq_1,,,True

@@ -841,6 +841,66 @@ def fig_reversion_representative(groups: dict, outpath, figsize=(7.0, 4.2)):
 RANK_METRICS = ["iptm", "ipsae_min"]
 
 
+SEQ_MATCH_COLOR = {True: "#0072B2", False: "#E69F00"}
+SEQ_MATCH_LABEL = {True: "same steering mutations",
+                   False: "different steering mutations"}
+
+
+def fig_constraint_level_and_rank(unconstrained, constrained, matched, outpath,
+                                  metrics=RANK_METRICS, size=34, figsize=(8.0, 7.6)):
+    """What constraints do to an interface metric's level, and to its order.
+
+    One cohort, split by whether the unit's representative design carries the
+    same steering mutations in both arms. Where it does, the sequence is
+    identical on the two axes and the whole displacement is the constraints;
+    where it does not, a sequence change is confounded with them.
+
+    The rows answer different questions and both are needed. Inflating every
+    score does not on its own stop a metric ranking designs, which needs only
+    the order to survive, so the level row is read against the rank row beneath
+    it. Ranks are within cohort and computed over all plotted units, not within
+    each match group, since the ranking a campaign would actually use is over
+    the whole cohort.
+
+    `matched` is a boolean Series indexed by unit.
+    """
+    fig, axes = plt.subplots(2, len(metrics), figsize=figsize)
+    groups = [(f, matched.index[matched == f]) for f in (True, False)]
+    for col, m in enumerate(metrics):
+        x_raw = unconstrained.loc[matched.index, f"rep_{m}"].astype(float)
+        y_raw = constrained.loc[matched.index, f"rep_{m}"].astype(float)
+        rows = (("score", x_raw, y_raw, lambda d, _m=m: FMT[_m].format(np.median(d))),
+                ("within-cohort rank", x_raw.rank(), y_raw.rank(), None))
+        for row, (kind, x, y, fmt) in enumerate(rows):
+            ax = axes[row, col]
+            titles = []
+            for flag, idx in groups:
+                ax.scatter(x[idx], y[idx], s=size, color=SEQ_MATCH_COLOR[flag],
+                           alpha=0.7, zorder=3, edgecolor="white", linewidth=0.6,
+                           label=f"{SEQ_MATCH_LABEL[flag]} (n = {len(idx)})")
+                stat = (fmt((y - x)[idx]) if fmt
+                        else f"ρ = {spearman(x[idx], y[idx]):+.2f}")
+                titles.append(f"{SEQ_MATCH_LABEL[flag]}: {stat}")
+            lims = [v for v in np.concatenate([x.values, y.values]) if np.isfinite(v)]
+            lo, hi = min(lims), max(lims)
+            pad = 0.05 * (hi - lo)
+            ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color=MUTED,
+                    linestyle="--", linewidth=1.2, zorder=1)
+            ax.set_xlim(lo - pad, hi + pad)
+            ax.set_ylim(lo - pad, hi + pad)
+            ax.set_aspect("equal", adjustable="box")
+            ax.set_xlabel("negsteer")
+            ax.set_ylabel("negsteer + constraints")
+            ax.set_title(f"{METRICS[m]}, {kind}\n" + "\n".join(titles), fontsize=8)
+
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=len(labels), frameon=False,
+               bbox_to_anchor=(0.5, 1.0))
+    fig.tight_layout(h_pad=2.4, rect=(0, 0, 1, 0.95))
+    fig.savefig(outpath)
+    return fig
+
+
 def fig_rank_agreement(pairs: dict, outpath, metrics=RANK_METRICS,
                        size=34, figsize=(8.4, 4.2)):
     """Does adding constraints reorder the units, or just raise every score?
