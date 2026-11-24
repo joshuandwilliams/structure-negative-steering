@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structure-negative-steering"
-version = "0.1.0"
+version = "0.0.0.9000"
 description = "Standalone Boltz-2 negative-steering engine. Run negative steering on arbitrary inputs in isolation, with tests."
 requires-python = ">=3.10"
 

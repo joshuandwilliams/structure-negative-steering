@@ -166,3 +166,6 @@ docs/development_notes/
 # ----- OS / misc -----
 Thumbs.db
 desktop.ini
+
+# Scratch frame from docs/make_logo.py, removed on a clean run.
+docs/.logo_tmp.png
