@@ -18,7 +18,7 @@ sys.path.insert(0, str(_REPO_ROOT / "bin"))
 import protein_structure_prediction as psp  # noqa: E402
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstruction:
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -61,7 +61,7 @@ class TestConstruction:
         assert x.predictor is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestThreeToOne:
     def test_standard_aas(self):
         assert psp.THREE_TO_ONE["ALA"] == "A"
@@ -72,7 +72,7 @@ class TestThreeToOne:
         assert psp.THREE_TO_ONE["MSE"] == "M"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestKabschRmsd:
     def test_identical_returns_zero(self):
         P = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=float)
@@ -99,7 +99,7 @@ class TestKabschRmsd:
         assert psp._kabsch_rmsd(P, Q) == pytest.approx(0.0, abs=1e-10)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestRaEffRmsd:
     def test_perfect_overlap(self):
         rec = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=float)
@@ -147,7 +147,7 @@ def _find_real_pdb():
     return candidates[0] if candidates else None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.skipif(not _has_gemmi(), reason="gemmi not installed")
 class TestRealStructure:
     def test_load_and_read_sequences(self):

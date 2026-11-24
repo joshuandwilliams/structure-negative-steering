@@ -25,7 +25,7 @@ def _write_conf_json(path, payload):
     path.write_text(json.dumps(payload))
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstruction:
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -39,7 +39,7 @@ class TestConstruction:
         assert m.iptm == 0.3
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestProperties:
     def test_missing_fields_return_none(self, tmp_path):
         cj = tmp_path / "confidence_input_model_0.json"
@@ -97,7 +97,7 @@ class TestProperties:
         assert d == {"0": {"1": 0.5}, "1": {"0": 0.45}}
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestLazyLoading:
     def test_json_loaded_only_once(self, tmp_path):
         cj = tmp_path / "confidence_input_model_0.json"
@@ -111,7 +111,7 @@ class TestLazyLoading:
         assert m.ptm == 0.5
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.skipif(not _REAL_FIXTURE.is_file(),
                     reason="real fixture not present in this checkout")
 class TestRealFixture:
@@ -139,7 +139,7 @@ class TestRealFixture:
         assert "0" in pci and "1" in pci["0"]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConfidenceFlag:
     """Tier 0 confidence_flag: iptm + complex_plddt only (PAE-derived
     checks deferred to Tier 2 when chain lengths are accessible)."""
@@ -178,7 +178,7 @@ class TestConfidenceFlag:
         assert m.confidence_flag(t) == "ok"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestFromPredictionDir:
     def test_returns_empty_for_dir_with_no_confidences(self, tmp_path):
         result = bc.BoltzConfidenceMetrics.from_prediction_dir(tmp_path)

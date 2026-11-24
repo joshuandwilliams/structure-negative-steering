@@ -66,7 +66,7 @@ def a_design() -> str:
 
 # ── derive_true_interface ────────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_true_interface_is_written_and_zero_based(tmp_path, a_design):
     out = tmp_path / "iface.txt"
@@ -78,7 +78,7 @@ def test_true_interface_is_written_and_zero_based(tmp_path, a_design):
     assert idx == sorted(set(idx)), "indices should be sorted and unique"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_true_interface_header_records_its_coordinate_system(tmp_path, a_design):
     """The file is consumed by a flag that assumes 0-based, so it must say so."""
@@ -89,7 +89,7 @@ def test_true_interface_header_records_its_coordinate_system(tmp_path, a_design)
     assert "0-based" in header, f"header does not state the index base:\n{header}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 @pytest.mark.parametrize("suffix", ["", ".pdb"])
 def test_design_can_be_named_with_or_without_the_extension(tmp_path, a_design, suffix):
@@ -100,7 +100,7 @@ def test_design_can_be_named_with_or_without_the_extension(tmp_path, a_design, s
     assert _indices(out)
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_unknown_design_is_rejected(tmp_path, capsys):
     """A typo must fail loudly rather than writing an empty interface."""
@@ -111,7 +111,7 @@ def test_unknown_design_is_rejected(tmp_path, capsys):
     assert not out.exists(), "a rejected design still wrote an output file"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_absent_metrics_json_is_rejected(tmp_path, capsys):
     assert _main(dti, "--metrics-json", str(tmp_path / "nope.json"),
                  "--design", "design_0", "--output", str(tmp_path / "o.txt")) == 2
@@ -120,7 +120,7 @@ def test_absent_metrics_json_is_rejected(tmp_path, capsys):
 
 # ── derive_design_region ─────────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_design_region_is_written_and_one_based(tmp_path, a_design):
     out = tmp_path / "region.txt"
@@ -131,7 +131,7 @@ def test_design_region_is_written_and_one_based(tmp_path, a_design):
     assert min(idx) >= 1, "1-based indices must start at 1, not 0"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_design_region_header_records_its_coordinate_system(tmp_path, a_design):
     out = tmp_path / "region.txt"
@@ -141,7 +141,7 @@ def test_design_region_header_records_its_coordinate_system(tmp_path, a_design):
     assert "1-based" in header, f"header does not state the index base:\n{header}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_no_ranges_writes_every_position_individually(tmp_path, a_design):
     """Ranges are a display convenience; --no-ranges must not change the set."""
@@ -156,7 +156,7 @@ def test_no_ranges_writes_every_position_individually(tmp_path, a_design):
         "--no-ranges changed which positions are in the design region"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_the_two_derivations_use_different_index_bases(tmp_path, a_design):
     """0-based interface against 1-based design region.
@@ -175,7 +175,7 @@ def test_the_two_derivations_use_different_index_bases(tmp_path, a_design):
     assert "1-based" in region.read_text()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_existing_output_is_overwritten_not_appended(tmp_path, a_design):
     out = tmp_path / "iface.txt"

@@ -165,11 +165,32 @@ done
 
 # Helpers that wrap `singularity exec [--nv] --bind ... container`
 # so the call sites below look like a normal argv invocation.
+#
+# Every stage goes through one of these two, which is what makes coverage a
+# three-line change rather than an edit at eleven call sites. With
+# NEGSTEER_COVERAGE=1 the leading `python` becomes `python -m coverage run -p`,
+# so each stage drops its own .coverage.<host>.<pid> file and none of them
+# race. tests/test_run.slurm.sh combines them afterwards.
+#
+# -p (parallel-mode) is what makes the per-stage files unique. Without it the
+# eleven stages would overwrite one .coverage and you would measure the last
+# one only. The image must have the coverage package installed. The runtime
+# image does not, so this is opt-in. Unset, it is exactly the old behaviour.
+_py() {
+    if [ -n "${NEGSTEER_COVERAGE:-}" ] && [ "$1" = "python" ]; then
+        shift
+        printf '%s\n' python -m coverage run -p --source="$BIN_DIR_ABS" "$@"
+    else
+        printf '%s\n' "$@"
+    fi
+}
 sing_gpu() {
-    singularity exec --nv "${BIND_FLAGS[@]}" "$BOLTZ_CONTAINER" "$@"
+    local argv=(); while IFS= read -r a; do argv+=("$a"); done < <(_py "$@")
+    singularity exec --nv "${BIND_FLAGS[@]}" "$BOLTZ_CONTAINER" "${argv[@]}"
 }
 sing_cpu() {
-    singularity exec       "${BIND_FLAGS[@]}" "$BOLTZ_CONTAINER" "$@"
+    local argv=(); while IFS= read -r a; do argv+=("$a"); done < <(_py "$@")
+    singularity exec       "${BIND_FLAGS[@]}" "$BOLTZ_CONTAINER" "${argv[@]}"
 }
 
 # ─── Banner ─────────────────────────────────────────────────────────

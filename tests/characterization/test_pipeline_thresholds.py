@@ -14,7 +14,7 @@ sys.path.insert(0, str(_REPO_ROOT / "bin"))
 import pipeline_thresholds as pt  # noqa: E402
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestDefaults:
     """The default() class method returns an instance with the canonical
     research-methodology values currently in use across the codebase."""
@@ -68,7 +68,7 @@ class TestDefaults:
         assert t.sc_threshold == 0.62
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestImmutability:
     def test_frozen(self):
         """Cannot assign to a field after construction."""
@@ -99,7 +99,7 @@ class TestImmutability:
                 assert getattr(modified, field_name) == value
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestOverridesValidation:
     def test_unknown_key_raises(self):
         t = pt.PipelineInternalThresholds.default()
@@ -123,7 +123,7 @@ class TestOverridesValidation:
         assert "bad_b" in msg
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestAsDict:
     def test_as_dict_includes_every_field(self):
         t = pt.PipelineInternalThresholds.default()
@@ -143,7 +143,7 @@ class TestAsDict:
             assert val == getattr(t, key)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestChainedOverrides:
     """Common usage pattern: layer multiple override sets on top of default."""
 

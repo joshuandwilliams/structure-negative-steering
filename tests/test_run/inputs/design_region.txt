@@ -1,0 +1,6 @@
+# derived from complex experiments/benchmarking/unconstrained/6G10/6G10.pdb
+# design region source: none (protect only the true interface)
+# receptor chain: A
+# design region size: 0 residues
+# coordinate system: 1-based positional indices on the receptor chain, PDB walk order
+

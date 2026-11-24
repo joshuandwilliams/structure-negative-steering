@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BIN_DIR = REPO_ROOT / "bin"
 STAGES_NF = REPO_ROOT / "modules" / "negsteer_stages.nf"
 SUBMIT_SH = REPO_ROOT / "scripts" / "run_workflow.slurm.sh"
-FLOWCHART = REPO_ROOT / "docs" / "pipeline_flowchart.svg"
+FLOWCHART = REPO_ROOT / "docs" / "nextflow_dag.svg"
 
 # Paths hard-coded in modules/negsteer_stages.nf. Renaming one without
 # updating the module leaves a pipeline that fails only at that stage.
@@ -37,7 +37,7 @@ ENTRY_POINTS = [
 ]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("py", sorted(BIN_DIR.glob("*.py")), ids=lambda p: p.name)
 def test_engine_python_compiles(py: Path) -> None:
     """Engine Python is at least syntactically valid, with no deps installed."""
@@ -47,7 +47,7 @@ def test_engine_python_compiles(py: Path) -> None:
         pytest.fail(f"{py.name} failed to compile:\n{exc}")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("rel", ENTRY_POINTS)
 def test_entry_points_present(rel: str) -> None:
     path = REPO_ROOT / rel
@@ -55,7 +55,7 @@ def test_entry_points_present(rel: str) -> None:
     assert path.stat().st_size > 0, f"entry point is empty: {rel}"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_every_process_the_module_defines_is_wired_into_main() -> None:
     """A process defined but never included is dead code, which is how the
     superseded module survived the Nextflow rewrite."""
@@ -87,12 +87,12 @@ def _labels_by_process() -> dict[str, str]:
     return out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_flowchart_shows_exactly_the_processes_that_exist() -> None:
     assert _flowchart_process_names() == set(_labels_by_process())
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_flowchart_colours_the_gpu_stages_as_gpu_stages() -> None:
     """Blue means a Boltz-2 call, which is where the cost is. Mislabelling
     a CPU stage blue misrepresents what the run spends its GPU hours on."""
@@ -110,7 +110,7 @@ def test_flowchart_colours_the_gpu_stages_as_gpu_stages() -> None:
             assert fill == cpu_fill, f"{name} is a {label} stage but drawn as GPU"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_submit_wrapper_selects_the_cluster_profile() -> None:
     """Nextflow auto-applies a profile named `standard` when -profile is
     omitted, and this repo's `standard` pins every label to the local
@@ -120,7 +120,7 @@ def test_submit_wrapper_selects_the_cluster_profile() -> None:
     assert "-profile hpc" in SUBMIT_SH.read_text()
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_submit_wrapper_head_job_asks_for_no_gpu() -> None:
     """The head process only parses the DAG and polls squeue. A GPU or a
     large allocation here would idle scarce hardware for the whole run."""

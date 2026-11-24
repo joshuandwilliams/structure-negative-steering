@@ -1,0 +1,32 @@
+# derived from complex experiments/benchmarking/unconstrained/6G10/6G10.pdb
+# interface source: heavy-atom contacts <= 5.0 A
+# receptor chain: A
+# effector chain: B
+# n contacts: 26
+# coordinate system: 0-based positional indices on the receptor chain, PDB walk order
+1
+3
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+43
+44
+45
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75

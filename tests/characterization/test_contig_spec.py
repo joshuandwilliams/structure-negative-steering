@@ -16,7 +16,7 @@ sys.path.insert(0, str(_REPO_ROOT / "bin"))
 import contig_spec as cs  # noqa: E402
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestParseCanonicalForm:
     """Canonical: A1-10/5/A15-20 B"""
 
@@ -47,7 +47,7 @@ class TestParseCanonicalForm:
         assert c.contig_string == "A1-10/5/A15-20 B"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestParseEdgeCases:
     def test_single_fixed_segment(self):
         c = cs.ContigSpec.from_resolved_string("A1-100")
@@ -75,7 +75,7 @@ class TestParseEdgeCases:
         assert c.chain("X").segments == ()
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestParseErrors:
     def test_empty_string_raises(self):
         with pytest.raises(ValueError, match="empty"):
@@ -100,7 +100,7 @@ class TestParseErrors:
             cs.ContigSpec.from_resolved_string("5/3")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestDesignedToNative:
     """For contig A1-10/5/A15-20 on chain A:
        designed 1..10 -> native 1..10 (fixed)
@@ -129,7 +129,7 @@ class TestDesignedToNative:
         assert spec.designed_to_native(-5, "A") is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestNativeToDesigned:
     """Inverse mapping."""
 
@@ -154,7 +154,7 @@ class TestNativeToDesigned:
         assert spec.native_to_designed(50, "A") is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestDesignRegionQueries:
     @pytest.fixture
     def spec(self):
@@ -177,7 +177,7 @@ class TestDesignRegionQueries:
         assert not spec.is_design_region_position(99, "A")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestChainAccess:
     def test_chain_length(self):
         spec = cs.ContigSpec.from_resolved_string("A1-10/5/A15-20")
@@ -202,7 +202,7 @@ class TestChainAccess:
         assert ds[0].length == 5
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestPredictionFrame:
     """prediction_to_designed is a no-op for the receptor chain — the
     method exists for caller-side explicitness."""
@@ -213,7 +213,7 @@ class TestPredictionFrame:
         assert spec.prediction_to_designed(15, "A") == 15
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestFixedSegment:
     def test_invalid_range_raises(self):
         with pytest.raises(ValueError):
@@ -224,7 +224,7 @@ class TestFixedSegment:
         assert cs.FixedSegment(start=42, end=42).length == 1
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestDeNovoSegment:
     def test_negative_length_raises(self):
         with pytest.raises(ValueError):
@@ -251,7 +251,7 @@ class TestDeNovoSegment:
         assert cs.DeNovoSegment(min_len=5, max_len=7).to_string() == "5-7"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestBreakAndPassthrough:
     def test_break_marker(self):
         spec = cs.ContigSpec.from_string("A1-10/0/A15-20")
@@ -279,7 +279,7 @@ class TestBreakAndPassthrough:
         assert chain.designed_position_to_native(11) == 15
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstraintForm:
     def test_from_string_accepts_ranges(self):
         spec = cs.ContigSpec.from_string("A1-10/5-7/A15-20 B")
@@ -306,7 +306,7 @@ class TestConstraintForm:
             _ = chain.total_length
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestImmutability:
     def test_contig_spec_is_frozen(self):
         spec = cs.ContigSpec.from_resolved_string("A1-10")

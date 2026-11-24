@@ -47,7 +47,7 @@ def _args(**over) -> argparse.Namespace:
 
 # ── column ordering ──────────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_column_order_is_stable_regardless_of_row_key_order():
     """Every analysis reads these CSVs positionally in places. Ordering that
     depended on dict iteration would reshuffle between runs."""
@@ -56,7 +56,7 @@ def test_the_column_order_is_stable_regardless_of_row_key_order():
     assert a == b
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_an_unexpected_column_is_appended_not_dropped():
     """A new engine field must reach the CSV even before this list knows about
     it. Dropping it silently would lose data the engine bothered to compute."""
@@ -64,14 +64,14 @@ def test_an_unexpected_column_is_appended_not_dropped():
     assert "brand_new_metric" in fields
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_unexpected_columns_are_sorted_so_the_order_is_reproducible():
     fields = it._aggregate_csv_fieldnames([{"zeta": 1, "alpha": 2, "cycle": 0}])
     extras = [f for f in fields if f in {"zeta", "alpha"}]
     assert extras == ["alpha", "zeta"]
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_every_column_the_real_run_produced_is_in_the_declared_order():
     """Read off the single-run test rather than a stub. A column the engine writes
     but this function does not list would land in the unsorted tail, which is
@@ -86,7 +86,7 @@ def test_every_column_the_real_run_produced_is_in_the_declared_order():
 
 # ── the passing-row filter ───────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_row_dropped_by_reversion_is_skipped_by_default():
     """Computing confidence metrics on a discarded prediction is wasted GPU
     time, and the row is not reported either way."""
@@ -94,7 +94,7 @@ def test_a_row_dropped_by_reversion_is_skipped_by_default():
     assert not it._passes_final_metrics_filter(row, _args(), "m", 5.0, False)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_populate_all_keeps_even_the_dropped_rows():
     """Per-seed aggregation needs every seed's metrics for the median across
     seeds to mean anything. Holes would bias it toward the surviving seeds."""
@@ -103,7 +103,7 @@ def test_populate_all_keeps_even_the_dropped_rows():
         row, _args(populate_all=True), "m", 5.0, False)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("value", ["", None, "not-a-number"])
 def test_an_unparseable_dropped_flag_is_not_read_as_dropped(value):
     """The flag is written by several code paths. Treating a malformed value
@@ -114,7 +114,7 @@ def test_an_unparseable_dropped_flag_is_not_read_as_dropped(value):
         row, _args(populate_all=True), "steered_ra_eff_vs_truth", 5.0, False)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_row_whose_receptor_fell_apart_is_excluded():
     """Confidence metrics on a broken receptor are meaningless, and reporting
     them alongside intact ones would pollute every median."""
@@ -123,7 +123,7 @@ def test_a_row_whose_receptor_fell_apart_is_excluded():
         row, _args(), "steered_ra_eff_vs_truth", 5.0, False)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_intactness_gate_can_be_disabled():
     row = {"steered_receptor_intact": "0", "design": "design_00", "cycle": "0",
            "steered_ra_eff_vs_truth": "2.0"}
@@ -131,7 +131,7 @@ def test_the_intactness_gate_can_be_disabled():
         row, _args(require_intact=False), "steered_ra_eff_vs_truth", 5.0, False)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("value,passes", [
     ("2.0", True),      # comfortably under
     ("4.999", True),
@@ -146,7 +146,7 @@ def test_the_threshold_is_exclusive(value, passes):
         row, _args(), "steered_ra_eff_vs_truth", 5.0, False) is passes
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_row_with_no_metric_at_all_is_excluded():
     """A missing metric is not a passing one. Admitting it would put a design
     with no measured pose into the passing table."""
@@ -157,7 +157,7 @@ def test_a_row_with_no_metric_at_all_is_excluded():
 
 # ── the cycle statistics ledger ──────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_statistics_file_gets_a_header_once(tmp_path):
     for i in range(2):
         cold.append_cycle_statistics(tmp_path, 0, f"p{i}", 10, 8, 6, 3,
@@ -167,7 +167,7 @@ def test_the_statistics_file_gets_a_header_once(tmp_path):
     assert lines[0].startswith("cycle,")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_full_distributions_are_kept_not_just_their_summaries(tmp_path):
     """The lists are stored semicolon-joined so a later analysis can refit a
     distribution without re-walking the whole run tree."""
@@ -180,7 +180,7 @@ def test_the_full_distributions_are_kept_not_just_their_summaries(tmp_path):
     assert "3.5" in joined and "4.5" in joined
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_appending_a_second_cycle_does_not_overwrite_the_first(tmp_path):
     cold.append_cycle_statistics(tmp_path, 0, "p0", 1, 1, 1, 1, [], [])
     cold.append_cycle_statistics(tmp_path, 1, "p0", 2, 2, 2, 2, [], [])
@@ -191,14 +191,14 @@ def test_appending_a_second_cycle_does_not_overwrite_the_first(tmp_path):
 
 # ── walking a design's ancestry ──────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_cycle_zero_design_has_no_inherited_mutations(tmp_path):
     """Cycle 0 designs descend from the wild type, so the walk terminates
     immediately. Returning anything else would double-count."""
     assert it.read_cumulative_mutations(tmp_path, "c0d00") == []
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_mutations_come_back_oldest_first(tmp_path):
     """Order decides which wild type wins when a position is edited twice.
     Newest-first would revert to a later cycle's mutation, not the original."""
@@ -211,7 +211,7 @@ def test_mutations_come_back_oldest_first(tmp_path):
         assert [p for p, _, _ in muts] == sorted(p for p, _, _ in muts)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_missing_ancestor_does_not_raise(tmp_path):
     """A partially synced or partially failed run must still aggregate."""
     assert it.read_cumulative_mutations(tmp_path, "c0d05.c1d03") == []

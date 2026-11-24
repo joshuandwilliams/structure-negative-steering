@@ -22,28 +22,28 @@ sst = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sst)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_sums_every_stage(tmp_path: Path) -> None:
     f = tmp_path / ".stage_times"
     f.write_text("prepare 12\nplan 300\npredict_one_0 45\ncollect 3\n")
     assert sst.total_seconds(f) == 360
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_run_with_no_stage_times_costs_zero_rather_than_raising(tmp_path: Path) -> None:
     """A target that failed before its first stage has no file. The pipeline
     must still write a runtime, or the analysis loses the row entirely."""
     assert sst.total_seconds(tmp_path / "absent") == 0
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_an_empty_file_is_zero(tmp_path: Path) -> None:
     f = tmp_path / ".stage_times"
     f.write_text("")
     assert sst.total_seconds(f) == 0
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("line", [
     "prepare",              # a stage name with no time
     "prepare 12 extra",     # a stage name with a space in it
@@ -59,7 +59,7 @@ def test_a_malformed_line_is_skipped_not_counted(tmp_path: Path, line: str) -> N
     assert sst.total_seconds(f) == 15
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_stage_that_restarted_is_counted_once_per_attempt(tmp_path: Path) -> None:
     """A retried GPU task appends a second line. Both attempts really were
     paid for, so both count. This is deliberate, not an accident of parsing."""
@@ -68,7 +68,7 @@ def test_a_stage_that_restarted_is_counted_once_per_attempt(tmp_path: Path) -> N
     assert sst.total_seconds(f) == 200
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_main_writes_the_total_with_a_trailing_newline(tmp_path: Path) -> None:
     stage_times = tmp_path / ".stage_times"
     stage_times.write_text("prepare 7\nplan 8\n")
@@ -79,7 +79,7 @@ def test_main_writes_the_total_with_a_trailing_newline(tmp_path: Path) -> None:
     assert float(out.read_text().strip()) == 15.0
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_main_writes_a_zero_rather_than_nothing_when_the_file_is_missing(
         tmp_path: Path) -> None:
     """test_engine_single_run asserts run_one_runtime_sec.txt parses as a float.

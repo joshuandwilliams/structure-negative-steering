@@ -55,9 +55,8 @@ addopts = """
     --cov-report=term-missing:skip-covered
 """
 markers = [
-    "local_unit: tier - pure helpers on synthetic input. Runs anywhere with Python, under 1s each.",
-    "local_integration: tier - reads the committed fixtures and reference structures. Mac, no cluster.",
-    "hpc: tier - needs a GPU, the Boltz container, or a finished run. Cluster only.",
+    "logic: runs anywhere with Python. Pure helpers on synthetic input, plus tests that read the committed fixtures and reference structures. No cluster, no container.",
+    "check_test_run: asserts on the output of a real run. Needs tests/test_run.slurm.sh to have run on the cluster first.",
     "slow: long-running test.",
 ]
 
@@ -95,6 +94,6 @@ skip_covered = true
 # The remaining gap is concentrated in two files. boltz2_iterate_steering.py's
 # multi-cycle loop never runs here, because this repo has always driven it at
 # --max-cycles 0, and reversion.py's harvest needs real predictions on disk.
-# Both are reached by the single-run test in tests/run_single_run_test.slurm.sh,
+# Both are reached by the single-run test in tests/test_run.slurm.sh,
 # which is the hpc tier and cannot run on a laptop or in CI.
 fail_under = 69.5

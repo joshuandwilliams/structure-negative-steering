@@ -165,14 +165,14 @@ def rig(tmp_path):
 # Argument handling
 # --------------------------------------------------------------------------
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_unknown_argument_is_rejected(rig) -> None:
     r = rig.run("--not-a-flag", "x", expect=2)
     assert "unknown arg: --not-a-flag" in r.stderr
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_missing_required_arguments_are_all_named(rig) -> None:
     r = subprocess.run([BASH, str(SCRIPT), "--seq-name", "SEQ1"],
@@ -184,7 +184,7 @@ def test_missing_required_arguments_are_all_named(rig) -> None:
         assert flag in r.stderr
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_a_missing_input_file_is_caught_before_any_gpu_work(rig) -> None:
     (rig.root / "gt.pdb").unlink()
@@ -193,7 +193,7 @@ def test_a_missing_input_file_is_caught_before_any_gpu_work(rig) -> None:
     assert rig.calls == [], "must not reach the container"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_a_missing_engine_script_is_caught(rig) -> None:
     (rig.root / "bin" / "extract_passing.py").unlink()
@@ -202,7 +202,7 @@ def test_a_missing_engine_script_is_caught(rig) -> None:
     assert rig.calls == []
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_a_missing_container_is_caught(rig) -> None:
     (rig.root / "boltz.sif").unlink()
@@ -214,7 +214,7 @@ def test_a_missing_container_is_caught(rig) -> None:
 # What gets invoked
 # --------------------------------------------------------------------------
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_gpu_stages_request_nv_and_cpu_stages_do_not(rig) -> None:
     """--nv on a CPU stage would take a GPU for work that cannot use one."""
@@ -226,7 +226,7 @@ def test_gpu_stages_request_nv_and_cpu_stages_do_not(rig) -> None:
             assert "--nv" not in c, f"{sub} asked for a GPU"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_bind_paths_are_deduplicated(rig) -> None:
     """Every input here shares one parent. Binding it repeatedly is a bug."""
@@ -235,7 +235,7 @@ def test_bind_paths_are_deduplicated(rig) -> None:
     assert len(binds) == len(set(binds)), f"duplicate binds: {binds}"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_plan_extra_args_are_word_split_and_forwarded(rig) -> None:
     rig.run("--plan-extra-args", "--n-designs 7 --mode mild",
@@ -244,7 +244,7 @@ def test_plan_extra_args_are_word_split_and_forwarded(rig) -> None:
     assert plan[-4:] == ["--n-designs", "7", "--mode", "mild"]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_postprocess_thresholds_are_forwarded(rig) -> None:
     rig.run("--postprocess-rmsd-threshold", "3.5",
@@ -258,7 +258,7 @@ def test_postprocess_thresholds_are_forwarded(rig) -> None:
     assert "--populate-all" in c
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_populate_all_can_be_turned_off(rig) -> None:
     rig.run("--no-postprocess-populate-all",
@@ -270,7 +270,7 @@ def test_populate_all_can_be_turned_off(rig) -> None:
 # Loop bounds
 # --------------------------------------------------------------------------
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_predict_one_runs_once_per_design_with_ascending_indices(rig) -> None:
     rig.run(env={"STUB_PLAN": str(rig.plan(n_designs=4))}, expect=0)
@@ -278,7 +278,7 @@ def test_predict_one_runs_once_per_design_with_ascending_indices(rig) -> None:
     assert [c[c.index("--index") + 1] for c in calls] == ["0", "1", "2", "3"]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_skip_steering_runs_no_predictions(rig) -> None:
     """The cold start already passed. Predicting anything would waste the GPU."""
@@ -290,7 +290,7 @@ def test_skip_steering_runs_no_predictions(rig) -> None:
     assert rig.sub_calls("aggregate") and rig.sub_calls("extract_passing") == []
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_zero_designs_predicts_nothing_but_still_finishes(rig) -> None:
     r = rig.run(env={"STUB_PLAN": str(rig.plan(n_designs=0))}, expect=0)
@@ -298,7 +298,7 @@ def test_zero_designs_predicts_nothing_but_still_finishes(rig) -> None:
     assert "n_designs=0" in r.stdout
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_reversions_run_once_per_staged_entry(rig) -> None:
     rig.run(env={"STUB_PLAN": str(rig.plan(n_designs=1)),
@@ -307,7 +307,7 @@ def test_reversions_run_once_per_staged_entry(rig) -> None:
     assert [c[c.index("--index") + 1] for c in calls] == ["0", "1", "2"]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_no_reversion_plan_means_no_reversion_predictions(rig) -> None:
     r = rig.run(env={"STUB_PLAN": str(rig.plan(n_designs=1))}, expect=0)
@@ -319,14 +319,14 @@ def test_no_reversion_plan_means_no_reversion_predictions(rig) -> None:
 # Failure policy
 # --------------------------------------------------------------------------
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_a_failing_plan_without_skip_steering_is_fatal(rig) -> None:
     r = rig.run(env={"STUB_FAIL_SUB": "plan", "STUB_FAIL_RC": "1"}, expect=1)
     assert "plan stage exited 1" in r.stderr
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_a_failing_plan_with_skip_steering_is_tolerated(rig) -> None:
     """plan exits non-zero on a skipped cold start, having written plan.json."""
@@ -338,14 +338,14 @@ def test_a_failing_plan_with_skip_steering_is_tolerated(rig) -> None:
     assert "skip_steering=true — continuing" in r.stdout
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_a_plan_that_writes_nothing_is_fatal(rig) -> None:
     r = rig.run(expect=1)
     assert "did not produce" in r.stderr
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_one_failing_design_does_not_kill_the_run(rig) -> None:
     """rc=1 is a per-design failure. Losing 19 good designs to it would be worse."""
@@ -355,7 +355,7 @@ def test_one_failing_design_does_not_kill_the_run(rig) -> None:
     assert "0 ok, 3 failed" in r.stdout
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_an_invalid_index_is_fatal(rig) -> None:
     """rc>=2 means the loop bound disagrees with plan.json. Never tolerate that."""
@@ -365,7 +365,7 @@ def test_an_invalid_index_is_fatal(rig) -> None:
     assert len(rig.sub_calls("predict-one")) == 1, "must stop at the first fatal"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_a_failing_cpu_stage_is_fatal(rig) -> None:
     r = rig.run(env={"STUB_PLAN": str(rig.plan()), "STUB_FAIL_SUB": "collect"}, expect=1)
@@ -376,7 +376,7 @@ def test_a_failing_cpu_stage_is_fatal(rig) -> None:
 # Output
 # --------------------------------------------------------------------------
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_the_runtime_stamp_is_written(rig) -> None:
     """extract_passing reads this into passing_summary.csv, and thence into the
@@ -387,7 +387,7 @@ def test_the_runtime_stamp_is_written(rig) -> None:
     assert stamp.read_text().strip().isdigit()
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @needs_bash
 def test_the_stages_run_in_order(rig) -> None:
     """Each stage consumes what the previous one wrote, so order is correctness."""

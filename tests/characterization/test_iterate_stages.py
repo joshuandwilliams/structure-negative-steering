@@ -63,7 +63,7 @@ def _read(path: Path) -> list[dict]:
 
 # ── aggregate: per-seed rows into the multicycle table ───────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_aggregate_rebuilds_the_multicycle_table(run_dir):
     before = _read(run_dir / "all_results_multicycle.csv")
@@ -76,7 +76,7 @@ def test_aggregate_rebuilds_the_multicycle_table(run_dir):
         f"rebuilt {len(after)} rows from a run that recorded {len(before)}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_aggregate_writes_the_pathway_index(run_dir):
     (run_dir / "pathways.json").unlink()
@@ -85,7 +85,7 @@ def test_aggregate_writes_the_pathway_index(run_dir):
     assert data, "no pathways recorded"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_aggregate_leaves_cycle_statistics_in_place(run_dir):
     """The bell-curve table survives a re-aggregate rather than being dropped."""
@@ -95,7 +95,7 @@ def test_aggregate_leaves_cycle_statistics_in_place(run_dir):
         "aggregate removed cycle_statistics.csv without rewriting it"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_aggregate_is_idempotent(run_dir):
     """Running twice must not double the table."""
@@ -109,7 +109,7 @@ def test_aggregate_is_idempotent(run_dir):
 
 # ── aggregate-per-sequence: the per-design verdicts ──────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_per_sequence_aggregate_reproduces_the_committed_table(run_dir):
     """The verdict for every design must come back the same.
@@ -134,7 +134,7 @@ def test_per_sequence_aggregate_reproduces_the_committed_table(run_dir):
     assert not changed, f"the outcome changed for {sorted(changed)}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_every_aggregated_design_carries_a_known_outcome(run_dir):
     _main("aggregate-per-sequence", "--experiment-root", str(run_dir))
@@ -145,7 +145,7 @@ def test_every_aggregated_design_carries_a_known_outcome(run_dir):
     assert not unknown, f"unrecognised outcome labels: {unknown}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 @pytest.mark.parametrize("drop", [
     ["all_results_multicycle.csv"],
@@ -166,7 +166,7 @@ def test_aggregate_per_sequence_falls_back_between_its_two_inputs(run_dir, drop)
         f"dropping {drop} left the aggregate empty"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_aggregate_per_sequence_with_no_input_at_all_emits_nothing(run_dir):
     """With every candidate input gone it must not invent a populated table."""
@@ -182,7 +182,7 @@ def test_aggregate_per_sequence_with_no_input_at_all_emits_nothing(run_dir):
 
 # ── the run the fixture came from ────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_the_fixture_is_a_complete_run():
     """Guards the fixture itself, so a truncated copy fails loudly."""
@@ -194,7 +194,7 @@ def test_the_fixture_is_a_complete_run():
     assert (FIXTURE / "cycle_0" / "steered_results.csv").is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_the_fixture_cold_start_failed_so_steering_ran():
     """6G10 was picked because it steers. If that changes these tests weaken."""
@@ -204,7 +204,7 @@ def test_the_fixture_cold_start_failed_so_steering_ran():
 
 # ── pathway bookkeeping against the real tree ────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_recorded_pathways_parse_back_to_cycle_and_design(run_dir):
     _main("aggregate", "--experiment-root", str(run_dir))
@@ -217,7 +217,7 @@ def test_recorded_pathways_parse_back_to_cycle_and_design(run_dir):
         assert isinstance(parsed, list), f"{label!r} did not parse"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_the_multicycle_table_carries_the_columns_downstream_reads(run_dir):
     _main("aggregate", "--experiment-root", str(run_dir))

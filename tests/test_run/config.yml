@@ -1,9 +1,11 @@
 # =============================================================================
-# Workflow check: the Nextflow workflow end to end on one real target.
+# The one real run. Drives both paths on the same target:
 # =============================================================================
-# The committed benchmark under experiments/benchmarking/ was produced by the
-# previous single-job SLURM runner. main.nf replaced that runner and has only
-# ever been exercised with -stub-run. This config is the first real run of it.
+#   sbatch scripts/run_workflow.slurm.sh   the Nextflow workflow
+#   sbatch tests/test_run.slurm.sh         the engine entry point directly
+#
+# One config for both, so the two paths are compared on identical inputs and
+# neither loses coverage to the other. The hpc tier asserts on whichever ran.
 #
 # 6G10 was chosen because its cold start fails badly, 23.9 A against the 5 A
 # threshold, so the plan stages designs and the steering fan-out actually runs.
@@ -23,7 +25,7 @@
 # anything under experiments/benchmarking/ and must never be pooled with them.
 # =============================================================================
 
-name: "6G10_workflow_check"
+name: "6G10_test_run"
 
 # The tracked reference for 6G10, reused rather than duplicated.
 reference_pdb:   "../../experiments/benchmarking/unconstrained/6G10/6G10.pdb"

@@ -76,7 +76,7 @@ def _plan(workdir: Path) -> dict:
 
 # ── building the reverted sequence ───────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_reverting_puts_the_wild_type_residue_back():
     steered = "AWDEFGHIKLMNPQRSTVWY"          # C2W
     seq, applied = rev.build_reverted_sequence(
@@ -85,7 +85,7 @@ def test_reverting_puts_the_wild_type_residue_back():
     assert applied == [(2, "W", "C")]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_positions_are_one_based():
     """Off by one here reverts the wrong residue and still returns a sequence
     of the right length, so nothing downstream would notice."""
@@ -94,7 +94,7 @@ def test_positions_are_one_based():
     assert seq == WILD_TYPE
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_only_the_listed_positions_revert():
     """A design usually carries several steering mutations and only some are
     contaminating. Reverting all of them would undo the steering entirely."""
@@ -105,7 +105,7 @@ def test_only_the_listed_positions_revert():
     assert [p for p, _, _ in applied] == [2]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_earliest_wild_type_wins_when_a_position_was_edited_twice():
     """Across cycles a position can be mutated more than once. The true wild
     type is the first one recorded; using the later one would revert to
@@ -116,7 +116,7 @@ def test_the_earliest_wild_type_wins_when_a_position_was_edited_twice():
     assert seq[1] == "C"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("steered,muts,revert", [
     ("",                    [(2, "C", "W")], [2]),      # empty sequence
     ("AWDEFGHIKLMNPQRSTVWY", [(2, "C", "W")], [99]),    # out of range
@@ -131,7 +131,7 @@ def test_inconsistent_input_raises_rather_than_guessing(steered, muts, revert):
 
 # ── staging the plan ─────────────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_one_contaminated_design_stages_one_prediction(tmp_path):
     wd = tmp_path / "cycle_0"
     wd.mkdir(parents=True)
@@ -152,7 +152,7 @@ def test_one_contaminated_design_stages_one_prediction(tmp_path):
     assert list(rev_dir.glob("*.yaml")), "no Boltz YAML staged"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_designs_reverting_to_the_same_sequence_are_predicted_once(tmp_path):
     """The dedup that makes reversion affordable. Two contaminated designs
     differing only outside the reverted positions collapse to one prediction,
@@ -173,7 +173,7 @@ def test_designs_reverting_to_the_same_sequence_are_predicted_once(tmp_path):
     assert set(plan["entries"][0]["all_labels"]) == {"design_00", "design_01"}
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_designs_reverting_to_different_sequences_are_not_merged(tmp_path):
     wd = tmp_path / "cycle_0"
     wd.mkdir(parents=True)
@@ -188,7 +188,7 @@ def test_designs_reverting_to_different_sequences_are_not_merged(tmp_path):
     assert _plan(wd)["n_staged"] == 2
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_multi_seed_stages_one_prediction_per_seed(tmp_path):
     """Reverted predictions are sampled as many times as steered ones, or the
     comparison is one seed against three."""
@@ -205,7 +205,7 @@ def test_multi_seed_stages_one_prediction_per_seed(tmp_path):
         assert (wd / "reversions" / f"rev_design_00_s{s}").is_dir()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_reverted_seeds_cannot_collide_with_steered_seeds(tmp_path):
     """Boltz seeds are offset into the 100000+ range. A collision would make a
     reverted prediction reuse a steered one's sampling, and the comparison
@@ -223,7 +223,7 @@ def test_reverted_seeds_cannot_collide_with_steered_seeds(tmp_path):
     assert len(set(seeds)) == len(seeds), "two reverted predictions share a seed"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_a_design_with_no_receptor_fasta_is_skipped_not_fatal(tmp_path):
     """One unreadable design must not cost the whole cohort its reversion
     pass. The engine tolerates per-design failure everywhere else too."""
@@ -243,7 +243,7 @@ def test_a_design_with_no_receptor_fasta_is_skipped_not_fatal(tmp_path):
     assert plan["entries"][0]["label"] == "design_00"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_a_design_whose_sequence_contradicts_its_history_is_skipped(tmp_path):
     """Same tolerance, for the case build_reverted_sequence rejects."""
     wd = tmp_path / "cycle_0"
@@ -255,7 +255,7 @@ def test_a_design_whose_sequence_contradicts_its_history_is_skipped(tmp_path):
     assert _plan(wd)["n_staged"] == 0
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_no_contaminated_designs_still_writes_a_plan(tmp_path):
     """This is the common case, and the one the single-run test hit. The harvest
     reads reversion_plan.json unconditionally, so its absence would turn a
@@ -270,7 +270,7 @@ def test_no_contaminated_designs_still_writes_a_plan(tmp_path):
     assert plan["entries"] == []
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_the_manifest_records_what_was_reverted_and_from_what(tmp_path):
     """The harvest and every downstream table read these fields. A missing one
     surfaces as a blank column rather than an error."""

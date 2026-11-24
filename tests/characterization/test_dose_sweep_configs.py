@@ -41,7 +41,7 @@ def _ids(p: Path) -> str:
     return f"{p.parents[1].name}/{p.parent.name}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_sweep
 def test_the_sweep_covers_every_target_at_every_dose() -> None:
     targets = {p.parent.name for p in BENCH.glob("*/config.yml")}
@@ -52,7 +52,7 @@ def test_the_sweep_covers_every_target_at_every_dose() -> None:
         assert got == targets, f"{dose} covers {sorted(got ^ targets)} differently"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_sweep
 @pytest.mark.parametrize("cfg", CONFIGS, ids=_ids)
 def test_only_the_dose_lines_differ_from_the_benchmark(cfg: Path) -> None:
@@ -67,7 +67,7 @@ def test_only_the_dose_lines_differ_from_the_benchmark(cfg: Path) -> None:
             assert b.startswith(MUTABLE), f"{cfg}: unexpected change\n  - {a}\n  + {b}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_sweep
 @pytest.mark.parametrize("cfg", CONFIGS, ids=_ids)
 def test_each_config_translates_and_asks_for_its_own_dose(cfg: Path, drv) -> None:
@@ -83,7 +83,7 @@ def test_each_config_translates_and_asks_for_its_own_dose(cfg: Path, drv) -> Non
     assert Path(cmd[cmd.index("--ground-truth") + 1]).resolve().is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_sweep
 @pytest.mark.parametrize("cfg", CONFIGS, ids=_ids)
 def test_run_names_are_unique_and_carry_the_dose(cfg: Path, drv) -> None:
@@ -94,7 +94,7 @@ def test_run_names_are_unique_and_carry_the_dose(cfg: Path, drv) -> None:
         "Two runs sharing one would be indistinguishable downstream.")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_launcher_delegates_and_asks_for_no_gpu() -> None:
     text = LAUNCHER.read_text()
     assert "run_workflow.slurm.sh" in text, "must not duplicate the bootstrap"

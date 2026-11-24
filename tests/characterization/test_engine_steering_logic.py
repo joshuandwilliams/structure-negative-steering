@@ -31,7 +31,7 @@ import pathway_labels as pl  # noqa: E402
 
 # ── jaccard: how interface overlap is measured everywhere ────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("a,b,expected", [
     ({1, 2, 3}, {1, 2, 3}, 1.0),      # identical
     ({1, 2, 3}, {4, 5, 6}, 0.0),      # disjoint
@@ -42,7 +42,7 @@ def test_jaccard_overlap(a, b, expected):
     assert bns.jaccard(a, b) == pytest.approx(expected)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_jaccard_of_two_empty_sets_is_nan():
     """0/0 returns NaN rather than 0.0, and that value propagates.
 
@@ -55,7 +55,7 @@ def test_jaccard_of_two_empty_sets_is_nan():
     assert got != got, f"expected NaN for the empty/empty case, got {got}"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_jaccard_is_symmetric():
     a, b = {1, 2, 3, 9}, {3, 9, 20}
     assert bns.jaccard(a, b) == bns.jaccard(b, a)
@@ -63,7 +63,7 @@ def test_jaccard_is_symmetric():
 
 # ── make_steered_sequence: the mutation itself ───────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("mode", ["strong", "mild", "conservative", "alanine"])
 def test_steering_only_edits_the_candidate_pool(mode):
     """Every position outside the pool must survive untouched.
@@ -82,7 +82,7 @@ def test_steering_only_edits_the_candidate_pool(mode):
         f"mode {mode} mutated positions outside the pool: {sorted(changed - set(pool))}"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_steering_respects_the_mutation_budget():
     seq = "ACDEFGHIKLMNPQRSTVWY"
     pool = list(range(len(seq)))
@@ -93,7 +93,7 @@ def test_steering_respects_the_mutation_budget():
         assert changed <= budget, f"budget {budget} exceeded, {changed} positions changed"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_alanine_mode_substitutes_alanine():
     seq = "KKKKKKKKKK"
     steered, _ = bns.make_steered_sequence(
@@ -102,7 +102,7 @@ def test_alanine_mode_substitutes_alanine():
     assert changed and set(changed) == {"A"}, f"alanine mode produced {set(changed)}"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_steering_is_deterministic_for_a_given_seed():
     """Design sampling is seeded, which is what makes a resumed run reproduce."""
     seq = "ACDEFGHIKLMNPQRSTVWY"
@@ -114,7 +114,7 @@ def test_steering_is_deterministic_for_a_given_seed():
     assert a != c, "different seeds produced identical designs"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_an_empty_pool_produces_no_mutations():
     seq = "ACDEFG"
     steered, muts = bns.make_steered_sequence(
@@ -125,7 +125,7 @@ def test_an_empty_pool_produces_no_mutations():
 
 # ── constraint blocks: what gets appended to the Boltz YAML ──────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_pocket_block_names_both_chains_and_every_residue():
     block = bns._format_boltz_pocket_block("A", "B", [3, 7, 11], 8.0)
     text = block if isinstance(block, str) else "\n".join(block)
@@ -135,7 +135,7 @@ def test_pocket_block_names_both_chains_and_every_residue():
     assert "8" in text
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_contact_block_pairs_a_receptor_token_with_an_effector_token():
     block = bns._format_boltz_contact_block("A", "B", 12, 34, 10.0)
     text = block if isinstance(block, str) else "\n".join(block)
@@ -145,19 +145,19 @@ def test_contact_block_pairs_a_receptor_token_with_an_effector_token():
 
 # ── index-file loading ───────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_true_interface_indices_load_from_a_file(tmp_path):
     f = tmp_path / "iface.txt"
     f.write_text("# a header comment\n0\n4\n9\n")
     assert bns._load_true_interface_indices(None, f, receptor_length=20) == [0, 4, 9]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_true_interface_indices_load_from_an_inline_argument():
     assert bns._load_true_interface_indices("0,4,9", None, receptor_length=20) == [0, 4, 9]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_out_of_range_interface_index_is_rejected(tmp_path):
     """An index past the chain end would protect the wrong residue."""
     f = tmp_path / "iface.txt"
@@ -166,7 +166,7 @@ def test_out_of_range_interface_index_is_rejected(tmp_path):
         bns._load_true_interface_indices(None, f, receptor_length=20)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_design_region_indices_load_and_convert(tmp_path):
     f = tmp_path / "region.txt"
     f.write_text("# 1-based\n1,2,3\n")
@@ -174,7 +174,7 @@ def test_design_region_indices_load_and_convert(tmp_path):
     assert got, "design region came back empty"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_single_sequence_a3m_is_written_in_the_expected_shape(tmp_path):
     out = tmp_path / "x.a3m"
     bns.write_single_seq_a3m(out, "receptor", "ACDEFG")
@@ -185,7 +185,7 @@ def test_single_sequence_a3m_is_written_in_the_expected_shape(tmp_path):
 
 # ── pathway labels: how the cycle tree is addressed ──────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_pathway_labels_round_trip():
     label = pl.make_pathway_label(None, 0, 3)
     assert pl.parse_pathway_label(label) == [(0, 3)]
@@ -193,13 +193,13 @@ def test_pathway_labels_round_trip():
     assert pl.parse_pathway_label(deeper) == [(0, 3), (1, 7)]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_parent_of_a_cycle_zero_label_is_none():
     leaf = pl.make_pathway_label(None, 0, 3)
     assert pl.parent_pathway_label(leaf) is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_parent_drops_exactly_one_segment():
     a = pl.make_pathway_label(None, 0, 3)
     b = pl.make_pathway_label(a, 1, 7)
@@ -210,7 +210,7 @@ def test_parent_drops_exactly_one_segment():
 
 # ── mutation bookkeeping ─────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_mutation_strings_carry_position_and_both_residues():
     chimerax, aa = agg.format_mutation_strings([(5, "K", "E"), (7, "V", "D")], "A")
     assert "5" in chimerax and "7" in chimerax
@@ -219,14 +219,14 @@ def test_mutation_strings_carry_position_and_both_residues():
         assert token in aa, f"{token} missing from {aa!r}"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_no_mutations_gives_empty_strings():
     chimerax, aa = agg.format_mutation_strings([], "A")
     assert chimerax in ("", None) or "A" not in str(chimerax)
     assert aa in ("", None)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("raw,expected", [
     ("5,7,22", [5, 7, 22]),
     ("22, 5 ,7", [22, 5, 7]),   # input order is preserved, not sorted
@@ -238,7 +238,7 @@ def test_position_csv_parsing(raw, expected):
     assert agg._parse_position_csv(raw) == expected
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("raw,expected", [
     ("/A:5,7,22", [5, 7, 22]),
     ("/B:1", [1]),
@@ -251,7 +251,7 @@ def test_chimerax_position_parsing(raw, expected):
 
 # ── per-seed aggregation ─────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_continuous_aggregate_is_the_median_with_a_spread_and_a_count():
     median, mad, n = agg._agg_continuous([1.0, 2.0, 3.0])
     assert median == pytest.approx(2.0)
@@ -259,21 +259,21 @@ def test_continuous_aggregate_is_the_median_with_a_spread_and_a_count():
     assert mad >= 0
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_continuous_aggregate_ignores_missing_values():
     median, mad, n = agg._agg_continuous([1.0, None, 3.0, float("nan")])
     assert n == 2, f"expected 2 usable values, counted {n}"
     assert median == pytest.approx(2.0)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_continuous_aggregate_of_nothing_is_not_a_crash():
     median, mad, n = agg._agg_continuous([])
     assert n == 0
     assert median is None or (isinstance(median, float) and median != median)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("values,expected", [
     ([1, 1, 1], 1),
     ([0, 0, 0], 0),
@@ -286,7 +286,7 @@ def test_binary_majority_aggregate(values, expected):
     assert int(got) == expected
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_ranking_composite_matches_the_documented_formula():
     """composite = true_jaccard - 0.05 x ra_eff_vs_truth."""
     row = {"true_jaccard": "0.8", "ra_eff_vs_truth": "4.0"}
@@ -295,7 +295,7 @@ def test_ranking_composite_matches_the_documented_formula():
         assert got == pytest.approx(0.8 - 0.05 * 4.0)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("value,expected", [
     (float("nan"), True), (1.0, False), (0.0, False),
 ])
@@ -303,7 +303,7 @@ def test_nan_detection(value, expected):
     assert cold._is_nan(value) is expected
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("raw,expected", [
     ("3.5", 3.5), ("", None), ("x", None), (None, None),
 ])
@@ -317,7 +317,7 @@ def test_float_or_none(raw, expected):
 
 # ── maximin selection: how diverse designs are chosen ────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_maximin_returns_at_most_k():
     cands = [(f"d{i}", {}) for i in range(10)]
     try:
@@ -327,7 +327,7 @@ def test_maximin_returns_at_most_k():
     assert len(got) <= 3
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_maximin_of_fewer_than_k_returns_everything():
     cands = [(f"d{i}", {}) for i in range(2)]
     try:
@@ -339,7 +339,7 @@ def test_maximin_of_fewer_than_k_returns_everything():
 
 # ── plot-module helpers ──────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("raw,expected", [
     ("design_0_seq_2", "d0"), ("design_42_seq_0", "d42"),
 ])
@@ -347,7 +347,7 @@ def test_design_id_shortening(raw, expected):
     assert nwp._design_id(raw) == expected
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("raw,expected", [
     ("design_0_seq_3", 3), ("design_42_seq_0", 0),
 ])
@@ -355,13 +355,13 @@ def test_sequence_number_extraction(raw, expected):
     assert nwp._seq_num(raw) == expected
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_short_name_shortens_the_design_prefix():
     assert npl._short_name("design_08") == "d08"
     assert npl._short_name("initial") == "initial"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("name,expected", [
     ("input_control_polyA", True),
     ("input_control_scrambled", True),
@@ -372,7 +372,7 @@ def test_control_sequences_are_recognised(name, expected):
     assert nwp._is_control(name) is expected
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("n", [1, 2, 3, 4, 6, 9, 12, 20])
 def test_grid_shape_is_big_enough_and_not_wasteful(n):
     rows, cols = nwp._grid_shape(n)
@@ -382,7 +382,7 @@ def test_grid_shape_is_big_enough_and_not_wasteful(n):
 
 # ── extract_passing: cross-seed mutation summaries ───────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_mutation_summary_across_seeds_finds_the_majority():
     rows = [
         {"steered_mutations_chimerax": "/A:5,7"},
@@ -395,7 +395,7 @@ def test_mutation_summary_across_seeds_finds_the_majority():
     assert "5" in str(got), "position 5 is in every seed and must appear"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_mutation_summary_of_no_rows_is_empty_not_an_error():
     """Returns a 3-tuple of empty strings rather than raising or returning None."""
     got = ep._summarize_mutations_across_seeds([], "steered_mutations_chimerax", 0.5)

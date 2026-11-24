@@ -1,7 +1,7 @@
 """HPC tier: assert on a real end-to-end engine run.
 
-Produced by tests/run_single_run_test.slurm.sh, which drives the same
-entry point a benchmark target uses against tests/single_run_test/config.yml. The whole
+Produced by tests/test_run.slurm.sh, which drives the same
+entry point a benchmark target uses against tests/test_run/config.yml. The whole
 point is to reach the code a laptop cannot: the plan and collect stages of
 boltz2_negative_steering, the per-cycle loop in boltz2_iterate_steering, the
 contamination and reversion harvest in reversion, and extract_passing.
@@ -26,14 +26,14 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SINGLE_RUN = Path(os.environ.get("NEGSTEER_SINGLE_RUN_DIR", REPO_ROOT / "tests" / "single_run_test"))
+SINGLE_RUN = Path(os.environ.get("NEGSTEER_SINGLE_RUN_DIR", REPO_ROOT / "tests" / "test_run"))
 RUN = SINGLE_RUN / "run"
 CYCLE0 = RUN / "cycle_0"
 
 needs_run = pytest.mark.skipif(
     not (RUN / "raw_per_seed_results.csv").is_file(),
     reason=f"no single-run test under {RUN}. "
-           "Run: sbatch tests/run_single_run_test.slurm.sh")
+           "Run: sbatch tests/test_run.slurm.sh")
 
 
 def _read(path: Path) -> list[dict]:
@@ -43,7 +43,7 @@ def _read(path: Path) -> list[dict]:
 
 # ── the prepare stage ────────────────────────────────────────────────────────
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_prepare_derived_all_four_engine_inputs():
     inputs = SINGLE_RUN / "inputs"
@@ -60,7 +60,7 @@ def test_prepare_derived_all_four_engine_inputs():
 
 # ── boltz2_negative_steering: the plan stage ─────────────────────────────────
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_plan_stage_predicted_a_cold_start_and_found_the_wrong_interface():
     """cmd_plan runs Boltz once, then locates the interface to steer away from."""
@@ -77,7 +77,7 @@ def test_plan_stage_predicted_a_cold_start_and_found_the_wrong_interface():
         assert (CYCLE0 / f).is_file(), f"plan stage did not write {f}"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_steering_mutations_avoid_the_protected_interface():
     """The engine must not mutate the residues it was told to protect.
@@ -113,7 +113,7 @@ def test_steering_mutations_avoid_the_protected_interface():
 
 # ── boltz2_iterate_steering and extract_passing ──────────────────────────────
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_every_configured_design_and_seed_produced_a_row():
     """The single-run config asks for 1 design x 1 seed, so that is what must appear.
@@ -145,7 +145,7 @@ def test_every_configured_design_and_seed_produced_a_row():
         f"config asked for 1 design, table has {len(designs)}: {designs}"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_every_row_carries_the_metrics_the_analyses_read():
     """A row missing these is invisible to the analyses rather than an error."""
@@ -160,7 +160,7 @@ def test_every_row_carries_the_metrics_the_analyses_read():
             assert 0.0 <= float(v) < 500.0, f"implausible ra_eff {v!r}"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_passing_summary_and_cross_summary_were_written():
     """extract_passing then cross_summary_cli, the two post-run stages."""
@@ -175,7 +175,7 @@ def test_passing_summary_and_cross_summary_were_written():
         f"cross summary is keyed {rows[0]['mpnn_sequence']!r}, expected 6Q76_single_run"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_tier_is_consistent_with_the_passing_gate():
     """With 1 seed only tier A or none can occur, which is worth pinning."""
@@ -193,7 +193,7 @@ def test_tier_is_consistent_with_the_passing_gate():
 
 # ── reversion ────────────────────────────────────────────────────────────────
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_reversion_stage_recorded_a_verdict():
     """reversion.py runs whether or not any mutation needed reverting.
@@ -212,7 +212,7 @@ def test_reversion_stage_recorded_a_verdict():
 
 # ── the run is reproducible from what it recorded ────────────────────────────
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_launch_script_records_the_configured_knobs():
     """launch.sh is the provenance record of what was actually run.
@@ -232,7 +232,7 @@ def test_launch_script_records_the_configured_knobs():
         "the single-run config is unconstrained but the run carried constraints"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_run
 def test_runtime_was_recorded():
     f = RUN / "run_one_runtime_sec.txt"

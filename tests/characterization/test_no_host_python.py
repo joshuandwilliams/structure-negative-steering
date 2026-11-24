@@ -57,7 +57,7 @@ def _bare_python_calls(block: str) -> list[str]:
     return calls
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("process", sorted(_blocks()))
 def test_script_blocks_run_python_only_in_the_container(process: str) -> None:
     bare = _bare_python_calls(_blocks()[process]["script"])
@@ -69,7 +69,7 @@ def test_script_blocks_run_python_only_in_the_container(process: str) -> None:
     )
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_one_host_python_call_is_gated_behind_an_opt_in() -> None:
     script = _blocks()[HOST_PYTHON_EXCEPTION]["script"]
     assert _bare_python_calls(script), "exception no longer needed, delete it"
@@ -81,7 +81,7 @@ def test_the_one_host_python_call_is_gated_behind_an_opt_in() -> None:
     assert "allow_host_python = false" in (REPO_ROOT / "nextflow.config").read_text()
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("process", sorted(_blocks()))
 def test_stub_blocks_need_neither_container_nor_python(process: str) -> None:
     """A stub run is a laptop check of the DAG shape. It has no image, so a

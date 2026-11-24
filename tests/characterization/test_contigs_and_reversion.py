@@ -33,7 +33,7 @@ needs_pdb = pytest.mark.skipif(not SIXG10.is_file(), reason="6G10 reference abse
 
 # ── contig_utils: reading a real chain ───────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_chain_residue_range_matches_the_file():
     """6G10 chain A is author-numbered 187..262."""
@@ -41,13 +41,13 @@ def test_chain_residue_range_matches_the_file():
     assert (lo, hi) == (187, 262), f"got {lo}..{hi}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_absent_chain_gives_no_range_rather_than_raising():
     assert cu.get_chain_residue_range(str(SIXG10), "Z") == (None, None)
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_sorted_residues_are_unique_and_ordered():
     got = cu.get_chain_residues_sorted(str(SIXG10), "A")
@@ -55,7 +55,7 @@ def test_sorted_residues_are_unique_and_ordered():
     assert len(got) == 76, f"chain A has {len(got)} residues, expected 76"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_effector_chain_is_read_independently():
     got = cu.get_chain_residues_sorted(str(SIXG10), "B")
@@ -64,14 +64,14 @@ def test_effector_chain_is_read_independently():
 
 # ── contig_utils: the notation itself ────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_expected_chain_lengths_from_a_resolved_contig():
     rec, eff = cu.get_expected_chain_lengths("A1-10/5/A16-20 B1-30", "A", "B")
     assert rec == 10 + 5 + 5, f"receptor length {rec}, expected 20"
     assert eff == 30, f"effector length {eff}, expected 30"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_design_region_is_the_de_novo_stretch():
     """The inserted segment is designed, the A-prefixed ones are fixed."""
     design, fixed = cu.parse_design_region("A1-10/5/A16-20", "A")
@@ -80,14 +80,14 @@ def test_design_region_is_the_de_novo_stretch():
     assert not (set(design) & set(fixed)), "a position is both designed and fixed"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_wholly_fixed_contig_has_no_design_region():
     design, fixed = cu.parse_design_region("A1-20", "A")
     assert not design
     assert len(fixed) == 20
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_parsing_a_block_yields_descriptors_and_the_chain():
     """Returns (segments, chain). Fixed segments carry their bounds."""
     segs, chain = cu.parse_block_segments("A1-10/5/A16-20", "A", None)
@@ -98,7 +98,7 @@ def test_parsing_a_block_yields_descriptors_and_the_chain():
     assert segs[2] == ("fixed", "A", 16, 20)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_segments_round_trip_through_the_string_form():
     segs, _ = cu.parse_block_segments("A1-10/5/A16-20", "A", None)
     assert cu.segments_to_string(segs)
@@ -106,7 +106,7 @@ def test_segments_round_trip_through_the_string_form():
 
 # ── reversion: the verdict ───────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_reverted_design_that_keeps_its_pose_is_pose_holds():
     """The rescue survived putting the contaminating mutations back."""
     label, reason = rev.classify_reversion_verdict(
@@ -119,7 +119,7 @@ def test_a_reverted_design_that_keeps_its_pose_is_pose_holds():
     assert label == "pose_holds", f"got {label!r} ({reason})"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_reverted_design_that_loses_its_pose_is_not_pose_holds():
     label, reason = rev.classify_reversion_verdict(
         steered={"steered_ra_eff_vs_truth": 2.0},
@@ -132,7 +132,7 @@ def test_a_reverted_design_that_loses_its_pose_is_not_pose_holds():
     assert "35" in reason, f"the reason does not quote the RMSD: {reason!r}"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_missing_reverted_metric_collapses_rather_than_passing():
     """An absent measurement must never be read as a surviving pose."""
     label, reason = rev.classify_reversion_verdict(
@@ -148,21 +148,21 @@ def test_a_missing_reverted_metric_collapses_rather_than_passing():
 
 # ── reversion: file helpers ──────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_receptor_fasta_is_read_as_a_bare_sequence(tmp_path):
     f = tmp_path / "receptor.fasta"
     f.write_text(">receptor_reverted\nACDEFGHIK\n")
     assert rev._read_receptor_fasta(f) == "ACDEFGHIK"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_multiline_fasta_is_joined(tmp_path):
     f = tmp_path / "r.fasta"
     f.write_text(">x\nACDEF\nGHIK\n")
     assert rev._read_receptor_fasta(f) == "ACDEFGHIK"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_ca_chain_yields_three_letter_codes():
     """Yields one code per CA ATOM record, so altlocs are not collapsed.
@@ -175,17 +175,17 @@ def test_ca_chain_yields_three_letter_codes():
     assert all(isinstance(x, str) and len(x) == 3 for x in got)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_locating_a_reverted_prediction_in_an_empty_dir_returns_nothing(tmp_path):
     assert rev._locate_reverted_prediction_pdb(tmp_path) in (None, "")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_cycle0_plan_is_not_found_outside_a_run_tree(tmp_path):
     assert rev._resolve_cycle0_plan_path(tmp_path) is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_remaining_mutations_needs_its_metadata_file(tmp_path):
     """Raises rather than degrading when reversion_metadata.json is absent."""
     with pytest.raises(FileNotFoundError):
@@ -194,21 +194,21 @@ def test_remaining_mutations_needs_its_metadata_file(tmp_path):
 
 # ── extract_passing ──────────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_get_prefers_the_primary_column_then_the_fallback():
     assert ep._get({"a": "1", "b": "2"}, "a", "b") == "1"
     assert ep._get({"a": "", "b": "2"}, "a", "b") == "2"
     assert ep._get({}, "a", "b") == ""
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_confidence_flag_is_ok_when_all_medians_pass():
     out = {"ipsae_min_median": 0.5, "pae_pass_frac_median": 0.9,
            "iptm_median": 0.8, "complex_plddt_median": 0.9, "ipae_median": 5.0}
     assert ep._compute_confidence_flag(out, 0.5, 0.4, 0.7, 10.0) == "ok"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_confidence_flag_names_a_failing_median():
     out = {"ipsae_min_median": 0.5, "pae_pass_frac_median": 0.1,
            "iptm_median": 0.8, "complex_plddt_median": 0.9, "ipae_median": 5.0}
@@ -216,7 +216,7 @@ def test_confidence_flag_names_a_failing_median():
     assert got not in ("", "ok"), f"a failing median was flagged {got!r}"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_confidence_flag_reports_ok_when_there_are_no_metrics():
     """A row with no metrics is flagged ok rather than blank.
 
@@ -227,7 +227,7 @@ def test_confidence_flag_reports_ok_when_there_are_no_metrics():
     assert ep._compute_confidence_flag({}, 0.5, 0.4, 0.7, 10.0) == "ok"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_mutation_summary_returns_majority_all_and_agreement():
     """Three values: the majority set, the union, and whether seeds agreed."""
     rows = [
@@ -242,7 +242,7 @@ def test_mutation_summary_returns_majority_all_and_agreement():
     assert identical == "0", "seeds differed, so the agreement flag should be 0"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_identical_seeds_are_reported_as_agreeing():
     rows = [{"steered_mutations_chimerax": "/A:5,7"}] * 3
     majority, all_seeds, identical = ep._summarize_mutations_across_seeds(
@@ -252,7 +252,7 @@ def test_identical_seeds_are_reported_as_agreeing():
     assert identical == "1", "identical seeds should set the agreement flag to 1"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_amino_acid_mutations_are_restricted_to_the_named_positions():
     rows = [{"steered_mutations_aa": "K5E V7D M22R"}] * 2
     got = ep._muts_aa_for_positions(rows, "steered_mutations_aa", [5, 22])
@@ -260,7 +260,7 @@ def test_amino_acid_mutations_are_restricted_to_the_named_positions():
     assert "V7D" not in got, "an unrequested position leaked into the string"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_amino_acid_mutations_for_no_positions_is_empty():
     rows = [{"steered_mutations_aa": "K5E"}]
     assert ep._muts_aa_for_positions(rows, "steered_mutations_aa", []) in ("", None)

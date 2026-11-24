@@ -4,7 +4,7 @@ tests/characterization/test_dose_sweep_configs.py asserts the property on the
 configs already committed. This asserts it on the code that produces them, so a
 regression is caught before it writes 90 files rather than after.
 
-Everything here is local_unit: synthetic config text, a tmp_path destination, no
+Everything here is `logic`: synthetic config text, a tmp_path destination, no
 cluster and no container. The generator is pure text manipulation, so there is
 no reason for any of it to need a GPU.
 """
@@ -53,7 +53,7 @@ def _body(text: str) -> list[str]:
 # transform
 # --------------------------------------------------------------------------
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_transform_rewrites_the_three_keys(gen) -> None:
     body = _body(gen.transform(CONFIG, "6R8M", 3))
     assert 'name: "6R8M_n03"' in body
@@ -61,7 +61,7 @@ def test_transform_rewrites_the_three_keys(gen) -> None:
     assert "negsteer_n_designs:            3" in body
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_transform_changes_nothing_else(gen) -> None:
     """The whole point of the sweep. Anything else moving is a confound."""
     body = _body(gen.transform(CONFIG, "6R8M", 3))
@@ -73,7 +73,7 @@ def test_transform_changes_nothing_else(gen) -> None:
         assert line.startswith(("name:", "reference_pdb:", "negsteer_n_designs:"))
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_transform_at_dose_20_changes_only_two_lines(gen) -> None:
     """The benchmark already asks for 20, so that line is already correct."""
     body = _body(gen.transform(CONFIG, "6R8M", 20))
@@ -83,14 +83,14 @@ def test_transform_at_dose_20_changes_only_two_lines(gen) -> None:
     assert "negsteer_n_designs:            20" in body
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_transform_pads_the_dose_in_the_name(gen) -> None:
     """n03 not n3, so the sweep sorts in dose order rather than lexically."""
     assert 'name: "6R8M_n03"' in gen.transform(CONFIG, "6R8M", 3)
     assert 'name: "6R8M_n50"' in gen.transform(CONFIG, "6R8M", 50)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_transform_prepends_the_provenance_header(gen) -> None:
     out = gen.transform(CONFIG, "6R8M", 10)
     assert out.startswith("# ===")
@@ -100,7 +100,7 @@ def test_transform_prepends_the_provenance_header(gen) -> None:
     assert "must not be pooled" in head, "the header is what stops these being read as benchmark runs"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("missing", ["name", "reference_pdb", "negsteer_n_designs"])
 def test_transform_refuses_a_config_missing_a_key(gen, missing: str) -> None:
     """A silent no-op edit would produce a config that looks right and is not."""
@@ -117,7 +117,7 @@ def test_transform_refuses_a_config_missing_a_key(gen, missing: str) -> None:
 # reference_pdb keeps its \1 capture (newline included, so the count holds and
 # the wrong line moves), while name substitutes a flat string (so a line is lost).
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_transform_refuses_when_a_line_it_may_not_touch_moves(gen) -> None:
     text = ('name: "6R8M"\n'
             'negsteer_n_designs:            20\n'
@@ -130,7 +130,7 @@ def test_transform_refuses_when_a_line_it_may_not_touch_moves(gen) -> None:
     assert '   "../../../benchmarking/unconstrained/6R8M/6R8M.pdb"' in str(exc.value)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_transform_refuses_when_the_line_count_changes(gen) -> None:
     """Here every shifted line happens to start with an allowed key, so the
     stray check passes and only the count guard stands between a collapsed
@@ -162,7 +162,7 @@ def tree(gen, tmp_path, monkeypatch):
     return dest
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_main_writes_one_config_per_target_per_dose(gen, tree) -> None:
     assert gen.main(["--doses", "3", "5"]) == 0
     written = sorted(p.relative_to(tree).as_posix() for p in tree.glob("*/*/config.yml"))
@@ -173,13 +173,13 @@ def test_main_writes_one_config_per_target_per_dose(gen, tree) -> None:
     assert 'name: "7QPX_n05"' in (tree / "n05" / "7QPX" / "config.yml").read_text()
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_main_defaults_to_every_dose(gen, tree) -> None:
     assert gen.main([]) == 0
     assert sorted(p.name for p in tree.iterdir()) == ["n03", "n05", "n10", "n20", "n50"]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_main_dry_run_writes_nothing(gen, tree, capsys) -> None:
     assert gen.main(["--doses", "3", "--dry-run"]) == 0
     assert not tree.exists()
@@ -188,13 +188,13 @@ def test_main_dry_run_writes_nothing(gen, tree, capsys) -> None:
     assert "n03/6R8M/config.yml" in out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_main_reports_the_count_it_wrote(gen, tree, capsys) -> None:
     gen.main(["--doses", "3", "5"])
     assert "wrote 4 configs across 2 doses x 2 targets" in capsys.readouterr().out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_main_fails_loudly_on_an_empty_source_tree(gen, tmp_path, monkeypatch, capsys) -> None:
     """Writing zero configs and exiting 0 would look like success."""
     monkeypatch.setattr(gen, "SOURCE", tmp_path / "nothing-here")

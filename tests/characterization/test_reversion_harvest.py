@@ -46,13 +46,13 @@ def _reverted(**over) -> dict:
 
 # ── the verdict ──────────────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_clean_reverted_pose_holds():
     verdict, _why = rev.classify_reversion_verdict({}, _reverted(), 5.0)
     assert verdict == "pose_holds"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_reverted_pose_worse_than_the_cutoff_collapses():
     """The rescue depended on the residue that was put back."""
     verdict, why = rev.classify_reversion_verdict(
@@ -61,7 +61,7 @@ def test_a_reverted_pose_worse_than_the_cutoff_collapses():
     assert why
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_reverted_pose_that_is_not_intact_collapses():
     """Intactness is checked again after reversion. A chain that fell apart
     can still report a flattering RMSD, so the structural filter runs first."""
@@ -71,7 +71,7 @@ def test_a_reverted_pose_that_is_not_intact_collapses():
     assert "intact" in why
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_intactness_can_be_waived():
     verdict, _ = rev.classify_reversion_verdict(
         {}, _reverted(reverted_intact=False), 5.0,
@@ -79,7 +79,7 @@ def test_intactness_can_be_waived():
     assert verdict == "pose_holds"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_failed_reverted_prediction_collapses_and_says_why():
     """A missing prediction is not a passing one. Treating an absent result as
     'no contamination found' would score every failed reversion as a rescue."""
@@ -89,7 +89,7 @@ def test_a_failed_reverted_prediction_collapses_and_says_why():
     assert "boltz died" in why
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_mutation_contacting_inside_the_gated_region_is_new_contamination():
     verdict, _ = rev.classify_reversion_verdict(
         {}, _reverted(reverted_mutated_contact_positions=[12]), 5.0,
@@ -97,7 +97,7 @@ def test_a_mutation_contacting_inside_the_gated_region_is_new_contamination():
     assert verdict == "new_contamination"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_mutation_contacting_outside_the_gated_region_is_not():
     """The asymmetry that makes the gate necessary. Contacts outside the
     design region and true interface were already accepted as valid steering
@@ -109,7 +109,7 @@ def test_a_mutation_contacting_outside_the_gated_region_is_not():
     assert verdict == "pose_holds"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_without_a_gate_any_mutated_contact_fires():
     """Legacy behaviour, kept for callers that pass no gating set. Pinned so
     the default cannot drift into the gated semantics unnoticed."""
@@ -119,7 +119,7 @@ def test_without_a_gate_any_mutated_contact_fires():
     assert verdict == "new_contamination"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_structural_filter_runs_before_the_contamination_check():
     """A collapsed pose is reported as collapsed even when it also has a
     mutated contact. Reporting it as new_contamination would suggest the pose
@@ -133,7 +133,7 @@ def test_the_structural_filter_runs_before_the_contamination_check():
 
 # ── locating what the harvest reads ──────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_prediction_pdb_is_preferred_over_other_pdbs(tmp_path):
     d = tmp_path / "rev_design_00"
     (d / "boltz_results_input" / "predictions" / "input").mkdir(parents=True)
@@ -143,7 +143,7 @@ def test_prediction_pdb_is_preferred_over_other_pdbs(tmp_path):
     assert rev._locate_reverted_prediction_pdb(d).name == "prediction.pdb"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_msa_directory_is_never_mistaken_for_a_prediction(tmp_path):
     """Boltz writes PDBs under msa/ too. Picking one would compute metrics
     against an alignment artefact and report them as a pose."""
@@ -153,14 +153,14 @@ def test_the_msa_directory_is_never_mistaken_for_a_prediction(tmp_path):
     assert rev._locate_reverted_prediction_pdb(d) is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_no_prediction_returns_none_rather_than_raising(tmp_path):
     d = tmp_path / "rev_design_00"
     d.mkdir()
     assert rev._locate_reverted_prediction_pdb(d) is None
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_chain_lengths_are_read_off_a_real_prediction():
     """6Q76 is receptor A at 73 residues and effector B at 68. Read from the
     single-run test's own output rather than a hand-written stub."""
@@ -169,7 +169,7 @@ def test_chain_lengths_are_read_off_a_real_prediction():
     assert (rec, eff) == (73, 68)
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_unknown_chain_ids_fall_back_to_the_two_largest_chains():
     """Chain naming is not guaranteed across predictors. Falling back beats
     returning zero lengths, which would silently skip the metrics."""
@@ -179,7 +179,7 @@ def test_unknown_chain_ids_fall_back_to_the_two_largest_chains():
     assert {rec, eff} == {73, 68}
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_remaining_mutations_exclude_the_reverted_ones(tmp_path):
     """This string is what the downstream tables report as the design's
     surviving steering. Including a reverted position would credit the design
@@ -195,7 +195,7 @@ def test_remaining_mutations_exclude_the_reverted_ones(tmp_path):
     assert rev._build_remaining_mutations_str(d, {9}) == "2,20"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_reverting_everything_leaves_an_empty_string(tmp_path):
     d = tmp_path / "rev_design_00"
     d.mkdir()
@@ -206,7 +206,7 @@ def test_reverting_everything_leaves_an_empty_string(tmp_path):
 
 # ── finding cycle_0 from a reversion workdir ─────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_cycle0_plan_is_found_from_the_workdir_itself(tmp_path):
     wd = tmp_path / "cycle_0"
     wd.mkdir()
@@ -214,7 +214,7 @@ def test_cycle0_plan_is_found_from_the_workdir_itself(tmp_path):
     assert rev._resolve_cycle0_plan_path(wd) == wd / "plan.json"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_later_cycles_plan_is_not_mistaken_for_cycle_zero(tmp_path):
     """Cycle 1's plan records different interface residues. Using it would
     gate contamination against the wrong region."""
@@ -226,14 +226,14 @@ def test_a_later_cycles_plan_is_not_mistaken_for_cycle_zero(tmp_path):
     assert rev._resolve_cycle0_plan_path(wd) == tmp_path / "cycle_0" / "plan.json"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_no_cycle0_plan_anywhere_returns_none(tmp_path):
     wd = tmp_path / "cycle_0"
     wd.mkdir()
     assert rev._resolve_cycle0_plan_path(wd) is None
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_the_real_plan_supplies_the_gating_context():
     """The gating set comes from cycle_0's plan. An empty context would
     disable the gate and reclassify accepted steering as contamination."""
