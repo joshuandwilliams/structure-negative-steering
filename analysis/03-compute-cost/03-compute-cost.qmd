@@ -28,36 +28,39 @@ all of them.
 
 * 3, 5, 10, 20 and 50 steering sets, the same 18-target benchmark, all else
   held fixed. The 20-set point is the shipped benchmark under
-  `experiments/benchmarking/`; 3/5/10/50 are the dose sweep under
-  `experiments/dose-sweep/`. Because only the dose changes across these five,
-  they isolate the effect of `negsteer_n_designs` cleanly, and the per-run
-  scaling below is read from them.
-* 3 steering sets, but on a different target set entirely: the 128 designed
-  sequences of the AVR-PikF campaign (`crystal_full_test_contig` in
-  `receptor-resurfacing-pipeline`), a median of 50 predictions per run. This
-  is the setting the pipeline ships with, and it is not the same run as the
+  `experiments/benchmarking/`. The 3, 5, 10 and 50-set points are the dose
+  sweep under `experiments/dose-sweep/`. Only the dose changes across these
+  five, so they isolate the effect of `negsteer_n_designs` cleanly. The
+  per-run scaling below is read from them.
+* 3 steering sets on a different target set entirely. These are the 128
+  designed sequences of the AVR-PikF campaign (`crystal_full_test_contig` in
+  `receptor-resurfacing-pipeline`), at a median of 50 predictions per run.
+  This is the setting the pipeline ships with. It is not the same run as the
   dose sweep's own 3-set point on the 18 benchmark targets, even though the
   dose is the same number.
 
-The campaign differs from the benchmark cohorts in more than target set: a
-smaller candidate pool (10 against 12), a protected set taken from the design
-region rather than the true interface, `negsteer_no_kernels: true`, and many
-sequences run concurrently (`max_boltz2_parallel: 24`), which can inflate
-wall-clock through contention. Its per-prediction figure is nonetheless close
-to the dose sweep's own 3-set point (20.5 s against 22.9 s), so the gap between
-them is mostly sampling depth rather than that configuration difference.
+The campaign differs from the benchmark cohorts in more than its target set.
+Its candidate pool is smaller, 10 against 12. Its protected set comes from the
+design region rather than the true interface. It sets
+`negsteer_no_kernels: true`, and it runs many sequences at once
+(`max_boltz2_parallel: 24`), which can inflate wall-clock through contention.
+
+Its per-prediction figure is close to the dose sweep's own 3-set point even
+so, 20.5 s against 22.9 s. The gap between them is therefore mostly sampling
+depth rather than that configuration difference.
 
 MSA search is counted, but not in wall-clock. For the three models that share
 one pooled ColabFold/MMseqs2 search (Boltz-1 and Boltz-2 with an MSA, and
-ColabFold), the reported time is `predict_wall_s + search_cpu_s`: wall-clock
-for the GPU prediction step, plus CPU time for the search. Using the search's
-own wall-clock would be the wrong number here, since this run's shared-storage
-node was contended and running at low CPU utilisation while the search waited
-on I/O, which inflates wall-clock without inflating the actual compute spent.
-CPU time is insulated from that. AlphaFold2-Multimer and AlphaFold3 run search
+ColabFold), the reported time is `predict_wall_s + search_cpu_s`. That is
+wall-clock for the GPU prediction step, plus CPU time for the search. The
+search's own wall-clock would be the wrong number here. This run's
+shared-storage node was contended and ran at low CPU utilisation while the
+search waited on I/O. That inflates wall-clock without inflating the compute
+actually spent, and CPU time is insulated from it. AlphaFold2-Multimer and AlphaFold3 run search
 and prediction in one process and need no correction, since their own
 wall-clock already includes it. Every no-MSA combo pays no search cost at all.
-This mixes two units into one axis, which is a real caveat, not an oversight:
+This mixes two units into one axis, which is a real caveat rather than an
+oversight.
 read the three shared-search MSA points as wall-clock-plus-CPU-cost, not as a
 wall-clock time a clock on the wall would have shown.
 
@@ -127,9 +130,9 @@ def readable_log(axis, ticks):
 ## 2. Cost per run
 
 One point per model and variant, the median across the targets that model ran.
-Spread is small relative to the differences between models (the tightest combos
-vary by seconds, the widest by tens of minutes), and showing it obscured the
-comparison, so it is reported in the table rather than drawn.
+Spread is small relative to the differences between models. The tightest
+combos vary by seconds and the widest by tens of minutes. Drawing it obscured
+the comparison, so it is reported in the table instead.
 
 ```{python}
 med = (rt.groupby(["model", "variant"])
@@ -208,10 +211,10 @@ spread
   regardless of dose. The 305-vs-50-predictions-per-run gap between the 20-set
   benchmark and the 3-set AVR-PikF campaign is sampling depth, not
   per-prediction overhead: 22.1 s against 20.5 s.
-- The overhead of steering itself is modest. Steering runs at 20.3 to 22.9 s
-  per prediction against unsteered Boltz-2's 14.0 s, so planning, contact
-  analysis, reversion and final metrics add 45 to 64% on top of the raw
-  Boltz-2 call, essentially flat across dose.
+- The overhead of steering itself is modest. Steering runs at 20.3 to 22.9 s per
+  prediction against unsteered Boltz-2's 14.0 s. Planning, contact analysis,
+  reversion and final metrics therefore add 45 to 64% on top of the raw
+  Boltz-2 call. That overhead is essentially flat across dose.
 - Some units never steer. Three of the 18 benchmark targets and 22 of the 128
   campaign sequences had a cold start that passed on every seed, so the run
   exited after 15 predictions. Cost is conditional on the cold start failing.
@@ -219,8 +222,8 @@ spread
 ## 3. Cost against memory
 
 The thesis figure. Wall-clock and peak memory on the same axes, so the two
-resources that actually bound throughput can be read together, with negative
-steering placed among the predictors rather than in a separate figure.
+resources that bound throughput can be read together. Negative steering sits
+among the predictors rather than in a figure of its own.
 
 Memory comes from different tooling per cohort (see
 `stage_runtime_comparison.py`), and the two measurements agree closely where
@@ -232,7 +235,7 @@ and carry `(constr)` in their label. All five benchmark steering points are
 plotted (steering sets 3, 5, 10, 20, 50), since all five ran the same 18
 targets as the predictors they sit beside. The campaign's own 3-set point is
 excluded, since it was measured on a different target set entirely and is not
-comparable with the predictors here; its cost is reported in the per-run
+comparable with the predictors here. Its cost is reported in the per-run
 section above.
 
 ```{python}
@@ -315,9 +318,9 @@ plt.show()
   dose sweep. Memory is set by the prediction model, so the engine's extra
   stages are not what bounds how many can run at once.
 - At every dose from 3 to 50 sets, steering uses 7-8x less memory than
-  AlphaFold2-Multimer while spanning most of its wall-clock range, so under a
-  memory cap it parallelises far better than a wall-clock comparison alone
-  suggests.
+  AlphaFold2-Multimer while spanning most of its wall-clock range. Under a
+  memory cap it therefore parallelises far better than a wall-clock
+  comparison alone suggests.
 
 ## 4. Is the per-prediction cost of steering below the MSA models?
 
@@ -377,9 +380,10 @@ pd.DataFrame(rows)
   AlphaFold2-Multimer, AlphaFold3, Boltz-1 and Boltz-2 with an MSA and
   ColabFold, the ratio is 0.05-0.06 in every case, all intervals well clear
   of 1.
-- Among the no-MSA models it is cheaper only than ESMFold2 (0.37) and
-  AlphaFold3 (4.60x more expensive is the largest gap in the table, since
-  AlphaFold3 no-MSA is the fastest method here at 1.9 min a run). Against the
+- Among the no-MSA models it is cheaper only than ESMFold2, at 0.37. The
+  largest gap in the table is against AlphaFold3, at 4.60x more expensive,
+  because AlphaFold3 without an MSA is the fastest method here at 1.9 min a
+  run. Against the
   rest it is 1.2 to 1.6x more expensive per prediction, the expected price of
   the extra Boltz-2 calls and the engine's own stages.
 - So the claim holds per prediction at every dose. Per run it holds up to 20
@@ -389,6 +393,7 @@ pd.DataFrame(rows)
 Wall-clock is execution time rather than time-to-result, so queueing is
 excluded. One benchmark target has no usable trace row, so the benchmark combos
 cover 17 of 18 targets against steering's 18. Both cohorts ran on the same queue
-and GPU allocation, but not necessarily on identical nodes. The steering cost is
-dominated by a fixed sampling budget (20 designs × 3 seeds) that was not tuned,
-so it is a cost of this configuration rather than a floor for the method.
+and GPU allocation, though not necessarily on identical nodes. A fixed
+sampling budget dominates the steering cost, 20 designs by 3 seeds, and it was
+never tuned. This is therefore a cost of this configuration rather than a
+floor for the method.

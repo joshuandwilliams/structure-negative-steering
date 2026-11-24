@@ -29,7 +29,7 @@ Two things are known to be wrong, and are recorded here rather than left to be d
 
 ![Negative-steering workflow](docs/steering_method_flowchart.svg)
 
-One target is one `config.yml`. The two fan-outs, one Boltz-2 call per steered design and one per reverted design, were bash loops inside a single SLURM job. They are Nextflow channels now, so each prediction is a task with its own resources, retry and failure. The width of each fan-out is read from the stage that precedes it rather than from the config, because the plan legitimately stages fewer designs than asked, or none at all when the cold start already passes.
+One target is one `config.yml`. The two fan-outs, one Boltz-2 call per steered design and one per reverted design, were bash loops inside a single SLURM job. They are Nextflow channels now, so each prediction is a task with its own resources, retry and failure. The width of each fan-out is read from the stage before it rather than from the config. The plan legitimately stages fewer designs than asked, or none at all when the cold start already passes.
 
 Each stage writes its elapsed seconds to its own file under `run/.stage_times.d/`, and `POSTPROCESS` concatenates that directory into `run/.stage_times` and sums it into `run_one_runtime_sec.txt`. One file per stage rather than one shared file, because the two fan-outs append concurrently from different nodes over a shared filesystem. The first real cluster run lost one of nine `predict_one` lines that way, which silently understates the cost. Concatenating at the end is also idempotent, so a `-resume` that re-runs `POSTPROCESS` cannot double-count. That is the per-run cost the compute-cost analysis reads. It is a sum rather than a wall-clock, because the single job it replaced ran the stages in sequence, and the sum is what stays comparable with the committed benchmark.
 
@@ -47,7 +47,7 @@ Each stage writes its elapsed seconds to its own file under `run/.stage_times.d/
 
 **A native solved complex is a sanity case, not the normal input.** It has no de-novo region, so the default is `design_region: none` with `negsteer_protected_set_source: true_interface`. A native complex already binds at its true interface, so the predicted wrong interface overlaps the true one heavily. The engine detects this almost-already-correct regime, gentles the mutation count, and leans on its second-shell fallback of residues near but not at the protected interface. To steer a designed sequence instead, point `reference_pdb` at the design and set `design_region` to the de-novo stretch with `negsteer_protected_set_source: design_region_union`.
 
-**Negative steering is not blind to the intended interface.** The *wrong* interface is read off the prediction alone, so that half needs no answer. The protected set is different. Every `negsteer_protected_set_source` includes the true interface, `design_region_union` being true interface ∪ design region rather than the design region by itself, so the residues the engine may mutate are always the predicted contacts minus a truth-derived set. The method is never told where to bind. It is told where not to break.
+**Negative steering is not blind to the intended interface.** The *wrong* interface is read off the prediction alone, so that half needs no answer. The protected set is different. Every `negsteer_protected_set_source` includes the true interface. `design_region_union` is the true interface together with the design region, not the design region alone. The residues the engine may mutate are therefore always the predicted contacts minus a truth-derived set. The method is never told where to bind. It is told where not to break.
 
 That is a weaker requirement than a restraint, and a different one. A restraint needs the answer. The protected set needs an interface you already intend to keep, which on a grafted or designed receptor is known by construction rather than by having solved the structure. The motivating case is a graft where the intended interface is deliberate and the predictor keeps settling elsewhere, and one mutation away from that site is what makes the prediction hold. On the native complexes benchmarked here the intended and true interfaces coincide, so these results are a proxy for that regime rather than evidence of a truth-free method. Quote them that way.
 
@@ -155,7 +155,7 @@ Everything else has a default. `--n-designs`, `--num-seeds`, `--diffusion-sample
 
 The CLI runs the same nine stages, in the same order, with the same arguments as `bin/negative_steering_run_one.sh`, which produced the committed benchmark. That equivalence is asserted by `tests/characterization/test_negsteer_cli.py`, so the tool and the runner behind the published numbers cannot drift apart.
 
-Nesting is not a problem: the engine detects `SINGULARITY_NAME` and calls `boltz` directly when already inside a container, which is why `negsteer` can run in-container while the old shell orchestrator could not. `--boltz-container` is only needed on a bare host.
+Nesting is not a problem. The engine detects `SINGULARITY_NAME` and calls `boltz` directly when it is already inside a container. That is why `negsteer` runs in-container where the old shell orchestrator could not. `--boltz-container` is only needed on a bare host.
 
 Until the image is rebuilt from `containers/boltz2_negsteer.def`, reach the same CLI from a bind-mounted checkout:
 
@@ -442,9 +442,9 @@ chain A at 76 residues, effector B at 83, and 26 contacts at 5 Å.
 
 The workflow itself is tested two ways. `-stub-run` walks the whole DAG with no
 container and no GPU, which is what catches a broken channel shape. And
-`tests/test_smoke.py` asserts that every process the module defines is included
-by `main.nf`, and that the figure at the top of this file still shows exactly
-those processes with the GPU stages coloured as GPU stages. A figure that has
+`tests/test_smoke.py` asserts that `main.nf` includes every process the module
+defines. It also asserts that the figure at the top of this file still shows
+exactly those processes, with the GPU stages coloured as GPU stages. A figure that has
 drifted from the code is worse than no figure, because it is still believed.
 
 Coverage runs on every invocation and is gated as a ratchet that may only rise.
