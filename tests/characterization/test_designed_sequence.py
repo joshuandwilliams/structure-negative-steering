@@ -127,3 +127,60 @@ class TestImmutability:
             designed_residues=_MPNN_DR, native_residues=_NATIVE_DR)
         with pytest.raises((AttributeError, Exception)):
             d.sequence_id = "new"  # type: ignore
+
+
+# ── the remaining type guards and the repr ───────────────────────────────────
+#
+# Each guard turns a wrong-typed field into an error at construction. Without
+# them a non-string slips through and fails much later, inside a string
+# operation, where the traceback no longer names the field that was wrong.
+
+@pytest.mark.logic
+class TestFieldTypeGuards:
+    def _kwargs(self, tmp_path):
+        return dict(backbone=_make_backbone(tmp_path),
+                    sequence_id="design_03_seq_01",
+                    corrected_receptor=_RECEPTOR_21,
+                    designed_residues=_MPNN_DR,
+                    native_residues=_NATIVE_DR)
+
+    @pytest.mark.parametrize("field", ["corrected_receptor", "designed_residues",
+                                       "native_residues"])
+    def test_a_non_string_field_is_a_type_error(self, tmp_path, field):
+        kw = self._kwargs(tmp_path)
+        kw[field] = 123
+        with pytest.raises(TypeError, match=field):
+            ds.DesignedSequence(**kw)
+
+    @pytest.mark.parametrize("bad", ["", None])
+    def test_an_empty_sequence_id_is_rejected(self, tmp_path, bad):
+        kw = self._kwargs(tmp_path)
+        kw["sequence_id"] = bad
+        with pytest.raises((ValueError, TypeError)):
+            ds.DesignedSequence(**kw)
+
+
+@pytest.mark.logic
+class TestRepr:
+    def _one(self, tmp_path, score):
+        return ds.DesignedSequence(
+            backbone=_make_backbone(tmp_path), sequence_id="design_03_seq_01",
+            corrected_receptor=_RECEPTOR_21, designed_residues=_MPNN_DR,
+            native_residues=_NATIVE_DR, mpnn_score=score)
+
+    def test_repr_formats_the_score_to_three_places(self, tmp_path):
+        r = repr(self._one(tmp_path, 1.23456))
+        assert "design_03_seq_01" in r and "1.235" in r
+
+    def test_repr_says_none_when_there_is_no_score(self, tmp_path):
+        assert "mpnn_score=None" in repr(self._one(tmp_path, None))
+
+
+@pytest.mark.logic
+def test_n_changes_counts_the_differing_positions(tmp_path):
+    d = ds.DesignedSequence(
+        backbone=_make_backbone(tmp_path), sequence_id="s",
+        corrected_receptor=_RECEPTOR_21, designed_residues=_MPNN_DR,
+        native_residues=_NATIVE_DR)
+    # MNRSV -> MPRSY differs at two positions.
+    assert d.n_changes() == len(d.mutations_vs_native()) == 2

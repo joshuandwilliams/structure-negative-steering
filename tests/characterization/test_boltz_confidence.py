@@ -209,3 +209,181 @@ class TestFromPredictionDir:
     def test_missing_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             bc.BoltzConfidenceMetrics.from_prediction_dir(tmp_path / "nope")
+
+
+# ── the remaining JSON-direct fields ─────────────────────────────────────────
+#
+# Each is a thin wrapper over _field_float, but "thin" is the reason to pin
+# them: a wrapper that reads the wrong key returns a plausible number from the
+# wrong metric, and every downstream table still looks healthy.
+
+@pytest.mark.logic
+class TestScalarFields:
+    FIELDS = ["confidence_score", "ptm", "protein_iptm", "ligand_iptm",
+              "complex_plddt", "complex_iplddt", "complex_pde", "complex_ipde"]
+
+    def _one(self, tmp_path, payload):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, payload)
+        return bc.BoltzConfidenceMetrics(cj)
+
+    def test_each_field_reads_its_own_key(self, tmp_path):
+        # Distinct values, so reading a neighbouring key fails the assertion.
+        payload = {k: 0.1 * (i + 1) for i, k in enumerate(self.FIELDS)}
+        m = self._one(tmp_path, payload)
+        for i, k in enumerate(self.FIELDS):
+            assert getattr(m, k) == pytest.approx(0.1 * (i + 1)), k
+
+    def test_absent_fields_are_none(self, tmp_path):
+        m = self._one(tmp_path, {})
+        for k in self.FIELDS:
+            assert getattr(m, k) is None, k
+
+    def test_unparseable_values_are_none_not_zero(self, tmp_path):
+        """Zero is a real confidence value, so a bad parse must not return it."""
+        m = self._one(tmp_path, {k: "not-a-number" for k in self.FIELDS})
+        for k in self.FIELDS:
+            assert getattr(m, k) is None, k
+
+    def test_values_round_to_four_places(self, tmp_path):
+        m = self._one(tmp_path, {"ptm": 0.123456789})
+        assert m.ptm == 0.1235
+
+    def test_unreadable_json_degrades_to_empty(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        cj.write_text("{not json")
+        m = bc.BoltzConfidenceMetrics(cj)
+        assert m.ptm is None
+
+
+@pytest.mark.logic
+class TestIptmFallback:
+    def test_protein_iptm_is_used_when_iptm_is_absent(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"protein_iptm": 0.42})
+        assert bc.BoltzConfidenceMetrics(cj).iptm == 0.42
+
+    def test_iptm_wins_when_both_are_present(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"iptm": 0.9, "protein_iptm": 0.1})
+        assert bc.BoltzConfidenceMetrics(cj).iptm == 0.9
+
+
+@pytest.mark.logic
+class TestChainDicts:
+    def test_chains_ptm_keys_become_strings(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"chains_ptm": {0: 0.8, "1": 0.6}})
+        assert bc.BoltzConfidenceMetrics(cj).chains_ptm == {"0": 0.8, "1": 0.6}
+
+    def test_chains_ptm_drops_unparseable_values(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"chains_ptm": {"0": 0.8, "1": "bad", "2": None}})
+        assert bc.BoltzConfidenceMetrics(cj).chains_ptm == {"0": 0.8}
+
+    def test_chains_ptm_of_a_non_dict_is_empty(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"chains_ptm": [0.8]})
+        assert bc.BoltzConfidenceMetrics(cj).chains_ptm == {}
+
+    def test_pair_chains_iptm_is_nested_and_stringified(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"pair_chains_iptm": {0: {1: 0.7}, 1: {0: 0.7}}})
+        got = bc.BoltzConfidenceMetrics(cj).pair_chains_iptm
+        assert got == {"0": {"1": 0.7}, "1": {"0": 0.7}}
+
+    def test_pair_chains_iptm_skips_non_dict_rows(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"pair_chains_iptm": {"0": 0.7, "1": {"0": 0.5}}})
+        assert bc.BoltzConfidenceMetrics(cj).pair_chains_iptm == {"1": {"0": 0.5}}
+
+    def test_pair_chains_iptm_drops_unparseable_inner_values(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"pair_chains_iptm": {"0": {"1": "bad", "2": 0.4}}})
+        assert bc.BoltzConfidenceMetrics(cj).pair_chains_iptm == {"0": {"2": 0.4}}
+
+    def test_pair_chains_iptm_of_a_non_dict_is_empty(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {"pair_chains_iptm": "nope"})
+        assert bc.BoltzConfidenceMetrics(cj).pair_chains_iptm == {}
+
+
+# ── avg_plddt and the directory factory ──────────────────────────────────────
+
+def _plddt_npz(path, values):
+    import numpy as np
+    np.savez(path, plddt=np.asarray(values, dtype=float))
+
+
+@pytest.mark.logic
+class TestAvgPlddt:
+    def test_none_without_an_npz(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {})
+        assert bc.BoltzConfidenceMetrics(cj).avg_plddt is None
+
+    def test_none_when_the_npz_path_does_not_exist(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {})
+        m = bc.BoltzConfidenceMetrics(cj, tmp_path / "missing.npz")
+        assert m.avg_plddt is None
+
+    def test_a_zero_to_one_array_is_rescaled_to_0_100(self, tmp_path):
+        """Boltz writes 0-1 and the rest of the pipeline speaks 0-100."""
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {})
+        npz = tmp_path / "plddt_input_model_0.npz"
+        _plddt_npz(npz, [0.8, 0.9, 1.0])
+        assert bc.BoltzConfidenceMetrics(cj, npz).avg_plddt == 90.0
+
+    def test_an_array_already_on_0_100_is_left_alone(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {})
+        npz = tmp_path / "plddt_input_model_0.npz"
+        _plddt_npz(npz, [80.0, 90.0, 100.0])
+        assert bc.BoltzConfidenceMetrics(cj, npz).avg_plddt == 90.0
+
+    def test_a_multidimensional_array_is_flattened(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {})
+        npz = tmp_path / "plddt_input_model_0.npz"
+        _plddt_npz(npz, [[0.8, 0.9], [1.0, 0.9]])
+        assert bc.BoltzConfidenceMetrics(cj, npz).avg_plddt == 90.0
+
+    def test_an_unreadable_npz_is_none_rather_than_an_error(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {})
+        npz = tmp_path / "plddt_input_model_0.npz"
+        npz.write_text("not an npz")
+        assert bc.BoltzConfidenceMetrics(cj, npz).avg_plddt is None
+
+    def test_the_result_is_cached_after_the_first_read(self, tmp_path):
+        cj = tmp_path / "confidence_input_model_0.json"
+        _write_conf_json(cj, {})
+        npz = tmp_path / "plddt_input_model_0.npz"
+        _plddt_npz(npz, [0.5])
+        m = bc.BoltzConfidenceMetrics(cj, npz)
+        first = m.avg_plddt
+        npz.unlink()           # the cache must survive the file going away
+        assert m.avg_plddt == first == 50.0
+
+
+@pytest.mark.logic
+class TestFromPredictionDirSidecars:
+    """What TestFromPredictionDir above does not cover: the refusal, and the
+    pLDDT npz each sample is paired with."""
+
+    def test_missing_dir_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            bc.BoltzConfidenceMetrics.from_prediction_dir(tmp_path / "nope")
+
+    def test_links_the_matching_plddt_npz(self, tmp_path):
+        _write_conf_json(tmp_path / "confidence_input_model_0.json", {})
+        _plddt_npz(tmp_path / "plddt_input_model_0.npz", [0.7])
+        got = bc.BoltzConfidenceMetrics.from_prediction_dir(tmp_path)
+        assert got[0].avg_plddt == 70.0
+
+    def test_a_sample_without_an_npz_still_loads(self, tmp_path):
+        _write_conf_json(tmp_path / "confidence_input_model_0.json", {"ptm": 0.5})
+        got = bc.BoltzConfidenceMetrics.from_prediction_dir(tmp_path)
+        assert got[0].ptm == 0.5 and got[0].avg_plddt is None
