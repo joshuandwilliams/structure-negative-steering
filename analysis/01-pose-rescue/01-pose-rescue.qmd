@@ -50,6 +50,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
 ```
@@ -136,9 +137,9 @@ THESIS_FIGDIR = csv_path.parent / "thesis-figures"
 THESIS_FIGDIR.mkdir(parents=True, exist_ok=True)
 
 
-def save_fig(fig, name, figdir=None):
+def save_fig(fig, name, figdir=None, dpi=200):
     """Save as PNG with whitespace cropped tight."""
-    fig.savefig((figdir or FIGDIR) / f"{name}.png", dpi=200,
+    fig.savefig((figdir or FIGDIR) / f"{name}.png", dpi=dpi,
                 bbox_inches="tight", pad_inches=0.02)
 
 
@@ -306,42 +307,48 @@ plt.show()
 
 ### 3.2 Initial vs representative `ra_eff`
 
-```{python}
-# Two configurations, each paired with its OWN cold start: the restrained variant
-# applies restraints to the initial prediction too, so the two do not share a
-# starting pose.
-P6_SERIES = [
-    ("cold_start_ra_eff", "rep_ra_eff", "#0072B2", "negative-steered"),
-    ("constrained_cold_start_ra_eff", "constrained_rep_ra_eff", "#CC3311",
-     "reference-restrained + negative-steered"),
-]
+Sourced from the n=50 dose-sweep arm (`n50_pose_metrics.csv`, built by
+`n50_pose_metrics.py` from `experiments/dose-sweep/n50/`), not the shipped
+20-set benchmark: 50 sets is the tighter bound negative steering has
+actually demonstrated on this benchmark (15/18 vs 12/18 at n=20, see
+`02-model-choice.qmd`). There is no n50 arm for reference-restrained +
+negative steering (`experiments/benchmarking/constrained/` only has a
+20-set run), so that second series from the original figure is not shown
+here.
 
-fig, ax = plt.subplots(figsize=(8, 5))
-vals = []
-for xcol, ycol, colour, label in P6_SERIES:
-    if xcol not in rep.columns or ycol not in rep.columns:
-        continue
-    g = rep.dropna(subset=[xcol, ycol])
-    if not len(g):
-        continue
-    ax.scatter(g[xcol], g[ycol], color=colour,
-               label=f"{label} (n = {len(g)})",
-               s=55, edgecolor="black", linewidth=0.4, alpha=0.9)
-    vals.extend([g[xcol].to_numpy(), g[ycol].to_numpy()])
-# y = x diagonal spanning the full data range (square axes -> true 45 deg line).
-both = np.concatenate(vals) if vals else np.array([0, 1])
+```{python}
+n50_path = HERE / "n50_pose_metrics.csv"
+if not n50_path.exists():
+    n50_path = Path("analysis/01-pose-rescue/n50_pose_metrics.csv")
+n50 = pd.read_csv(n50_path)
+
+g = n50.dropna(subset=["cold_start_ra_eff_median", "rep_ra_eff"])
+fig, ax = plt.subplots(figsize=(6.6, 6.2))
+for triggered, colour, label in [(True, "#0072B2", "Negative steering applied"),
+                                 (False, "#009E73", "Correctly posed without steering")]:
+    sub = g[g["steering_triggered"] == triggered]
+    ax.scatter(sub["cold_start_ra_eff_median"], sub["rep_ra_eff"], color=colour,
+               label=f"{label} (n = {len(sub)})",
+               s=60, edgecolor="black", linewidth=0.5, alpha=0.9, zorder=3)
+both = np.concatenate([g["cold_start_ra_eff_median"].to_numpy(), g["rep_ra_eff"].to_numpy()])
 lo, hi = float(np.min(both)), float(np.max(both))
 pad = 0.05 * (hi - lo) if hi > lo else 1.0
 lims = (lo - pad, hi + pad)
-ax.plot(lims, lims, color="grey", linewidth=1.2, zorder=0)
-ax.axhline(RA_EFF_THRESHOLD, color="black", linestyle="--", linewidth=1.2)
+ax.plot(lims, lims, color="grey", linestyle="--", linewidth=1.2, zorder=0)
+ax.axhline(RA_EFF_THRESHOLD, color="red", linestyle="-.", linewidth=1.2)
 ax.set_xlim(lims)
 ax.set_ylim(lims)
 ax.set_aspect("equal", adjustable="box")
-ax.set_xlabel("Initial ra_eff vs ground truth (Å)")
-ax.set_ylabel("Steered ra_eff vs ground truth (Å)")
-place_legend(ax)
-save_fig(fig, "cold_start_vs_steered_ra_eff", THESIS_FIGDIR)
+ax.set_xlabel("Initial receptor-aligned effector RMSD (Å)")
+ax.set_ylabel("Steered receptor-aligned effector RMSD (Å)")
+# Both panels of the thesis figure share this colour scheme, so the legend is
+# drawn once, above this panel's axes, rather than inside each panel. One
+# column, not two: a two-column row is wider than the axes, and the assembler
+# scales each panel to a shared width, so it would shrink this panel's plotting
+# area relative to the DockQ one.
+ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.01), ncol=1,
+          frameon=False, borderaxespad=0.0)
+save_fig(fig, "cold_start_vs_steered_ra_eff", THESIS_FIGDIR, dpi=450)
 plt.show()
 ```
 
@@ -354,22 +361,58 @@ plt.show()
 - Most points fall below the diagonal (steering helped), and several cross from
   above to below the 5 Å line, so they were rescued from incorrect to correct.
 
-### 3.3 Representative `ra_eff` vs its change from cold start
+### 3.2b DockQ: a second pose metric
+
+`ra_eff` only scores the effector's position once the receptor is aligned
+onto truth. DockQ additionally scores contact recovery (Fnat) and interface
+geometry (iRMSD), and is standard in the docking literature. Computed here
+for the same two structures as §3.2 -- cold start and n=50 representative,
+same run tree (`experiments/dose-sweep/n50/`), reference complexes from
+`data/reference_complexes/` -- by `dockq_scores.py`, which
+needs its own environment (the DockQ package pins numpy<2, incompatible
+with this repo's pinned numpy):
+
+```bash
+conda create -n dockq-tool python=3.11 -y
+conda run -n dockq-tool pip install DockQ
+python3 analysis/01-pose-rescue/dockq_scores.py
+```
 
 ```{python}
-s = rep.dropna(subset=["rep_ra_eff", "change_ra_eff"])
-fig, ax = plt.subplots(figsize=(8, 5))
-for p, sd in ordered_pass_groups(s):
-    g = s[(s["rep_n_pass"] == p) & (s["rep_n_seeds"] == sd)]
-    ax.scatter(g["rep_ra_eff"], g["change_ra_eff"],
-               color=pass_color(p, sd), label=pass_label(p, sd),
-               s=55, edgecolor="black", linewidth=0.4, alpha=0.9)
+dockq_path = HERE / "dockq_scores.csv"
+if not dockq_path.exists():
+    dockq_path = Path("analysis/01-pose-rescue/dockq_scores.csv")
+dockq_df = pd.read_csv(dockq_path)
+dockq_df
+```
+
+![Cold start vs representative DockQ, same 18 targets and same
+representative-design selection as §3.2. Dotted lines mark DockQ's own
+Incorrect/Acceptable/Medium/High boundaries (0.23/0.49/0.80).](thesis-figures/cold_start_vs_steered_dockq.png){#fig-cold-start-vs-steered-dockq width="70%"}
+
+- Same qualitative pattern as the `ra_eff` scatter (§3.2): most points sit
+  above the diagonal, so steering raises DockQ as well as lowering `ra_eff`.
+- A handful of targets cross an entire DockQ quality band (e.g. Incorrect to
+  Medium), which `ra_eff`'s binary <5 Å cutoff does not distinguish.
+
+### 3.3 Representative `ra_eff` vs its change from cold start
+
+Also sourced from `n50_pose_metrics.csv` (§3.2). Single colour rather than
+seed-pass-count groups, since that grouping is about reliability
+(§2), not relevant to whether steering helped or hurt, which is what this
+plot is showing.
+
+```{python}
+s = n50.dropna(subset=["rep_ra_eff", "change_ra_eff"])
+fig, ax = plt.subplots(figsize=(7.4, 5.2))
+ax.scatter(s["rep_ra_eff"], s["change_ra_eff"], color="#0072B2",
+           s=60, edgecolor="black", linewidth=0.5, alpha=0.9)
 ax.axhline(0, color="black", linewidth=1.2)
 ax.axvline(RA_EFF_THRESHOLD, color="black", linestyle="--", linewidth=1.2,
-           label=f"ra_eff = {RA_EFF_THRESHOLD:g} Å")
-ax.set_xlabel("Representative ra_eff vs truth (Å)")
-ax.set_ylabel("Change in ra_eff: representative − cold start (Å)")
-place_legend(ax)
+           label=f"{RA_EFF_THRESHOLD:g} Å pass threshold")
+ax.set_xlabel("Steered/reverted effector RMSD (Å)")
+ax.set_ylabel("Change from cold start (Å)")
+ax.legend(loc="upper right", frameon=False)
 save_fig(fig, "steered_ra_eff_vs_change")
 plt.show()
 ```
@@ -488,9 +531,11 @@ for _, r in dose_df.iterrows():
                (r["dose"], r["n_pass"]), textcoords="offset points",
                xytext=(0, dy), ha="center", va=va, fontsize=9.5)
 ax.set_xticks(dose_df["dose"])
-ax.set_xlabel("Steering sets (negsteer_n_designs); 0 = cold start, no steering")
-ax.set_ylabel(f"Targets correctly posed (< {RA_EFF_THRESHOLD:g} Å) out of 18")
+ax.set_xlabel("Steering mutation sets")
+ax.set_ylabel("Complexes correctly posed")
 ax.set_ylim(0, 18.8)
+# Counts of complexes, so the ticks have to be integers.
+ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 ax.grid(axis="y", ls=":", color="#CCCCCC", lw=0.6, zorder=0)
 ax.set_axisbelow(True)
 for spine in ("top", "right"):

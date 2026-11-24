@@ -1,0 +1,75 @@
+# Negative steering, three stages, 6R8M (engineered Pikp1-HMA NK-KE / AVR-PikE).
+# Sourced from the n=50 dose sweep, the run the thesis figures report.
+#
+#   #1  solved complex          cold start 35.98 A -> steered 2.44 A
+#   #2  cold-start prediction   the effector on the wrong face (seed 0)
+#   #3  steered prediction      design_37, seed 2, 6 mutations, 3/3 seeds
+#
+# Everything is superposed on the SOLVED HMA, so the three effector positions
+# are directly comparable. Only the solved HMA is drawn; the cold-start and
+# steered HMAs are hidden, because all three are the same fold and drawing
+# them would just thicken the receptor without adding information.
+#
+# The steering mutations are shown on the solved HMA in red. Their positions
+# come from the engine as prediction numbering (/A:20,22,23,26,27,59) and are
+# mapped here to the solved structure's numbering, which starts at 184. The
+# offset is +185 and every wild-type residue was checked to match:
+#   K20D -> 205   M22R -> 207   A23K -> 208
+#   A26K -> 211   S27R -> 212   A59R -> 244
+#
+# The camera matrix reproduces the orientation of the original interactive
+# renders. It is set once with all three models shown, so every panel shares
+# one camera and the panels stay comparable.
+
+close session
+
+open /Users/jowillia/Documents/GitHub/structure-negative-steering/experiments/benchmarking/unconstrained/6R8M/6R8M.pdb
+open /Users/jowillia/Documents/GitHub/structure-negative-steering/experiments/dose-sweep/n50/6R8M/run/cycle_0/initial_prediction.pdb
+open /Users/jowillia/Documents/GitHub/structure-negative-steering/experiments/dose-sweep/n50/6R8M/run/cycle_0/steered/design_37_s2/prediction.pdb
+
+rename #1 solved
+rename #2 coldstart
+rename #3 steered
+
+matchmaker #2/A to #1/A
+matchmaker #3/A to #1/A
+
+hide atoms
+show cartoon
+
+hide #2/A cartoon
+hide #3/A cartoon
+
+color #1/A cornflowerblue
+color #1/B lightgreen
+color #2/B gray
+color #3/B green
+
+set bgColor white
+lighting flat
+graphics silhouettes true
+
+view matrix camera -0.336034,-0.422125,0.841957,230.018677,0.491680,-0.841084,-0.225453,-69.833373,0.803326,0.338214,0.490183,146.638901
+view
+zoom 1.85
+
+# Panel 1, the solved complex on its own.
+hide #2 models
+hide #3 models
+save /Users/jowillia/Documents/GitHub/structure-negative-steering/analysis/01-pose-rescue/raw-images/6R8M_solved.png width 3000 height 3000 supersample 3
+
+# Panel 2, add the cold-start effector.
+show #2 models
+hide #2/A cartoon
+save /Users/jowillia/Documents/GitHub/structure-negative-steering/analysis/01-pose-rescue/raw-images/6R8M_coldstart.png width 3000 height 3000 supersample 3
+
+# Panel 3, add the steered effector and mark the steering mutations.
+show #3 models
+hide #3/A cartoon
+color #1/A:205,207,208,211,212,244 red
+show #1/A:205,207,208,211,212,244 atoms
+style #1/A:205,207,208,211,212,244 stick
+hide #1/A:205,207,208,211,212,244@N,C,O,H* atoms
+save /Users/jowillia/Documents/GitHub/structure-negative-steering/analysis/01-pose-rescue/raw-images/6R8M_steered.png width 3000 height 3000 supersample 3
+
+exit

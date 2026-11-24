@@ -91,6 +91,34 @@ def ipsae_min(pae: np.ndarray, n_rec: int, keep: np.ndarray | None) -> float:
     return round(min(ipsae_direction(ab), ipsae_direction(ba)), 4)
 
 
+
+def iptm_min(pae: np.ndarray, n_rec: int, keep: np.ndarray | None) -> float:
+    """ipTM over inter-chain pairs, with d0 fixed at the full complex size.
+
+    Unlike ipsae_min there is no PAE cutoff, so every inter-chain pair
+    contributes. d0 is deliberately computed once on the full complex and
+    reused for the masked score. Recomputing it on the reduced set would make
+    part of the difference a normalisation artefact rather than the mutations'
+    contribution, which is the thing being tested.
+
+    Returned as the smaller of the two chain directions, matching ipsae_min.
+    """
+    d0_fixed = d0(pae.shape[0])
+
+    def direction(block: np.ndarray) -> float:
+        if block.size == 0:
+            return 0.0
+        scored = 1.0 / (1.0 + (block / d0_fixed) ** 2)
+        return float(scored.mean(axis=1).max())
+
+    ab = pae[:n_rec, n_rec:]
+    ba = pae[n_rec:, :n_rec]
+    if keep is not None:
+        ab = ab[keep[:n_rec], :]
+        ba = ba[:, keep[:n_rec]]
+    return min(direction(ab), direction(ba))
+
+
 def parse_positions(text: str, base: int) -> set[int]:
     out: set[int] = set()
     for line in text.splitlines():
@@ -160,6 +188,9 @@ def build(run_root: Path, indices: Path, units: list[str]) -> pd.DataFrame:
                     "seed_index": r.get("seed_index"),
                     "n_mutations": len(muts),
                     "stored_ipsae_min": r.get("steered_ipsae_min"),
+                    "iptm_full": iptm_min(pae, n_rec, None),
+                    "iptm_no_mut": iptm_min(
+                        pae, n_rec, ~np.isin(idx, list(muts))),
                     "ipsae_full": ipsae_min(pae, n_rec, None),
                     "ipsae_no_mut": ipsae_min(pae, n_rec, ~np.isin(idx, list(muts))),
                     "ipsae_interface": ipsae_min(
