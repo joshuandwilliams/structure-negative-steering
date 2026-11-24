@@ -172,6 +172,79 @@ def test_design_region_file_is_used_when_it_is_not_a_keyword(drv, tmp_path):
     assert "--design-region" not in cmd
 
 
+# ── interface ablation ───────────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_no_ablation_by_default(drv, tmp_path):
+    cmd = drv._build_prepare_cmd(drv._load_yaml(_write_config(tmp_path)),
+                                 tmp_path, tmp_path / "inputs")
+    assert "--ablate" not in cmd
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("mode", ["alanine", "scrambled"])
+def test_ablation_mode_reaches_prepare(drv, tmp_path, mode):
+    cfg = _write_config(tmp_path, interface_ablation=mode)
+    cmd = drv._build_prepare_cmd(drv._load_yaml(cfg), tmp_path, tmp_path / "inputs")
+    assert cmd[cmd.index("--ablate") + 1] == mode
+    assert "--ablate-seed" not in cmd
+
+
+@pytest.mark.logic
+def test_ablation_seed_is_forwarded_when_set(drv, tmp_path):
+    cfg = _write_config(tmp_path, interface_ablation="scrambled", ablation_seed=99)
+    cmd = drv._build_prepare_cmd(drv._load_yaml(cfg), tmp_path, tmp_path / "inputs")
+    assert cmd[cmd.index("--ablate-seed") + 1] == "99"
+
+
+@pytest.mark.logic
+def test_unknown_ablation_mode_is_rejected(drv, tmp_path):
+    cfg = _write_config(tmp_path, interface_ablation="shuffled")
+    with pytest.raises(SystemExit) as exc:
+        drv._build_prepare_cmd(drv._load_yaml(cfg), tmp_path, tmp_path / "inputs")
+    assert "interface_ablation" in str(exc.value)
+
+
+@pytest.mark.logic
+def test_ablation_does_not_touch_the_ground_truth(drv, tmp_path):
+    """The control depends on the reference PDB staying the native complex."""
+    cfg = _write_config(tmp_path, interface_ablation="alanine")
+    loaded = drv._load_yaml(cfg)
+    run = drv._build_run_cmd(loaded, tmp_path, tmp_path / "inputs",
+                             tmp_path / "run", "/fake.img")
+    assert run[run.index("--ground-truth") + 1] == str(tmp_path / "ref.pdb")
+    assert "--ablate" not in run
+
+
+@pytest.mark.logic
+def test_every_ablation_config_is_translatable(drv):
+    """Each control must ablate, and its arm must match its constraints toggle.
+
+    A restrained control that ran unrestrained, or the reverse, would be the
+    control for the other claim, which is the one mix-up this tree exists to
+    avoid.
+    """
+    root = REPO_ROOT / "experiments" / "interface-ablation"
+    configs = sorted(root.glob("*/*/config.yml"))
+    if not configs:
+        pytest.skip("interface-ablation tree not generated")
+    for c in configs:
+        variant = c.parent.parent.name
+        cfg = drv._load_yaml(c)
+        assert cfg["interface_ablation"] in ("alanine", "scrambled"), c
+        prepare = drv._build_prepare_cmd(cfg, c.parent, c.parent / "inputs")
+        assert prepare[prepare.index("--ablate") + 1] == cfg["interface_ablation"]
+        run = drv._build_run_cmd(cfg, c.parent, c.parent / "inputs",
+                                 c.parent / "run", "/fake.img")
+        plan = run[run.index("--plan-extra-args") + 1]
+        assert "--protected-set-source true_interface" in plan, c
+        assert variant.endswith(("_restrained", "_unrestrained")), c
+        expected = variant.endswith("_restrained")
+        assert ("--boltz-constraints" in plan) == expected, \
+            f"{c}: constraints flag does not match the arm in its directory"
+        assert cfg["name"].endswith(variant.removeprefix("smoke_")), c
+
+
 # ── launch.sh ────────────────────────────────────────────────────────────────
 
 @pytest.mark.logic
