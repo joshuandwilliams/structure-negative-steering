@@ -57,7 +57,7 @@ def _body(text: str) -> list[str]:
 def test_transform_rewrites_the_three_keys(gen) -> None:
     body = _body(gen.transform(CONFIG, "6R8M", 3))
     assert 'name: "6R8M_n03"' in body
-    assert 'reference_pdb:   "../../../benchmarking/unconstrained/6R8M/6R8M.pdb"' in body
+    assert 'reference_pdb:   "../../../../data/reference_complexes/6R8M.pdb"' in body
     assert "negsteer_n_designs:            3" in body
 
 
@@ -127,7 +127,7 @@ def test_transform_refuses_when_a_line_it_may_not_touch_moves(gen) -> None:
         gen.transform(text, "6R8M", 3)
     assert "changed lines it should not" in str(exc.value)
     # The offending line is the unkeyed continuation, not one of the three keys.
-    assert '   "../../../benchmarking/unconstrained/6R8M/6R8M.pdb"' in str(exc.value)
+    assert '   "../../../../data/reference_complexes/6R8M.pdb"' in str(exc.value)
 
 
 @pytest.mark.logic

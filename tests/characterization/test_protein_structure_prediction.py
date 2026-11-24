@@ -136,7 +136,7 @@ def _has_gemmi():
 
 
 _REAL_PDB_DIR = (
-    _REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
+    _REPO_ROOT / "data" / "reference_complexes"
 )
 
 

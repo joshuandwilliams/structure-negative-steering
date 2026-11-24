@@ -30,16 +30,16 @@
 #   --delete can never wipe your results on the cluster.
 #
 # Also excluded:
-#   - tests/single_run_test/inputs/ and tests/single_run_test/run/  The single-run test is a real engine
+#   - tests/test_run/inputs/ and tests/test_run/run/  The single-run test is a real engine
 #     output produced on a GPU node, and the only thing that reaches the plan,
-#     collect, cycle and reversion-harvest code. Only tests/single_run_test/config.yml is
+#     collect, cycle and reversion-harvest code. Only tests/test_run/config.yml is
 #     tracked; the derived inputs and the run tree are HPC-authoritative for
 #     exactly the same reason experiments/ is, and a code sync must not wipe
 #     them. This was found by reading a --dry run rather than by thinking about
 #     it, which is the argument for always reading one.
-#   - tests/workflow_check/inputs/ and tests/workflow_check/run/  Same rule, same
+#   - tests/test_run/inputs/ and tests/test_run/run/  Same rule, same
 #     reason. The 6G10 workflow check is a real engine output produced on the
-#     cluster and only tests/workflow_check/config.yml is tracked.
+#     cluster and only tests/test_run/config.yml is tracked.
 #   - analysis/  The Quarto report is authored and rendered on the Mac from
 #     results pulled down by sync_from_hpc.sh.  Nothing on the HPC reads it, and
 #     its rendered .html plus the *_files/ JS/CSS bundle are gitignored build
@@ -99,12 +99,12 @@ rsync -av --delete $DRY_RUN -e ssh \
     --exclude='.git/' \
     --exclude='experiments/' \
     --exclude='analysis/' \
-    --exclude='tests/single_run_test/inputs/' \
-    --exclude='tests/single_run_test/run/' \
-    --exclude='tests/single_run_test/run_cli/' \
-    --exclude='tests/single_run_test/.cli_view*' \
-    --exclude='tests/workflow_check/inputs/' \
-    --exclude='tests/workflow_check/run/' \
+    --exclude='tests/test_run/inputs/' \
+    --exclude='tests/test_run/run/' \
+    --exclude='tests/test_run/run_cli/' \
+    --exclude='tests/test_run/.cli_view*' \
+    --exclude='tests/test_run/inputs/' \
+    --exclude='tests/test_run/run/' \
     --exclude='.claude/' \
     --exclude='.vscode/' \
     --exclude='.idea/' \
@@ -128,22 +128,26 @@ rsync -av --delete $DRY_RUN -e ssh \
     --exclude='rsync_deletions*.txt' \
     "$REPO_ROOT/" "${HPC_USER_HOST}:${HPC_DEST}"
 
-# Push experiment DEFINITIONS additively (NO --delete): the benchmarking test
-# specs (config.yml + reference PDBs) must reach the HPC, but the HPC
-# experiments/ tree (prior results + run outputs) is authoritative and must
-# never be pruned by a code sync. Derived inputs/ and run/ outputs are excluded.
-# The dose-sweep configs ride along the same way. They carry no PDB of their own,
-# each one points back at the benchmark's copy.
+# Push experiment DEFINITIONS additively (NO --delete): every tree's config.yml
+# must reach the HPC, but the HPC experiments/ tree (prior results + run
+# outputs) is authoritative and must never be pruned by a code sync. Derived
+# inputs/ and run/ outputs are excluded.
+#
+# No PDB is pushed from here. The eighteen reference complexes live in data/
+# and ride along with the code sync above, which is the only copy every config
+# in every tree resolves to.
 if [ -d "$REPO_ROOT/experiments/benchmarking" ]; then
     rsync -av --no-perms --no-owner --no-group $DRY_RUN -e ssh \
         --prune-empty-dirs \
         --include='benchmarking/' \
         --include='benchmarking/**/' \
         --include='benchmarking/**/config.yml' \
-        --include='benchmarking/**/*.pdb' \
         --include='dose-sweep/' \
         --include='dose-sweep/**/' \
         --include='dose-sweep/**/config.yml' \
+        --include='interface-ablation/' \
+        --include='interface-ablation/**/' \
+        --include='interface-ablation/**/config.yml' \
         --exclude='*' \
         "$REPO_ROOT/experiments/" "${HPC_USER_HOST}:${HPC_DEST}experiments/"
 fi

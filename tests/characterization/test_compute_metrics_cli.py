@@ -34,8 +34,7 @@ import compute_metrics as cm  # noqa: E402
 
 np = pytest.importorskip("numpy")
 
-GT = (_REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
-          / "6G10.pdb")
+GT = (_REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb")
 needs_pdb = pytest.mark.skipif(not GT.is_file(), reason="6G10 reference absent")
 
 REC_LEN, EFF_LEN = 76, 83

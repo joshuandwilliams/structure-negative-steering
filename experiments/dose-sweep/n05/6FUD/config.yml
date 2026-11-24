@@ -29,7 +29,7 @@ name: "6FUD_n05"
 # A single PDB containing both chains.  Used as the comparison basis
 # (ground truth) that every steered design is scored against, and to derive
 # the interface.  Chains: A = receptor, B = effector (plant rec/eff convention).
-reference_pdb:   "../../../benchmarking/unconstrained/6FUD/6FUD.pdb"
+reference_pdb:   "../../../../data/reference_complexes/6FUD.pdb"
 receptor_chain:  "A"          # the protein being steered
 effector_chain:  "B"          # what it should be steered AWAY from binding
 

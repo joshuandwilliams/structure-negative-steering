@@ -26,8 +26,7 @@ import contig_utils as cu  # noqa: E402
 import extract_passing as ep  # noqa: E402
 import reversion as rev  # noqa: E402
 
-SIXG10 = (_REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
-          / "6G10.pdb")
+SIXG10 = (_REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb")
 needs_pdb = pytest.mark.skipif(not SIXG10.is_file(), reason="6G10 reference absent")
 
 
