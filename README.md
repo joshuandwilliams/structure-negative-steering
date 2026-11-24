@@ -27,7 +27,15 @@ Two things are known to be wrong, and are recorded here rather than left to be d
 
 ## How it runs
 
-![Negative-steering workflow](docs/steering_method_flowchart.svg)
+![The Nextflow workflow](docs/nextflow_dag.svg)
+
+`tests/test_smoke.py` holds this figure to the code. It asserts the processes
+drawn here are exactly the processes `modules/negsteer_stages.nf` defines, so a
+stage added or renamed without redrawing fails the suite. A figure that has
+drifted from the code is worse than no figure, because it is still believed.
+
+The method the workflow runs is a separate figure, under
+[What it measures](#what-it-measures).
 
 One target is one `config.yml`. The two fan-outs, one Boltz-2 call per steered design and one per reverted design, were bash loops inside a single SLURM job. They are Nextflow channels now, so each prediction is a task with its own resources, retry and failure. The width of each fan-out is read from the stage before it rather than from the config. The plan legitimately stages fewer designs than asked, or none at all when the cold start already passes.
 
@@ -92,6 +100,9 @@ The four-way method comparison passes 9 / 18 unrestrained, 12 / 18 with negative
 **On confidence, the safe claim is the null, stated on ipTM.** ipTM is unmoved by steering. The benchmark also shows a small pLDDT cost that scales with mutation budget, median Δ complex pLDDT −3.24 and Δ interface pLDDT −5.96, both at p = 0.001 over the 15 steered targets. That cost is specific to this benchmark and is paid by rescued and still-wrong targets alike, which points at sequence perturbation rather than at a worse interface. It does not replicate on a larger sample, so it should not be quoted on its own as a cost of steering. See `analysis/06-confidence-synthesis/` for the qualifying data.
 
 ## What it measures
+
+![How negative steering decides what to mutate and what to keep](docs/steering_method_flowchart.svg)
+
 
 **Pose accuracy** is `ra_eff`, receptor-aligned effector RMSD in Å. Lower is better, and ≤ 5 Å counts as a correct pose. Two predictions are compared against the experimental truth. The **cold start** is the initial Boltz-2 prediction before steering, from `run/cycle_0/plan.json::initial_receptor_aligned_effector_rmsd`. The **representative** is the steered design selected as described under Design decisions.
 
@@ -443,9 +454,8 @@ chain A at 76 residues, effector B at 83, and 26 contacts at 5 Å.
 The workflow itself is tested two ways. `-stub-run` walks the whole DAG with no
 container and no GPU, which is what catches a broken channel shape. And
 `tests/test_smoke.py` asserts that `main.nf` includes every process the module
-defines. It also asserts that the figure at the top of this file still shows
-exactly those processes, with the GPU stages coloured as GPU stages. A figure that has
-drifted from the code is worse than no figure, because it is still believed.
+defines, and that the workflow figure under How it runs still draws exactly
+those processes with the GPU stages coloured as GPU stages.
 
 Coverage runs on every invocation and is gated as a ratchet that may only rise.
 `htmlcov/index.html` is the browsable report and `lcov.info` the machine-readable
