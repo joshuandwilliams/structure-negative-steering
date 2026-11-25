@@ -88,7 +88,7 @@ def compute_ipsae_one_direction(pae_ij, cutoff=10.0):
             scores.append(0.0)
             continue
         d0 = _ipsae_d0(n_below)
-        if d0 <= 0:
+        if d0 <= 0:  # pragma: no cover - _ipsae_d0 returns max(d0, 0.5), never <= 0
             scores.append(0.0)
             continue
         s = 1.0 / (1.0 + (below / d0) ** 2)
@@ -113,7 +113,7 @@ def _pae_to_ptm_score(pae_ij, n_interface):
     if pae_ij.size == 0 or n_interface < 1:
         return np.zeros(pae_ij.shape[0], dtype=float)
     d0 = _ipsae_d0(n_interface)
-    if d0 <= 0:
+    if d0 <= 0:  # pragma: no cover - _ipsae_d0 returns max(d0, 0.5), never <= 0
         return np.zeros(pae_ij.shape[0], dtype=float)
     kernel = 1.0 / (1.0 + (pae_ij / d0) ** 2)
     if kernel.ndim == 1:
@@ -468,7 +468,7 @@ def compute_interface_contacts(
 
     rec_atoms = by_chain[receptor_chain]
     eff_atoms = by_chain[effector_chain]
-    if not rec_atoms or not eff_atoms:
+    if not rec_atoms or not eff_atoms:  # pragma: no cover - _parse_heavy_atoms_by_chain creates a chain key only by appending an atom, and the membership test above covers an absent chain
         return set()
 
     # Accepts a set of ints, or (resseq, atom_name) tuples collapsed by
@@ -958,7 +958,7 @@ def compute_intact_core(model_pdb, native_pdb, plddt_threshold,
                       in chain_ca_records(model, receptor_chain)}
         native_recs = {num: (xyz, bf) for (num, xyz, bf)
                        in chain_ca_records(native, receptor_chain)}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001  # pragma: no cover - chain_ca_records only walks gemmi objects the read_structure above already loaded, so nothing in it raises
         return None, None, f"chain_parse_failed:{type(e).__name__}"
 
     common = sorted(set(model_recs) & set(native_recs))
@@ -988,7 +988,7 @@ def compute_intact_core(model_pdb, native_pdb, plddt_threshold,
                         in chain_ca_records(native, effector_chain)})
 
     shared = sorted(set(model_full) & set(native_full))
-    if len(shared) < 3:
+    if len(shared) < 3:  # pragma: no cover - kept is a subset of shared and len(kept) >= 3 was asserted above
         return None, None, f"too_few_shared_residues:{len(shared)}"
 
     M_all = np.array([model_full[k] for k in shared])

@@ -23,7 +23,7 @@ import numpy as np
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 # Re-exported from contig_utils.py only for the characterization tests
 # that reach in for it.  Other callers import it from contig_utils.

@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 from designed_backbone import DesignedBackbone  # noqa: E402
 from position_set import PositionSet  # noqa: E402

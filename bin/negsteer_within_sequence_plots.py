@@ -454,6 +454,7 @@ def plot_dispersion_overview(rep_seeds, tiers, out_path):
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+    return True
 
 
 # ── Plot 1b: per-seed dispersion grid ───────────────────────────────────
@@ -582,6 +583,7 @@ def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
     plt.tight_layout(rect=(0.04, 0.10, 1.0, 0.97))
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+    return True
 
 
 # ── Plot 2: per-design stage trajectories ───────────────────────────────
@@ -691,6 +693,7 @@ def plot_stage_trajectories(all_seeds, tiers, cold_baseline, out_path):
     plt.tight_layout(rect=(0.04, 0.04, 1.0, 0.96))
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+    return True
 
 
 # ── Plot 3: weighted vs true jaccard ────────────────────────────────────
@@ -742,6 +745,7 @@ def plot_weighted_vs_true_jaccard(rep_seeds, tiers, out_path):
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+    return True
 
 
 # ── Plot 4: composite vs confidence metrics ─────────────────────────────
@@ -807,7 +811,11 @@ def plot_composite_vs_confidence(rep_seeds, composites, tiers, out_path):
             ys.append(rec["composite"])
             cols.append(COLOUR_TIER.get(rec["tier"], "#B0B0B0"))
             seen_tiers.add(rec["tier"])
-        if not xs:
+        # metrics_present keeps only the metrics that at least one seq_data
+        # record carries, so every panel index below n finds at least one
+        # point.  The spare cells of the grid are the indices at or above n,
+        # and they take the set_axis_off branch above.  Nothing reaches here.
+        if not xs:  # pragma: no cover - metrics_present guarantees each panel a point
             ax.text(0.5, 0.5, "no data", ha="center", va="center",
                     transform=ax.transAxes, fontsize=9, color="grey")
             ax.set_title(label, fontsize=10)
@@ -836,6 +844,7 @@ def plot_composite_vs_confidence(rep_seeds, composites, tiers, out_path):
     plt.tight_layout(rect=(0, 0, 1, 0.96))
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+    return True
 
 
 

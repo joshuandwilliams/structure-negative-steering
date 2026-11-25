@@ -938,3 +938,70 @@ def test_one_within_sequence_figure_failing_does_not_cost_the_others(
                             "--outdir", str(out)) == 0
     assert "FAILED: IsADirectoryError" in capsys.readouterr().out
     assert (out / "negsteer_weighted_vs_true_jaccard.png").is_file()
+
+
+# ── main reports what it wrote ────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_main_reports_the_path_of_every_figure_that_drew(nwp, tmp_path,
+                                                          capsys):
+    """main reports a figure by the truth of its return value, so each plot_*
+    returns True once it has saved.
+
+    All five used to fall off the end on success and return None, so the log
+    read "(skipped — no data)" for five figures that had just written a PNG.
+    Nextflow publishes a fixed figure list, so the stage read as having
+    produced nothing on every successful run. bin/negsteer_plots.py returns
+    True from all seven of its figures, which is the contract main was
+    written against.
+    """
+    runs = tmp_path / "runs"
+    d = _seq(runs, "design_0_seq_1", [_agg("0", ra=2.0, tj=0.8)])
+    _write_raw(d, [dict(PASSING, sequence_group="0", seed_index="0",
+                        steered_true_jaccard="0.8",
+                        steered_weighted_jaccard="0.75")])
+    cross = tmp_path / "cross.csv"
+    _cross(cross, [{"mpnn_sequence": "design_0_seq_1", "cross_tier": "A",
+                    "rep_sequence_group": "0"}])
+    out = tmp_path / "out"
+    argv = ["negsteer_within_sequence_plots.py", "--runs-dir", str(runs),
+            "--cross-summary-csv", str(cross), "--outdir", str(out)]
+    with mock.patch.object(sys, "argv", argv):
+        assert nwp.main() == 0
+
+    text = capsys.readouterr().out
+    assert len(list(out.glob("*.png"))) == 5
+    assert text.count("→") == 5, f"a drawn figure went unreported:\n{text}"
+    assert "(skipped — no data)" not in text
+
+
+@pytest.mark.logic
+def test_main_reports_a_figure_with_nothing_to_draw_as_skipped(nwp, tmp_path,
+                                                                capsys):
+    """The other half of the same report. A figure that returned False wrote
+    only a placeholder, and saying so is what tells a reader the stage ran
+    but the cohort had no measurable seed.
+
+    load_cohort_seeds reads a steering seed's RMSD straight out of
+    steered_ra_eff_vs_truth, so blanking that column leaves the record in
+    place with no measurable value. The record is what keeps main past its
+    "Nothing to plot" exit, and the two figures that scale an axis on the
+    RMSD then have nothing to scale.
+    """
+    runs = tmp_path / "runs"
+    d = _seq(runs, "design_0_seq_1", [_agg("0", ra=2.0, tj=0.8)])
+    _write_raw(d, [dict(PASSING, sequence_group="0", seed_index="0",
+                        steered_ra_eff_vs_truth="",
+                        steered_true_jaccard="", reversion_verdict="")])
+    cross = tmp_path / "cross.csv"
+    _cross(cross, [{"mpnn_sequence": "design_0_seq_1", "cross_tier": "A",
+                    "rep_sequence_group": "0"}])
+    out = tmp_path / "out"
+    argv = ["negsteer_within_sequence_plots.py", "--runs-dir", str(runs),
+            "--cross-summary-csv", str(cross), "--outdir", str(out)]
+    with mock.patch.object(sys, "argv", argv):
+        assert nwp.main() == 0
+
+    text = capsys.readouterr().out
+    assert "(skipped — no data)" in text, text
+    assert "FAILED" not in text

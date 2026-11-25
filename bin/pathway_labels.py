@@ -24,7 +24,7 @@ from typing import List, Optional, Tuple
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))  # pragma: no cover - import order
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 
 def read_mutations_tsv_full(tsv_path: Path) -> List[Tuple[int, str, str]]:
