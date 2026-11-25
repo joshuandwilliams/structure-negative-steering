@@ -634,13 +634,20 @@ def write_boltz_yaml(
     """Minimal Boltz2 YAML: two protein chains, single-seq A3Ms.
 
     With `effector_template_cif`, the effector chain gets a structural
-    template from that CIF, with `force: true` and a tight `threshold`
-    so the fold is locked rather than a soft suggestion.  It is never
-    applied to the receptor.  The syntax matches boltz2_prepare.py,
-    with chain_id and template_id as bare strings, not lists.
+    template from that CIF.  It is never applied to the receptor.
+    `chain_id` names the chain in this prediction and `template_id` the
+    chain inside the CIF, both as bare strings rather than lists.
 
-    `constraints_block` is appended as a top-level ``constraints:``
-    key, pre-rendered by build_benchmark_style_constraints_block.
+    `force: true` adds a steering potential during diffusion, and then
+    `threshold` is the flat-bottom upper bound in angstroms on how far
+    each templated CB may sit from the rigidly aligned template
+    position.  Without `force` the threshold is infinite and the
+    template only enters as a feature.  Boltz raises if `force` is set
+    without a `threshold`.
+
+    `templates:` and `constraints:` are both top-level keys, siblings
+    of `sequences:`.  The constraints block is pre-rendered by
+    build_benchmark_style_constraints_block.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -663,15 +670,20 @@ def write_boltz_yaml(
     ]
 
     if effector_template_cif is not None:
-        # This block nests INSIDE the effector chain definition,
-        # under "  - protein:", not at the YAML root.
+        # Top-level key, sibling of "sequences:". Boltz reads templates
+        # only from the schema root, at boltz 2.2.1
+        # data/parse/schema.py:1603 (`schema.get("templates", [])`). A
+        # chain entry's own keys are never inspected past the entity
+        # type, so a templates block nested under "  - protein:" is
+        # dropped without an error. This code emitted it there until
+        # 2026-11-25, and every prediction before that ran untemplated.
         yaml_lines.extend([
-            "      templates:",
-            f"        - cif: {effector_template_cif.resolve()}",
-            f"          chain_id: {eff_chain}",
-            f"          template_id: {eff_chain}",
-            "          force: true",
-            f"          threshold: {template_threshold}",
+            "templates:",
+            f"  - cif: {effector_template_cif.resolve()}",
+            f"    chain_id: {eff_chain}",
+            f"    template_id: {eff_chain}",
+            "    force: true",
+            f"    threshold: {template_threshold}",
         ])
 
     if constraints_block:
