@@ -27,7 +27,7 @@ from typing import Optional
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
+    sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
 
 from contig_spec import ContigSpec  # noqa: E402
 from position_set import PositionSet  # noqa: E402

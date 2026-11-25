@@ -29,7 +29,7 @@ from typing import List, Tuple
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
+    sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
 
 from design_cohort import DesignCohort  # noqa: E402
 

@@ -144,3 +144,75 @@ def test_design_cohort_from_cross_summary_csv_returns_snapshot(tmp_path: Path):
     assert isinstance(snap, csv_view.CrossSummarySnapshot)
     assert snap.get("design_1_seq_0") is not None
     assert snap.get("design_999_seq_0") is None
+
+
+# ── the coercers and the row accessors ───────────────────────────────────────
+#
+# Every numeric column in the cross-sequence summary comes through _try_float
+# or _try_int. A blank must stay blank: coercing it to 0.0 would put a real
+# value where there was none, and a 0.0 ra_eff reads as a perfect pose.
+
+def _row(seq, row_type="steered", tier="A"):
+    """A CrossSummaryRow with every required field filled."""
+    import cross_summary_model as m
+    return m.CrossSummaryRow(
+        mpnn_sequence=seq, row_type=row_type, cross_tier=tier,
+        cross_composite_score=None, cross_rank_by_composite=None,
+        cross_rank_by_ra_eff=None, within_sequence_rank=None,
+        n_pass=None, n_seeds=None, outcome="", outcome_reason="",
+        run_one_runtime_sec=None, extras={})
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("raw", [None, "", "not-a-number", object()])
+def test_unusable_values_coerce_to_none_not_zero(raw):
+    import cross_summary_model as m
+    assert m._try_float(raw) is None
+    assert m._try_int(raw) is None
+
+
+@pytest.mark.logic
+def test_usable_values_coerce(cs_unused=None):
+    import cross_summary_model as m
+    assert m._try_float("1.5") == 1.5
+    assert m._try_int("3") == 3
+    assert m._try_int(3.0) == 3
+
+
+@pytest.mark.logic
+def test_rows_are_normalised_to_a_tuple_and_iterable():
+    """Constructed from a list, the summary must still be frozen."""
+    import cross_summary_model as m
+    rows = [_row("a", "steered", "A")]
+    s = m.CrossSummarySnapshot(rows=rows)
+    assert isinstance(s.rows, tuple)
+    assert [r.mpnn_sequence for r in s] == ["a"]
+    assert len(s) == 1
+
+
+@pytest.mark.logic
+def test_controls_are_everything_that_is_not_steered():
+    import cross_summary_model as m
+    rows = [_row("s", "steered", "A"),
+            _row("c", "polyA", "none"),
+            _row("d", "scrambled", "none")]
+    s = m.CrossSummarySnapshot(rows=rows)
+    assert [r.mpnn_sequence for r in s.control_rows()] == ["c", "d"]
+    assert [r.mpnn_sequence for r in s.steered_rows()] == ["s"]
+
+
+@pytest.mark.logic
+def test_by_tier_only_looks_at_steered_rows():
+    """A control sharing a tier label must not appear in a tier breakdown."""
+    import cross_summary_model as m
+    rows = [_row("s", "steered", "A"),
+            _row("c", "polyA", "A")]
+    s = m.CrossSummarySnapshot(rows=rows)
+    assert [r.mpnn_sequence for r in s.by_tier("A")] == ["s"]
+
+
+@pytest.mark.logic
+def test_repr_reports_the_row_count():
+    import cross_summary_model as m
+    s = m.CrossSummarySnapshot(rows=[_row("a")])
+    assert "n_steered=1" in repr(s)

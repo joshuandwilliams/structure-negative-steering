@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+    sys.path.insert(0, str(SCRIPT_DIR))  # pragma: no cover - import order
 
 
 def make_pathway_label(parent_label: Optional[str], cycle: int, design_idx: int) -> str:
