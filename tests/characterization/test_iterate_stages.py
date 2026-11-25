@@ -205,6 +205,9 @@ def test_the_fixture_cold_start_failed_so_steering_ran():
 
 
 # ── pathway bookkeeping against the real tree ────────────────────────────────
+
+@pytest.mark.logic
+@needs_run
 def test_the_multicycle_table_carries_the_columns_downstream_reads(run_dir):
     _main("aggregate", "--experiment-root", str(run_dir))
     rows = _read(run_dir / "all_results_multicycle.csv")

@@ -97,6 +97,11 @@ def test_a_missing_compute_metrics_script_is_refused(rev, tmp_path, capsys):
         workdir=tmp_path,
         compute_metrics_script=tmp_path / "nope.py")) == 2
     assert "compute_metrics.py not found" in capsys.readouterr().err
+
+
+# ── the exhausted short circuit ──────────────────────────────────────────────
+
+@pytest.mark.logic
 def test_an_exhausted_pathway_writes_an_empty_record(rev, tmp_path, capsys):
     """It still has to write the file. A missing contaminated.json reads
     downstream as a stage that never ran."""
