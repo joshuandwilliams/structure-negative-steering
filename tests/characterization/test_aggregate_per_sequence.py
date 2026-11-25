@@ -413,3 +413,73 @@ def test_a_non_finite_jaccard_is_none(agg, bad):
     row = {"steered_ra_eff_vs_truth": "10.0", "steered_true_jaccard": bad,
            "reversion_verdict": "", "steered_receptor_intact": "1"}
     assert agg._ranking_composite(row) is None
+
+
+# ── the write-boundary rename ────────────────────────────────────────────────
+#
+# Internal dict keys keep their historical names so upstream code goes on
+# working; the rename happens once, here, at the point of writing. A key that
+# fails to rename appears in the CSV under a name no analysis reads, which
+# looks like a missing column rather than a renamed one.
+
+@pytest.mark.logic
+def test_dropped_keys_do_not_reach_the_output(agg):
+    row = dict.fromkeys(agg._AGG_DROP, "x")
+    row["design"] = "design_00"
+    out = agg._translate_aggregate_row(row)
+    assert not (set(out) & set(agg._AGG_DROP))
+    assert out["design"] == "design_00"
+
+
+@pytest.mark.logic
+def test_every_rename_is_applied_and_carries_its_value(agg):
+    row = {k: f"v_{k}" for k in agg._AGG_RENAME}
+    out = agg._translate_aggregate_row(row)
+    for old, new in agg._AGG_RENAME.items():
+        assert new in out, f"{old} did not become {new}"
+        assert out[new] == f"v_{old}"
+        assert old not in out or old in agg._AGG_RENAME.values()
+
+
+@pytest.mark.logic
+def test_an_unknown_key_passes_through_untouched(agg):
+    """A column the rename table does not know about is kept rather than
+    silently dropped, so a new metric is not lost on its way out."""
+    out = agg._translate_aggregate_row({"some_new_metric": "1.5"})
+    assert out["some_new_metric"] == "1.5"
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("rec,eff,expected", [
+    ("1.0", "1.0", 1),       # both inside the fold threshold
+    ("9.0", "1.0", 0),       # receptor broken
+    ("1.0", "9.0", 0),       # effector broken
+    ("5.0", "5.0", 1),       # exactly on the threshold counts as intact
+])
+def test_reverted_intactness_is_derived_from_both_chain_rmsds(
+        agg, rec, eff, expected):
+    out = agg._translate_aggregate_row({
+        "reverted_independent_receptor_rmsd": rec,
+        "reverted_independent_effector_rmsd": eff})
+    assert out["reverted_receptor_intact"] == expected
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("rec,eff", [
+    ("", "1.0"), ("1.0", ""), ("", ""),
+])
+def test_a_row_with_no_reverted_rmsds_is_blank_not_zero(agg, rec, eff):
+    """Blank means reversion was not attempted. A 0 would read as attempted
+    and failed, which is a different thing entirely."""
+    out = agg._translate_aggregate_row({
+        "reverted_independent_receptor_rmsd": rec,
+        "reverted_independent_effector_rmsd": eff})
+    assert out["reverted_receptor_intact"] == ""
+
+
+@pytest.mark.logic
+def test_an_unparseable_reverted_rmsd_is_blank_not_intact(agg):
+    out = agg._translate_aggregate_row({
+        "reverted_independent_receptor_rmsd": "x",
+        "reverted_independent_effector_rmsd": "1.0"})
+    assert out["reverted_receptor_intact"] == ""
