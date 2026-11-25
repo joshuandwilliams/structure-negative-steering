@@ -391,3 +391,136 @@ def test_the_two_rmsd_thresholds_go_to_different_stages(tmp_path, capsys):
     metrics = next(c for c in cmds if "compute-final-metrics" in c)
     assert "--rmsd-threshold 4.0" in plan
     assert "--rmsd-threshold 6.0" in metrics
+
+
+# ── resolving the engine and the container ───────────────────────────────────
+
+@pytest.mark.logic
+def test_the_engine_directory_is_found_beside_the_package(monkeypatch):
+    """Default resolution, with no NEGSTEER_BIN set."""
+    import negsteer.cli as cli
+    monkeypatch.delenv("NEGSTEER_BIN", raising=False)
+    got = cli._find_bin()
+    assert (got / "boltz2_negative_steering.py").is_file()
+
+
+@pytest.mark.logic
+def test_the_override_is_used_when_it_holds_the_engine(monkeypatch, tmp_path):
+    import negsteer.cli as cli
+    (tmp_path / "boltz2_negative_steering.py").write_text("x")
+    monkeypatch.setenv("NEGSTEER_BIN", str(tmp_path))
+    assert cli._find_bin() == tmp_path
+
+
+@pytest.mark.logic
+def test_an_override_that_holds_no_engine_is_an_error_not_a_hint(monkeypatch,
+                                                                 tmp_path):
+    """Falling through would run a different engine than the caller asked
+    for, and a typo would look like it worked."""
+    import negsteer.cli as cli
+    monkeypatch.setenv("NEGSTEER_BIN", str(tmp_path))
+    with pytest.raises(FileNotFoundError, match="holds no"):
+        cli._find_bin()
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("var", ["SINGULARITY_NAME", "SINGULARITY_CONTAINER",
+                                 "APPTAINER_NAME", "APPTAINER_CONTAINER"])
+def test_each_container_marker_is_recognised(monkeypatch, var):
+    """Inside a container the engine calls boltz directly rather than
+    nesting another singularity exec, which cannot work."""
+    import negsteer.cli as cli
+    for v in ("SINGULARITY_NAME", "SINGULARITY_CONTAINER",
+              "APPTAINER_NAME", "APPTAINER_CONTAINER"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(var, "something")
+    assert cli._in_container() is True
+
+
+@pytest.mark.logic
+def test_outside_a_container_is_false(monkeypatch):
+    import negsteer.cli as cli
+    for v in ("SINGULARITY_NAME", "SINGULARITY_CONTAINER",
+              "APPTAINER_NAME", "APPTAINER_CONTAINER"):
+        monkeypatch.delenv(v, raising=False)
+    assert cli._in_container() is False
+
+
+# ── reading a fan-out width ──────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_a_fan_out_width_comes_from_the_plan(tmp_path):
+    import negsteer.cli as cli
+    p = tmp_path / "plan.json"
+    p.write_text(json.dumps({"designs": [1, 2, 3]}))
+    assert cli._count(p, "designs") == 3
+
+
+@pytest.mark.logic
+def test_an_unreadable_plan_is_a_width_of_zero(tmp_path):
+    """Zero means the fan-out is skipped. Raising here would take the run
+    down after the GPU work was already done."""
+    import negsteer.cli as cli
+    p = tmp_path / "plan.json"
+    p.write_text("{not json")
+    assert cli._count(p, "designs") == 0
+
+
+@pytest.mark.logic
+def test_a_plan_without_that_key_is_a_width_of_zero(tmp_path):
+    import negsteer.cli as cli
+    p = tmp_path / "plan.json"
+    p.write_text(json.dumps({"other": [1, 2]}))
+    assert cli._count(p, "designs") == 0
+
+
+@pytest.mark.logic
+def test_a_missing_plan_is_a_width_of_zero(tmp_path):
+    import negsteer.cli as cli
+    assert cli._count(tmp_path / "nope.json", "designs") == 0
+
+
+# ── the plan-stage flags ─────────────────────────────────────────────────────
+
+@pytest.mark.logic
+@pytest.mark.parametrize("attr,flag", [
+    ("boltz_constraints", "--boltz-constraints"),
+    ("no_effector_template", "--no-effector-template"),
+    ("no_kernels", "--no-kernels"),
+])
+def test_each_boolean_knob_is_forwarded_only_when_set(attr, flag):
+    """A knob not set must not be forwarded, so the engine's own default
+    applies rather than this CLI restating it."""
+    import argparse
+
+    import negsteer.cli as cli
+
+    def _ns(**kw):
+        base = dict(n_designs=None, num_seeds=None, diffusion_samples=None,
+                    recycling_steps=None, max_mutations=None,
+                    candidate_pool_size=None, protected_set_source=None,
+                    contact_cutoff=None, seed=None, mode=None,
+                    rmsd_threshold=None, boltz_constraints=False,
+                    no_effector_template=False, no_kernels=False,
+                    plan_extra_args=None)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    assert flag not in cli._plan_args(_ns())
+    assert flag in cli._plan_args(_ns(**{attr: True}))
+
+
+@pytest.mark.logic
+def test_extra_plan_arguments_are_forwarded_verbatim():
+    import argparse
+
+    import negsteer.cli as cli
+    ns = argparse.Namespace(
+        n_designs=None, num_seeds=None, diffusion_samples=None,
+        recycling_steps=None, max_mutations=None, candidate_pool_size=None,
+        protected_set_source=None, contact_cutoff=None, seed=None, mode=None,
+        rmsd_threshold=None, boltz_constraints=False,
+        no_effector_template=False, no_kernels=False,
+        plan_extra_args="--something 5 --else")
+    got = cli._plan_args(ns)
+    assert got[-3:] == ["--something", "5", "--else"]
