@@ -654,3 +654,133 @@ def test_an_unsteerable_run_still_writes_the_cold_start_row(tmp_path):
     _run_plan(work, wrong, "--design-region-indices-file", str(region))
     rows = (work / "steered_results.csv").read_text().splitlines()
     assert len(rows) == 2, "expected a header and the cold-start row"
+
+
+# ── sampling mode, where there is nothing left to steer ──────────────────────
+#
+# Four conditions have to hold at once: the candidate pool is empty, a wrong
+# interface exists, it overlaps the true interface by more than half, and the
+# second-shell fallback found fewer than three residues. The engine's answer is
+# not to give up. It re-predicts the wild-type sequence under several seeds,
+# because Boltz's diffusion is stochastic and a cold start already on the right
+# face may land closer on another roll.
+#
+# The overlapping pose supplies the overlap. A design region covering the whole
+# receptor empties both the pool and the second shell, which is what a target
+# whose wrong interface sits entirely inside the protected region looks like.
+
+@pytest.fixture
+def unsteerable(tmp_path, overlapping):
+    """An overlapping cold start with every receptor position protected."""
+    region = tmp_path / "whole_receptor.txt"
+    region.write_text(f"1-{REC_LEN}\n")
+    return overlapping, region
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_sampling_mode_needs_all_four_conditions(tmp_path, unsteerable):
+    """The premise of the tests below. Without all four the engine either
+    steers or refuses, and neither exercises this path."""
+    pose, region = unsteerable
+    work = tmp_path / "work"
+    assert _run_plan(work, pose, "--design-region-indices-file",
+                     str(region)) == 0
+    plan = _plan_of(work)
+    assert plan["sampling_mode"] is True
+    assert plan["candidate_pool"] == []
+    assert plan["initial_wrong_interface_idx"]
+    assert plan["interfaces_overlap"] > 0.5
+    assert plan["second_shell_fallback_used"] is False
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_sampling_mode_does_not_skip_steering(tmp_path, unsteerable):
+    """skip_steering is deliberately left unset, because predict-one still
+    has work to do. The empty candidate pool is how the design loop knows
+    not to mutate anything."""
+    pose, region = unsteerable
+    work = tmp_path / "work"
+    _run_plan(work, pose, "--design-region-indices-file", str(region))
+    plan = _plan_of(work)
+    assert plan.get("skip_steering") is not True
+    assert plan["designs"], "sampling mode produced no design slots"
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_sampling_mode_records_why_it_fired(tmp_path, unsteerable):
+    """A run that mutated nothing looks like a failed run from its outputs
+    alone. The reason is the only thing distinguishing the two."""
+    pose, region = unsteerable
+    work = tmp_path / "work"
+    _run_plan(work, pose, "--design-region-indices-file", str(region))
+    reason = _plan_of(work)["sampling_mode_reason"]
+    assert "interfaces overlap" in reason
+    assert "second-shell fallback produced < 3 candidates" in reason
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_every_sampling_mode_design_is_the_wild_type(tmp_path, unsteerable):
+    """One unique sequence, replicated. A mutation here would be a steering
+    edit at a protected position, which is the thing the pool being empty
+    says cannot be done."""
+    pose, region = unsteerable
+    work = tmp_path / "work"
+    _run_plan(work, pose, "--design-region-indices-file", str(region))
+    plan = _plan_of(work)
+    assert plan["n_unique_sequences"] == 1
+    wild = plan["wild_type_receptor_seq"]
+    steered = work / "steered"
+    for d in sorted(p for p in steered.iterdir() if p.is_dir()):
+        seq = "".join(x for x in (d / "receptor.fasta").read_text().splitlines()
+                      if not x.startswith(">"))
+        assert seq == wild, f"{d.name} is not the wild-type sequence"
+        assert not (d / "mutations.tsv").exists() or \
+            (d / "mutations.tsv").read_text().strip().count("\n") == 0
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_prediction_count_is_slots_times_seeds(tmp_path, unsteerable):
+    """Outside sampling mode the count is unique sequences times seeds, and
+    there is only one unique sequence here. Using that would collapse the
+    run to a single prediction and defeat the re-sampling."""
+    pose, region = unsteerable
+    work = tmp_path / "work"
+    _run_plan(work, pose, "--design-region-indices-file", str(region),
+              "--n-designs", "2", "--num-seeds", "3")
+    plan = _plan_of(work)
+    assert plan["n_unique_sequences"] == 1
+    assert plan["total_predictions"] == 6
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_each_sampling_mode_slot_gets_its_own_seed(tmp_path, unsteerable):
+    """Identical seeds would make the re-predictions identical, so the
+    sampling variance the mode exists to exploit would never appear."""
+    pose, region = unsteerable
+    work = tmp_path / "work"
+    _run_plan(work, pose, "--design-region-indices-file", str(region),
+              "--n-designs", "3", "--num-seeds", "1")
+    designs = _plan_of(work)["designs"]
+    seeds = [d.get("boltz_seed", d.get("seed")) for d in designs]
+    assert len(designs) == 3
+    assert len(set(seeds)) == len(seeds), f"repeated seed in {seeds}"
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_interface_logs_are_not_written_in_sampling_mode(tmp_path,
+                                                              unsteerable):
+    """Both files list the wrong interface against the protected set. In
+    sampling mode every wrong-interface residue is protected, so the files
+    would carry no information."""
+    pose, region = unsteerable
+    work = tmp_path / "work"
+    _run_plan(work, pose, "--design-region-indices-file", str(region))
+    assert not (work / "wrong_interface_residues.txt").exists()
+    assert not (work / "true_interface_residues.txt").exists()
