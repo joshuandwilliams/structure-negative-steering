@@ -34,7 +34,7 @@ sys.path.insert(0, str(_REPO_ROOT / "bin"))
 import boltz2_negative_steering as bns  # noqa: E402
 
 GT = (_REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
-      / "6G10.pdb")
+          / "6G10.pdb")
 needs_pdb = pytest.mark.skipif(not GT.is_file(), reason="6G10 reference absent")
 
 REC_LEN, EFF_LEN = 76, 83
@@ -92,7 +92,7 @@ def _run_plan(workdir: Path, prediction: Path, *extra: str) -> int:
 
 # ── the clean cold start ─────────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_correct_cold_start_skips_steering(tmp_path):
     """Nothing to rescue means no designs, which is the short-circuit path."""
@@ -103,7 +103,7 @@ def test_a_correct_cold_start_skips_steering(tmp_path):
         "steering ran despite a correct cold start"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_plan_records_the_ground_truth_context(tmp_path):
     _run_plan(tmp_path, GT)
@@ -113,7 +113,7 @@ def test_the_plan_records_the_ground_truth_context(tmp_path):
     assert len(plan["wild_type_receptor_seq"]) == REC_LEN
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_plan_stage_writes_the_boltz_inputs(tmp_path):
     """One A3M per chain plus the YAML, or Boltz cannot be invoked at all."""
@@ -124,14 +124,14 @@ def test_the_plan_stage_writes_the_boltz_inputs(tmp_path):
     assert (tmp_path / "initial" / "input" / "input.yaml").is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_effector_template_is_written_by_default(tmp_path):
     _run_plan(tmp_path, GT)
     assert (tmp_path / "effector_template.cif").is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_no_effector_template_suppresses_it(tmp_path):
     _run_plan(tmp_path, GT, "--no-effector-template")
@@ -141,7 +141,7 @@ def test_no_effector_template_suppresses_it(tmp_path):
 
 # ── the wrong cold start, where steering actually runs ───────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_wrong_cold_start_triggers_steering(tmp_path):
     """A 25 A displacement must be measured as a failure, not a rescue."""
@@ -154,7 +154,7 @@ def test_a_wrong_cold_start_triggers_steering(tmp_path):
     assert rmsd > 5.0, f"a wrong-face pose scored {rmsd} A, which would pass"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_steering_produces_the_requested_number_of_designs(tmp_path):
     wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
@@ -169,7 +169,7 @@ def test_steering_produces_the_requested_number_of_designs(tmp_path):
     assert designs, "the steering stage produced no designs"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_steering_never_mutates_the_protected_interface(tmp_path):
     """The central invariant. Mutating the true interface would destroy the
@@ -199,7 +199,7 @@ def test_steering_never_mutates_the_protected_interface(tmp_path):
             f"{sorted(changed & true_idx)}")
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_plan_records_a_candidate_pool(tmp_path):
     wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
@@ -211,7 +211,7 @@ def test_the_plan_records_a_candidate_pool(tmp_path):
 
 # ── options that change what gets written ────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_boltz_constraints_reach_the_generated_yaml(tmp_path):
     """The constrained variant appends a pocket and contact block."""
@@ -221,7 +221,7 @@ def test_boltz_constraints_reach_the_generated_yaml(tmp_path):
         "--boltz-constraints produced no constraint block"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_without_the_flag_no_constraints_are_written(tmp_path):
     _run_plan(tmp_path, GT)
@@ -230,7 +230,7 @@ def test_without_the_flag_no_constraints_are_written(tmp_path):
         "an unconstrained run emitted a pocket block"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_skip_steering_stops_after_the_cold_start(tmp_path):
     wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
@@ -239,7 +239,7 @@ def test_skip_steering_stops_after_the_cold_start(tmp_path):
     assert not (work / "steered").is_dir(), "--skip-steering still steered"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_supplied_true_interface_overrides_detection(tmp_path):
     iface = tmp_path / "iface.txt"
@@ -250,7 +250,7 @@ def test_a_supplied_true_interface_overrides_detection(tmp_path):
     assert plan, "plan.json was not written"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_receptor_override_of_the_wrong_length_is_rejected(tmp_path):
     """Every index downstream is positional, so an indel would corrupt them."""
@@ -260,7 +260,7 @@ def test_a_receptor_override_of_the_wrong_length_is_rejected(tmp_path):
         _run_plan(tmp_path / "work", GT, "--receptor-fasta", str(bad))
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_receptor_override_of_the_right_length_is_accepted(tmp_path):
     plain = tmp_path / "probe"
@@ -277,7 +277,7 @@ def test_a_receptor_override_of_the_right_length_is_accepted(tmp_path):
 
 # ── what the method is and is not blind to ───────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_every_protected_set_source_includes_the_true_interface():
     """The scope of the method's claim, pinned to the code that sets it.
 

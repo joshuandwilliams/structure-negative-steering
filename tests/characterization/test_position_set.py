@@ -19,7 +19,7 @@ def contig():
     return cs.ContigSpec.from_resolved_string("A1-10/5/A15-20 B")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstruction:
     def test_basic(self):
         s = ps.PositionSet([1, 5, 10], chain="A", frame="designed")
@@ -50,7 +50,7 @@ class TestConstruction:
         assert len(s) == 0
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestSetOperations:
     def test_union(self):
         a = ps.PositionSet([1, 2], chain="A", frame="designed")
@@ -99,7 +99,7 @@ class TestSetOperations:
         assert sorted(design | interface) == [10, 11, 12, 13, 14, 15, 16]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestFrameConversion:
     def test_designed_to_native_drops_unmappable(self, contig):
         s = ps.PositionSet(
@@ -141,7 +141,7 @@ class TestFrameConversion:
         assert sorted(s.in_frame("designed")) == [5, 10, 15]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestImmutability:
     def test_no_attribute_assignment(self):
         s = ps.PositionSet([1], chain="A", frame="designed")
@@ -155,7 +155,7 @@ class TestImmutability:
         assert sorted(a) == [1, 2]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestChimeraXFormat:
     def test_to_chimerax(self):
         s = ps.PositionSet([5, 7, 22], chain="A", frame="designed")
@@ -187,7 +187,7 @@ class TestChimeraXFormat:
             ps.PositionSet.from_chimerax_string("/A:1,foo,3", frame="designed")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestTextFile:
     def test_round_trip(self, tmp_path):
         a = ps.PositionSet([5, 7, 22], chain="A", frame="designed")
@@ -215,7 +215,7 @@ class TestTextFile:
             ps.PositionSet.from_text_file(path, chain="A", frame="designed")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestEqualityAndHash:
     def test_equal_when_same_state(self):
         a = ps.PositionSet([1, 2], chain="A", frame="designed")
@@ -239,7 +239,7 @@ class TestEqualityAndHash:
         assert a == b
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestRepr:
     def test_small(self):
         s = ps.PositionSet([1, 2], chain="A", frame="designed")

@@ -71,7 +71,7 @@ def _stage_of(cmd: str) -> tuple[str, str | None]:
     return script, sub
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_stage_sequence_matches_the_shell_orchestrator(tmp_path, capsys):
     """The one assertion that protects the science. If this fails, the tool and
     the runner that produced the benchmark no longer do the same thing."""
@@ -80,7 +80,7 @@ def test_the_stage_sequence_matches_the_shell_orchestrator(tmp_path, capsys):
     assert [_stage_of(c) for c in cmds] == EXPECTED_STAGES
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_every_stage_the_orchestrator_runs_is_one_the_cli_runs_too():
     """Guards the direction the list above cannot: a stage added to the shell
     orchestrator later, and not to the CLI, would silently diverge."""
@@ -91,7 +91,7 @@ def test_every_stage_the_orchestrator_runs_is_one_the_cli_runs_too():
                 f"{sub} is in the CLI but not in the orchestrator"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_finalize_is_pinned_to_a_single_cycle(tmp_path, capsys):
     """--max-cycles 0 is what stops the engine submitting a follow-up cycle.
     Dropping it would make the tool spawn SLURM jobs its caller never asked
@@ -101,7 +101,7 @@ def test_finalize_is_pinned_to_a_single_cycle(tmp_path, capsys):
     assert "--max-cycles 0" in finalize
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_an_unset_knob_is_not_forwarded(tmp_path, capsys):
     """The engine owns its defaults. Restating them here would fork them, and
     the fork would be invisible until the engine's default changed."""
@@ -112,7 +112,7 @@ def test_an_unset_knob_is_not_forwarded(tmp_path, capsys):
         assert absent not in plan, f"{absent} was forwarded without being set"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_a_set_knob_reaches_the_plan_stage(tmp_path, capsys):
     _, cmds = _invoke(tmp_path, capsys, "--n-designs", "7", "--boltz-constraints")
     plan = next(c for c in cmds if " plan " in c)
@@ -120,7 +120,7 @@ def test_a_set_knob_reaches_the_plan_stage(tmp_path, capsys):
     assert "--boltz-constraints" in plan
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_plan_extra_args_is_forwarded_verbatim(tmp_path, capsys):
     """The escape hatch. A caller must be able to reach an engine flag this
     CLI does not name, or the CLI becomes a bottleneck on the engine."""
@@ -129,7 +129,7 @@ def test_plan_extra_args_is_forwarded_verbatim(tmp_path, capsys):
     assert "--mode aggressive" in plan
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_it_refuses_to_run_outside_a_container_without_an_image(tmp_path, monkeypatch):
     """Failing here is a clear error. Failing later is a Boltz stack trace
     about a missing GPU backend, which reads as a cluster problem."""
@@ -145,7 +145,7 @@ def test_it_refuses_to_run_outside_a_container_without_an_image(tmp_path, monkey
     assert cmd_run(args) == 2
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_inside_a_container_the_running_image_is_used(tmp_path, monkeypatch, capsys):
     """The caller should not have to name an image it is already running
     inside. The runtime exports the path, so use it."""
@@ -160,7 +160,7 @@ def test_inside_a_container_the_running_image_is_used(tmp_path, monkeypatch, cap
     assert "--boltz-container /images/negsteer.img" in capsys.readouterr().out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("missing", [
     "--name", "--receptor-fasta", "--effector-fasta",
     "--reference-pdb", "--design-region", "--true-interface", "--outdir",
@@ -178,7 +178,7 @@ def test_every_required_input_is_required(missing):
 
 # ── the output contract ──────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_manifest_is_written_and_names_every_contract_file(tmp_path, capsys):
     """A caller reads the manifest instead of globbing. If a name here changes
     without the contract version changing, the caller breaks silently."""
@@ -218,7 +218,7 @@ def test_the_manifest_is_written_and_names_every_contract_file(tmp_path, capsys)
     assert manifest["outputs"]["passing_summary"] is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_runtime_file_is_written_before_extract_passing_reads_it(
         tmp_path, capsys):
     """extract_passing injects run_one_runtime_sec into passing_summary.csv,
@@ -231,7 +231,7 @@ def test_the_runtime_file_is_written_before_extract_passing_reads_it(
     assert per_seq < order[0]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_tiering_failure_does_not_fail_the_run(tmp_path, monkeypatch):
     """The engine results are already on disk by stage 9. A tiering hiccup
     must not turn a completed run into a failed one."""
@@ -260,13 +260,13 @@ def test_tiering_failure_does_not_fail_the_run(tmp_path, monkeypatch):
 
 # ── locating the engine ──────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_bin_is_found_in_a_source_checkout():
     from negsteer.cli import BIN
     assert (BIN / "boltz2_negative_steering.py").is_file()
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_an_explicit_override_wins(tmp_path, monkeypatch):
     """The installed package sits in site-packages, nowhere near bin/, so the
     lookup cannot assume they are siblings. NEGSTEER_BIN is the escape hatch
@@ -284,7 +284,7 @@ def test_an_explicit_override_wins(tmp_path, monkeypatch):
     importlib.reload(cli)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_an_override_pointing_nowhere_is_an_error_not_a_fallback(tmp_path, monkeypatch):
     """Falling through to the source checkout would run a different engine
     than the caller asked for, and a typo would look like it worked."""
@@ -314,7 +314,7 @@ def _required_flags(subcommand: str) -> set[str]:
         r'add_argument\(\s*"(--[a-z0-9-]+)"[^)]*required\s*=\s*True', block))
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_plan_invocation_satisfies_every_flag_the_engine_requires(
         tmp_path, capsys, monkeypatch):
     """The gap that let a broken command reach the cluster.
@@ -334,14 +334,14 @@ def test_the_plan_invocation_satisfies_every_flag_the_engine_requires(
     assert not missing, f"plan requires {missing}, which the CLI does not pass"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_engine_really_does_require_a_container_even_in_one():
     """Pins the surprise itself. If the engine ever relaxes this, the extra
     argument above becomes unnecessary rather than wrong, and this says so."""
     assert "--boltz-container" in _required_flags("plan")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_cli_can_set_every_plan_knob_the_config_driver_can(tmp_path, capsys):
     """The omission the GPU comparison caught, generalised.
 
@@ -379,7 +379,7 @@ def test_the_cli_can_set_every_plan_knob_the_config_driver_can(tmp_path, capsys)
         "A caller cannot reach them, and the engine default applies silently.")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_two_rmsd_thresholds_go_to_different_stages(tmp_path, capsys):
     """They are separate config keys and mean different things. The plan one
     decides whether steering runs at all; the postprocess one only scores what

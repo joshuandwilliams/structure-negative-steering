@@ -50,7 +50,7 @@ def _truth():
 # ── Construction validation ────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstruction:
     def test_basic_cold_start(self):
         s = sr.StageResult(
@@ -139,7 +139,7 @@ def _make_reversion(predictions, mutated_positions, applies_to=("design_03",)):
         applies_to_designs=list(applies_to))
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestColdStartVerdicts:
     def test_all_clean(self):
         # ra_eff < 5, intact_rmsd < 5 → "clean"
@@ -169,7 +169,7 @@ class TestColdStartVerdicts:
         assert s.per_seed_verdicts(t, _truth()) == ["no_data"]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestSteeredVerdicts:
     def _setup(self):
         mp = PositionSet([5, 7, 12], chain="A", frame="prediction")
@@ -200,7 +200,7 @@ class TestSteeredVerdicts:
         assert s.per_seed_verdicts(t, _truth(), contam) == ["pose_collapses"]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestReversionVerdicts:
     def _setup(self):
         mp = PositionSet([5, 7, 12], chain="A", frame="prediction")
@@ -232,7 +232,7 @@ class TestReversionVerdicts:
 # ── CL-3 gating rule (the headline test) ──────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestCL3SteeredGating:
     """CL-3 rule: reversion runs iff n_contaminated >= ceil(n_correctly_placed / 2)."""
 
@@ -317,7 +317,7 @@ class TestCL3SteeredGating:
 # ── Other gating ─────────────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestColdStartGating:
     def test_all_clean_skips_steering(self):
         preds = [_fake_pred(2.0, 1.0)] * 3
@@ -333,7 +333,7 @@ class TestColdStartGating:
         assert s.triggers_next_stage(t, _truth()) is True
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestReversionGating:
     def test_reversion_never_triggers_next_stage(self):
         mp = PositionSet([5], chain="A", frame="prediction")
@@ -347,7 +347,7 @@ class TestReversionGating:
 # ── n_pass ──────────────────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestNPass:
     def test_cold_start_pass_counts_clean(self):
         preds = [_fake_pred(2.0, 1.0), _fake_pred(10.0, 1.0), _fake_pred(2.0, 1.0)]

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name="negsteer_single_run"
+#SBATCH --job-name="negsteer_test_run"
 #SBATCH -p jic-gpu
 #SBATCH -N 1
 #SBATCH -n 1
@@ -19,17 +19,19 @@
 # reversion and extract_passing. All of them need a GPU and the Boltz image, so
 # they are untestable anywhere else.
 #
-# tests/single_run_test/config.yml is 6Q76 with every cost knob at its floor, one design
-# by one seed by one diffusion sample. That is roughly 3 Boltz calls against the
-# ~305 a benchmark target runs. Expect minutes, not hours.
+# tests/test_run/config.yml is 6G10 at 3 designs x 3 seeds x 5 samples. Its cold
+# start fails at 23.9 A against the 5 A threshold, so the steering fan-out runs,
+# and its committed benchmark run contaminated designs, so the reversion
+# fan-out runs too. Only negsteer_n_designs is turned down, 3 against the
+# shipped 20, so the fan-out is 9 predictions rather than 60.
 #
 # Usage:
-#   sbatch tests/run_single_run_test.slurm.sh
-#   sbatch tests/run_single_run_test.slurm.sh --keep     # keep a previous run
-#   sbatch tests/run_single_run_test.slurm.sh --via-cli  # through `negsteer run`
+#   sbatch tests/test_run.slurm.sh
+#   sbatch tests/test_run.slurm.sh --keep     # keep a previous run
+#   sbatch tests/test_run.slurm.sh --via-cli  # through `negsteer run`
 #
 # --via-cli runs the SAME config through the tool interface instead of the
-# shell orchestrator, into tests/single_run_test/run_cli/. Everything else is identical,
+# shell orchestrator, into tests/test_run/run_cli/. Everything else is identical,
 # so the two run directories are directly comparable and
 # test_single_run_cli_matches_orchestrator.py asserts they agree.
 #
@@ -38,10 +40,10 @@
 # claim; this asserts the same commands produce the same numbers on a GPU.
 # Run the default first, then --via-cli, then the comparison has both halves.
 #
-# The run lands in tests/single_run_test/run/ and is gitignored. Once it exists, the
+# The run lands in tests/test_run/run/ and is gitignored. Once it exists, the
 # assertions can also be re-run on their own, anywhere:
 #
-#   pytest -m hpc tests/characterization/test_engine_single_run.py
+#   pytest -m check_test_run tests/characterization/test_engine_single_run.py
 #
 # To measure how much of bin/ the run actually exercised, set
 # NEGSTEER_SINGLE_RUN_COVERAGE=1. That wraps every in-container Python call in
@@ -57,14 +59,14 @@ set -euo pipefail
 # script's own location for a plain `bash` invocation.
 if [ -n "${NEGSTEER_REPO:-}" ]; then
     REPO_DIR="${NEGSTEER_REPO}"
-elif [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -f "${SLURM_SUBMIT_DIR}/tests/single_run_test/config.yml" ]; then
+elif [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -f "${SLURM_SUBMIT_DIR}/tests/test_run/config.yml" ]; then
     REPO_DIR="${SLURM_SUBMIT_DIR}"
-elif [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -f "${SLURM_SUBMIT_DIR}/../tests/single_run_test/config.yml" ]; then
+elif [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -f "${SLURM_SUBMIT_DIR}/../tests/test_run/config.yml" ]; then
     REPO_DIR="$(cd "${SLURM_SUBMIT_DIR}/.." && pwd)"
 else
     REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
-SINGLE_RUN_DIR="${REPO_DIR}/tests/single_run_test"
+SINGLE_RUN_DIR="${REPO_DIR}/tests/test_run"
 CONFIG="${SINGLE_RUN_DIR}/config.yml"
 ENTRY="${REPO_DIR}/scripts/negative_steering.slurm.sh"
 
@@ -97,7 +99,7 @@ if [ -d "$RUN_DIR" ] && [ -z "$KEEP" ]; then
     [ -z "$VIA_CLI" ] && rm -rf "${SINGLE_RUN_DIR}/inputs"
 fi
 
-echo "=== single-run test: 6Q76, 1 design x 1 seed x 1 sample ==="
+echo "=== test run: $(grep -E '^[[:space:]]*name:' "$CONFIG" | head -1 | sed -E 's/^[^:]*:[[:space:]]*//; s/"//g') ==="
 echo "config: ${CONFIG}"
 echo "path:   $([ -n "$VIA_CLI" ] && echo 'negsteer run (tool interface)' || echo 'shell orchestrator')"
 date
@@ -114,7 +116,12 @@ if [ -n "$VIA_CLI" ]; then
 
     CONTAINER="$(grep -E '^[[:space:]]*boltz_container:' "$CONFIG" | head -1 \
         | sed -E 's/^[^:]*:[[:space:]]*//; s/^"//; s/"[[:space:]]*$//')"
-    REFERENCE="$(cd "$SINGLE_RUN_DIR" && realpath ../../experiments/benchmarking/unconstrained/6Q76/6Q76.pdb)"
+    # Read the reference from the config rather than hardcoding a target. The
+    # config used to be 6Q76 and is now 6G10; a literal path silently pointed
+    # the CLI run at a different complex than the orchestrator run it is
+    # compared against, which is the one thing this comparison must not do.
+    REFERENCE="$(cd "$SINGLE_RUN_DIR" && realpath "$(grep -E '^[[:space:]]*reference_pdb:' "$CONFIG" \
+        | head -1 | sed -E 's/^[^:]*:[[:space:]]*//; s/^"//; s/"[[:space:]]*$//')")"
 
     # python -m rather than the bare `negsteer`, because the image has not been
     # rebuilt yet. Both reach the same CLI; PYTHONPATH is what makes the
@@ -124,7 +131,7 @@ if [ -n "$VIA_CLI" ]; then
         --bind "$(dirname "$REFERENCE"):$(dirname "$REFERENCE")" \
         "$CONTAINER" \
         env PYTHONPATH="${REPO_DIR}" python -m negsteer.cli run \
-            --name              6Q76_single_run \
+            --name              "$(grep -E '^[[:space:]]*name:' "$CONFIG" | head -1 | sed -E 's/^[^:]*:[[:space:]]*//; s/"//g')" \
             --receptor-fasta    "${SINGLE_RUN_DIR}/inputs/receptor.fasta" \
             --effector-fasta    "${SINGLE_RUN_DIR}/inputs/effector.fasta" \
             --reference-pdb     "$REFERENCE" \
@@ -158,8 +165,13 @@ echo "=== engine finished in $((END - START)) s ==="
 # Assert on what it produced. Without this the job is just a run, not a test.
 echo
 echo "=== asserting on the run ==="
-PYTEST_CONTAINER="${PYTEST_CONTAINER:-/hpc-home/jowillia/singularity/pytest/pytest_runner.img}"
-if [ -f "$PYTEST_CONTAINER" ]; then
+# The Boltz image now carries pytest, pytest-cov and coverage, so the
+# assertions run in the SAME image the engine ran in. That is what makes
+# coverage possible: coverage has to be installed in the process that
+# executes the code, and the engine executes inside this image.
+TEST_CONTAINER="${NEGSTEER_TEST_CONTAINER:-$(grep -E '^[[:space:]]*boltz_container:' "$CONFIG" \
+    | head -1 | sed -E 's/.*:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/')}"
+if [ -f "$TEST_CONTAINER" ]; then
     # The same assertions run against whichever path produced the run.
     # NEGSTEER_SINGLE_RUN_DIR is how test_engine_single_run.py is pointed elsewhere.
     SINGLE_RUN_ASSERT_DIR="$SINGLE_RUN_DIR"
@@ -177,14 +189,26 @@ if [ -f "$PYTEST_CONTAINER" ]; then
         # assertion that actually validates the tool.
         TESTS="$TESTS ${REPO_DIR}/tests/characterization/test_single_run_cli_matches_orchestrator.py"
     fi
-    # addopts is cleared: pyproject asks for --cov on every invocation and the
-    # runner image has no pytest-cov, so pytest aborts on an unrecognised
-    # argument before collecting anything. Same reason as run_pytest.slurm.sh.
-    exec singularity exec --bind "$REPO_DIR" "$PYTEST_CONTAINER" \
+    # addopts is cleared here on purpose. These tests only READ the run's
+    # output, so measuring them would report the assertions rather than the
+    # engine. The engine's own coverage comes from NEGSTEER_COVERAGE below.
+    singularity exec --bind "$REPO_DIR" "$TEST_CONTAINER" \
         env NEGSTEER_SINGLE_RUN_DIR="$SINGLE_RUN_ASSERT_DIR" \
-        python -m pytest -o addopts="" $TESTS -m hpc -ra --no-header
+        python -m pytest -o addopts="" $TESTS -m check_test_run -ra --no-header
+    PYTEST_RC=$?
+
+    # Merge the per-stage .coverage.* files the engine dropped, if any.
+    if [ -n "${NEGSTEER_COVERAGE:-}" ]; then
+        echo
+        echo "=== combining engine coverage ==="
+        singularity exec --bind "$REPO_DIR" "$TEST_CONTAINER" \
+            sh -c "cd '$REPO_DIR' && python -m coverage combine && python -m coverage report --skip-covered | tail -25"
+        echo
+        echo "Merge with a laptop run:  coverage combine .coverage <this .coverage>"
+    fi
+    exit $PYTEST_RC
 else
-    echo "WARNING: no pytest image at ${PYTEST_CONTAINER}, skipping the assertions." >&2
-    echo "         Build it from containers/pytest_runner.def, or run them yourself:" >&2
-    echo "         pytest -m hpc tests/characterization/test_engine_single_run.py" >&2
+    echo "WARNING: no image at ${TEST_CONTAINER}, skipping the assertions." >&2
+    echo "         Build it from containers/boltz2_negsteer_testing.def, or:" >&2
+    echo "         pytest -m check_test_run tests/characterization/test_engine_single_run.py" >&2
 fi

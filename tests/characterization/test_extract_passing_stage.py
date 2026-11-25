@@ -51,7 +51,7 @@ def _main(*args: str) -> int:
 
 # ── the CLI over a real aggregate ────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_passing_summary_is_rebuilt_from_the_aggregate(run_dir):
     before = _read(run_dir / "passing_summary.csv")
@@ -64,7 +64,7 @@ def test_passing_summary_is_rebuilt_from_the_aggregate(run_dir):
         f"rebuilt {len(after)} passing rows from a run that recorded {len(before)}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_the_gate_admits_fewer_rows_than_the_aggregate(run_dir):
     """Not every design passes. If it did, the gate would be doing nothing."""
@@ -78,7 +78,7 @@ def test_the_gate_admits_fewer_rows_than_the_aggregate(run_dir):
         f"the gate admitted all {len(aggregate)} designs, so it filtered nothing")
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_every_passing_row_carries_the_columns_tiering_reads(run_dir):
     out = run_dir / "rebuilt.csv"
@@ -92,7 +92,7 @@ def test_every_passing_row_carries_the_columns_tiering_reads(run_dir):
         assert col in rows[0], f"passing_summary lacks {col}, which tiering needs"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_rebuilding_without_per_seed_rows_still_works(run_dir):
     """The per-seed table is an enrichment, not a requirement."""
@@ -102,7 +102,7 @@ def test_rebuilding_without_per_seed_rows_still_works(run_dir):
     assert out.is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_an_empty_aggregate_produces_an_empty_summary(run_dir):
     """The tier-none case. A header with no rows, not a crash."""
@@ -117,7 +117,7 @@ def test_an_empty_aggregate_produces_an_empty_summary(run_dir):
 
 # ── extract_row on real aggregate rows ───────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_extract_row_maps_every_real_aggregate_row():
     rows = _read(FIXTURE / "aggregated_results.csv")
@@ -128,7 +128,7 @@ def test_extract_row_maps_every_real_aggregate_row():
             f"extract_row returned {type(got)} for design {r.get('design')}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_run
 def test_extract_row_is_stage_aware_about_reversion():
     """ra_eff_vs_truth must come from the reverted value when one exists.
@@ -148,7 +148,7 @@ def test_extract_row_is_stage_aware_about_reversion():
             "a reversion-attempted design was scored on its steered value"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_extract_row_of_an_empty_row_does_not_raise():
     got = ep.extract_row({}, None)
     assert got is None or isinstance(got, dict)
@@ -156,13 +156,13 @@ def test_extract_row_of_an_empty_row_does_not_raise():
 
 # ── negative_steering_run: locating Boltz outputs ────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_boltz_outputs_are_not_found_in_an_empty_directory(tmp_path):
     pdb, conf = nsr._find_boltz_outputs(tmp_path)
     assert pdb is None and conf is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_boltz_outputs_are_located_by_shape(tmp_path):
     """The canonical layout is boltz_results_*/predictions/*/ with a pdb."""
     pred = tmp_path / "boltz_results_input" / "predictions" / "input"
@@ -173,7 +173,7 @@ def test_boltz_outputs_are_located_by_shape(tmp_path):
     assert pdb is None or pdb.suffix == ".pdb"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_mutations_tsv_reads_into_a_position_set(tmp_path):
     tsv = tmp_path / "mutations.tsv"
     tsv.write_text("pos1\twt\tmut\n5\tA\tK\n7\tC\tW\n")
@@ -181,12 +181,12 @@ def test_mutations_tsv_reads_into_a_position_set(tmp_path):
     assert got is None or len(got) == 2
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_an_absent_mutations_tsv_is_none_not_a_crash(tmp_path):
     assert nsr._read_mutations_positionset(tmp_path / "nope.tsv", "A") is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_seed_stage_dirs_of_an_empty_cycle_are_empty(tmp_path):
     cycle = tmp_path / "cycle_0"
     cycle.mkdir()

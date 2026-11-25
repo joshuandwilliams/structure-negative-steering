@@ -36,7 +36,7 @@ def _all_configs() -> list[Path]:
     return found
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @pytest.mark.parametrize(
     "config", _all_configs(), ids=lambda p: f"{p.parent.parent.name}/{p.parent.name}"
 )
@@ -45,14 +45,14 @@ def test_bash_resolution_matches_pyyaml(config: Path) -> None:
     assert _resolve(config) == (parsed or "")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_override_wins_over_the_config(tmp_path: Path) -> None:
     cfg = tmp_path / "config.yml"
     cfg.write_text('boltz_container: "/from/config.img"\n')
     assert _resolve(cfg, "/from/cli.img") == "/from/cli.img"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_absent_key_and_absent_file_resolve_to_nothing(tmp_path: Path) -> None:
     """An empty answer is not an error. CI has PyYAML and no singularity, so
     READ_CONFIG's host-python branch is the one that has to take over."""
@@ -62,7 +62,7 @@ def test_absent_key_and_absent_file_resolve_to_nothing(tmp_path: Path) -> None:
     assert _resolve(tmp_path / "missing.yml") == ""
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("line", [
     'boltz_container: "/q/double.img"',
     "boltz_container: '/q/single.img'",

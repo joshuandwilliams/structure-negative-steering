@@ -58,7 +58,7 @@ def _referenced(path: Path) -> set[str]:
     return set(re.findall(r"params\.(\w+)", _strip_comments(path.read_text()))) - BUILT_IN
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_main_nf_assigns_no_params_in_its_body() -> None:
     """An assignment here is silently invisible to the module."""
     offenders = re.findall(r"^\s*params\.(\w+)\s*=", MAIN_NF.read_text(), flags=re.M)
@@ -68,7 +68,7 @@ def test_main_nf_assigns_no_params_in_its_body() -> None:
     )
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("source", [STAGES_NF, MAIN_NF], ids=lambda p: p.name)
 def test_every_referenced_param_is_declared(source: Path) -> None:
     missing = sorted(_referenced(source) - _declared_in_config())

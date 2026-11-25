@@ -61,7 +61,7 @@ def _pngs(d: Path) -> list[Path]:
 
 # ── the cohort plots ─────────────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_cohort_plots_render_every_figure(tmp_path):
     _run(COHORT_PLOTS, "--csv", str(COHORT_CSV), "--runs-dir", str(RUNS),
@@ -80,7 +80,7 @@ def test_cohort_plots_render_every_figure(tmp_path):
     assert expected <= produced, f"missing figures: {sorted(expected - produced)}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_cohort_plots_are_not_blank(tmp_path):
     """An empty-data path still writes a PNG, so size is the check that matters."""
@@ -91,7 +91,7 @@ def test_cohort_plots_are_not_blank(tmp_path):
             f"{p.name} is {p.stat().st_size} bytes, which is an empty plot"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_cohort_plots_run_without_a_runs_dir(tmp_path):
     """The per-seed figures degrade rather than failing when runs/ is absent."""
@@ -99,7 +99,7 @@ def test_cohort_plots_run_without_a_runs_dir(tmp_path):
     assert _pngs(tmp_path), "no figures at all were produced"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 @pytest.mark.parametrize("flag,value", [
     ("--complex-plddt-min", "0.8"),
@@ -114,7 +114,7 @@ def test_confidence_thresholds_are_accepted(tmp_path, flag, value):
     assert (tmp_path / "negsteer_filter_cascade.png").is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_input_design_region_is_accepted(tmp_path):
     """The mutation-impact figure maps mutations onto the input PDB positions."""
@@ -128,7 +128,7 @@ def test_input_design_region_is_accepted(tmp_path):
 
 # ── the within-sequence plots ────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_within_sequence_plots_render_every_figure(tmp_path):
     _run(WITHIN_PLOTS, "--runs-dir", str(RUNS),
@@ -141,7 +141,7 @@ def test_within_sequence_plots_render_every_figure(tmp_path):
         assert name in produced, f"missing {name}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_within_sequence_plots_are_not_blank(tmp_path):
     _run(WITHIN_PLOTS, "--runs-dir", str(RUNS),
@@ -153,7 +153,7 @@ def test_within_sequence_plots_are_not_blank(tmp_path):
 
 # ── the loaders, in process ──────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_cohort_loader_reads_every_sequence():
     import negsteer_plots as npl
@@ -164,7 +164,7 @@ def test_cohort_loader_reads_every_sequence():
     assert tiers == {"A", "B", "C", "none"}, f"fixture lost a tier: {tiers}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_seed_outcome_loader_classifies_every_row():
     import negsteer_plots as npl
@@ -177,7 +177,7 @@ def test_seed_outcome_loader_classifies_every_row():
         assert outcome, f"row has no outcome: {r.get('design')}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_within_sequence_loader_reads_the_runs():
     import negsteer_within_sequence_plots as nwp
@@ -190,7 +190,7 @@ def test_within_sequence_loader_reads_the_runs():
 
 # ── degenerate input ─────────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_empty_plot_helper_still_writes_a_file(tmp_path):
     """Every figure has an empty-data path, so it must produce something."""
     import negsteer_plots as npl
@@ -200,7 +200,7 @@ def test_empty_plot_helper_still_writes_a_file(tmp_path):
     assert out.is_file() and out.stat().st_size > 0
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_fixture
 def test_a_cohort_with_one_sequence_still_plots(tmp_path):
     """A single-row cohort exercises the degenerate axis-scaling paths."""

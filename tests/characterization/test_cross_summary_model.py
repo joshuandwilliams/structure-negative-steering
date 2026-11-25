@@ -30,7 +30,7 @@ def _write_csv(path: Path, rows):
             w.writerow(r)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_from_dict_typed_fields():
     row = {
         "mpnn_sequence": "design_1_seq_0",
@@ -56,7 +56,7 @@ def test_from_dict_typed_fields():
     assert r.extras == {"extra_col": "leftover"}
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_empty_fields_become_none():
     row = {
         "mpnn_sequence": "design_1_seq_0",
@@ -78,7 +78,7 @@ def test_empty_fields_become_none():
     assert r.run_one_runtime_sec is None
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_snapshot_survivors_and_tier_breakdown(tmp_path: Path):
     rows = [
         {"mpnn_sequence": "design_1_seq_0", "row_type": "steered",
@@ -127,7 +127,7 @@ def test_snapshot_survivors_and_tier_breakdown(tmp_path: Path):
     ]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_design_cohort_from_cross_summary_csv_returns_snapshot(tmp_path: Path):
     """DesignCohort.from_cross_summary_csv is the typed-snapshot path."""
     rows = [

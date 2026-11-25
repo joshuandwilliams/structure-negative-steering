@@ -81,7 +81,7 @@ def contam():
 # ── Construction ───────────────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstruction:
     def test_basic(self, tmp_path, truth):
         cs = _make_cold_start([_fake_pred(2.0, 1.0)] * 3)
@@ -122,7 +122,7 @@ class TestConstruction:
 # ── Cold-start path (no steering ran) ──────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestColdStartPath:
     def test_all_clean_cold_start_is_tier_A(self, tmp_path, truth):
         cs = _make_cold_start([_fake_pred(2.0, 1.0)] * 3)
@@ -164,7 +164,7 @@ class TestColdStartPath:
 # ── Steered + reversion path ────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestSteeredOnlyPath:
     """Steering ran but no reversion was triggered (CL-3 rule didn't fire)."""
 
@@ -185,7 +185,7 @@ class TestSteeredOnlyPath:
         assert run.tier(t) == "A"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestReversionPath:
     """Steering ran + reversion ran."""
 
@@ -264,7 +264,7 @@ class TestReversionPath:
         assert run.tier(t) == "B"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestReversionForDesign:
     def test_finds_matching_reversion(self, tmp_path, truth, contam):
         cs = _make_cold_start([_fake_pred(2.0, 1.0)])
@@ -294,7 +294,7 @@ class TestReversionForDesign:
         assert run._reversion_for_design("design_05") is rev
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestImmutability:
     def test_frozen(self, tmp_path, truth):
         cs = _make_cold_start([_fake_pred(2.0, 1.0)])

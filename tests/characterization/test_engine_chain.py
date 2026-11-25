@@ -42,7 +42,7 @@ _STAGE_MODULE = {
 import boltz2_negative_steering as bns  # noqa: E402
 
 GT = (_REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
-      / "6G10.pdb")
+          / "6G10.pdb")
 needs_pdb = pytest.mark.skipif(not GT.is_file(), reason="6G10 reference absent")
 
 N_DESIGNS = 2
@@ -180,7 +180,7 @@ def _read(path: Path) -> list[dict]:
 
 # ── the chain produced what the later stages need ────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_wrong_pose_is_measured_as_wrong(built_run):
     """44 A, so the run cannot short-circuit past the steering stage."""
@@ -188,14 +188,14 @@ def test_the_wrong_pose_is_measured_as_wrong(built_run):
     assert float(plan["initial_receptor_aligned_effector_rmsd"]) > 20.0
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_every_requested_design_was_staged(built_run):
     designs = sorted(d.name for d in (built_run / "steered").iterdir() if d.is_dir())
     assert len(designs) == N_DESIGNS, f"staged {designs}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_every_staged_design_carries_its_mutation_record(built_run):
     """mutations.tsv is what reversion later reads to undo the steering."""
@@ -204,7 +204,7 @@ def test_every_staged_design_carries_its_mutation_record(built_run):
         assert (d / "receptor.fasta").is_file(), f"{d.name} has no receptor.fasta"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_predict_one_wrote_a_prediction_for_every_design(built_run):
     for d in sorted(p for p in (built_run / "steered").iterdir() if p.is_dir()):
@@ -212,7 +212,7 @@ def test_predict_one_wrote_a_prediction_for_every_design(built_run):
         assert preds, f"{d.name} has no prediction"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_collect_wrote_a_row_for_the_cold_start_and_every_design(built_run):
     rows = _read(built_run / "steered_results.csv")
@@ -222,7 +222,7 @@ def test_collect_wrote_a_row_for_the_cold_start_and_every_design(built_run):
     assert (built_run / "summary.txt").is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_steered_sequences_differ_from_the_wild_type(built_run):
     """If steering changed nothing the whole run would be a no-op."""
@@ -237,7 +237,7 @@ def test_the_steered_sequences_differ_from_the_wild_type(built_run):
     assert changed_any, "no design differs from the wild type"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_no_design_mutates_the_protected_interface(built_run):
     """The invariant the method depends on, checked on a real steering run."""
@@ -260,7 +260,7 @@ def test_no_design_mutates_the_protected_interface(built_run):
 
 # ── the iterate stages, on the built run ─────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_aggregate_runs_over_the_built_tree(run_dir):
     assert _iterate("aggregate", "--experiment-root", str(run_dir)) == 0
@@ -268,7 +268,7 @@ def test_aggregate_runs_over_the_built_tree(run_dir):
     assert (run_dir / "pathways.json").is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_aggregate_per_sequence_runs_over_the_built_tree(run_dir):
     _iterate("aggregate", "--experiment-root", str(run_dir))
@@ -276,7 +276,7 @@ def test_aggregate_per_sequence_runs_over_the_built_tree(run_dir):
     assert (run_dir / "aggregated_results.csv").is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_build_contaminated_requires_the_prefilter_first(run_dir, capsys):
     """The stages are ordered. Running one out of turn fails loudly.
@@ -292,7 +292,7 @@ def test_build_contaminated_requires_the_prefilter_first(run_dir, capsys):
 
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_plan_reversions_runs(run_dir):
     _iterate("build-contaminated", "--workdir", str(run_dir))
@@ -300,7 +300,7 @@ def test_plan_reversions_runs(run_dir):
     assert rc == 0 or rc == 1
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_kickoff_distances_needs_a_cycle_directory(run_dir, capsys):
     """--experiment-root expects the run root, which holds cycle_0/.
@@ -317,7 +317,7 @@ def test_kickoff_distances_needs_a_cycle_directory(run_dir, capsys):
 
 # ── the collect stage's own numbers ──────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_collected_rows_carry_a_measured_pose(built_run):
     rows = _read(built_run / "steered_results.csv")
@@ -328,7 +328,7 @@ def test_collected_rows_carry_a_measured_pose(built_run):
         assert 0.0 <= float(r["receptor_aligned_effector_rmsd"]) < 500.0
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_every_prediction_scored_the_same_wrong_pose(built_run):
     """Every design got the same stubbed structure, so the RMSDs must agree.
@@ -360,7 +360,7 @@ def test_every_prediction_scored_the_same_wrong_pose(built_run):
 
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_build_contaminated_refuses_without_the_prefilter(run_dir, capsys):
     (run_dir / "prefilter.json").unlink(missing_ok=True)
@@ -369,7 +369,7 @@ def test_build_contaminated_refuses_without_the_prefilter(run_dir, capsys):
     assert not (run_dir / "contaminated.json").is_file()
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_plan_reversions_with_no_contamination_stages_nothing(run_dir):
     """No contaminated designs means no reversions to plan, not a failure."""
@@ -381,7 +381,7 @@ def test_plan_reversions_with_no_contamination_stages_nothing(run_dir):
         "reversions were staged despite no contamination record"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_harvest_reversions_writes_an_empty_result_without_a_plan(run_dir, capsys):
     """It records an explicit empty result rather than leaving no file.

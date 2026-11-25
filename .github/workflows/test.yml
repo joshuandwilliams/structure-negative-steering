@@ -32,7 +32,7 @@ jobs:
       # Three tests skip here and that is expected. addopts carries -ra, so the
       # reasons are printed in the log rather than being asserted on.
       - name: Run the local test tiers
-        run: pytest -m "local_unit or local_integration"
+        run: pytest -m logic
 
   # The workflow is not runnable in CI: every stage shells out to singularity,
   # and the GPU stages need Boltz. -stub-run replaces each script with its stub,
@@ -94,5 +94,5 @@ jobs:
         # has no stub, so it runs the real driver against pip-installed PyYAML.
         # Nothing else in the workflow may take that path.
         run: |
-          nextflow run main.nf --targets tests/single_run_test/config.yml \
+          nextflow run main.nf --targets tests/test_run/config.yml \
             -stub-run -profile local --allow_host_python

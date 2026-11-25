@@ -59,7 +59,7 @@ def _write_config(tmp_path: Path, **overrides) -> Path:
 
 # ── config validation ────────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_missing_required_key_is_rejected(drv, tmp_path, capsys):
     cfg = tmp_path / "config.yml"
     cfg.write_text('name: "X"\nreceptor_chain: "A"\n')
@@ -67,13 +67,13 @@ def test_missing_required_key_is_rejected(drv, tmp_path, capsys):
     assert "missing required keys" in capsys.readouterr().err
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_absent_config_is_rejected(drv, tmp_path, capsys):
     assert drv.main([str(tmp_path / "nope.yml")]) == 2
     assert "config not found" in capsys.readouterr().err
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_absent_reference_pdb_is_rejected(drv, tmp_path, capsys):
     cfg = _write_config(tmp_path)
     (tmp_path / "ref.pdb").unlink()
@@ -81,7 +81,7 @@ def test_absent_reference_pdb_is_rejected(drv, tmp_path, capsys):
     assert "reference_pdb not found" in capsys.readouterr().err
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_non_mapping_config_is_rejected(drv, tmp_path):
     cfg = tmp_path / "config.yml"
     cfg.write_text("- just\n- a\n- list\n")
@@ -89,7 +89,7 @@ def test_non_mapping_config_is_rejected(drv, tmp_path):
         drv.main([str(cfg)])
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_provide_interface_mode_needs_a_file(drv, tmp_path):
     cfg = _write_config(tmp_path, interface_mode="provide")
     with pytest.raises(SystemExit, match="interface_residues_file"):
@@ -98,7 +98,7 @@ def test_provide_interface_mode_needs_a_file(drv, tmp_path):
 
 # ── the engine command line ──────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_steering_knobs_reach_the_engine(drv, tmp_path):
     """Every negsteer_* key becomes the matching engine flag."""
     cfg = _write_config(
@@ -123,7 +123,7 @@ def test_steering_knobs_reach_the_engine(drv, tmp_path):
         assert f"{flag} {value}" in plan, f"{flag} did not reach the engine"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("key,flag,when", [
     ("negsteer_boltz_constraints", "--boltz-constraints", True),
     ("negsteer_no_kernels", "--no-kernels", True),
@@ -135,7 +135,7 @@ def test_opt_in_flags_appear_only_when_set(drv, tmp_path, key, flag, when):
     assert flag not in off
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_effector_template_flag_is_inverted(drv, tmp_path):
     """The config key is positive, the engine flag is negative."""
     on = drv._build_plan_extra_args(drv._load_yaml(
@@ -146,7 +146,7 @@ def test_effector_template_flag_is_inverted(drv, tmp_path):
     assert "--no-effector-template" in off
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_relative_paths_resolve_against_the_config_directory(drv, tmp_path):
     cfg = _write_config(tmp_path)
     data = drv._load_yaml(cfg)
@@ -156,7 +156,7 @@ def test_relative_paths_resolve_against_the_config_directory(drv, tmp_path):
     assert Path(gt).is_absolute() and Path(gt) == tmp_path / "ref.pdb"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_derive_mode_passes_the_contact_cutoff(drv, tmp_path):
     cfg = _write_config(tmp_path, interface_contact_cutoff=4.5)
     cmd = drv._build_prepare_cmd(drv._load_yaml(cfg), tmp_path, tmp_path / "inputs")
@@ -164,7 +164,7 @@ def test_derive_mode_passes_the_contact_cutoff(drv, tmp_path):
     assert cmd[cmd.index("--contact-cutoff") + 1] == "4.5"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_design_region_file_is_used_when_it_is_not_a_keyword(drv, tmp_path):
     cfg = _write_config(tmp_path, design_region="./my_region.txt")
     cmd = drv._build_prepare_cmd(drv._load_yaml(cfg), tmp_path, tmp_path / "inputs")
@@ -174,7 +174,7 @@ def test_design_region_file_is_used_when_it_is_not_a_keyword(drv, tmp_path):
 
 # ── launch.sh ────────────────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_launch_script_is_executable_and_runs_the_orchestrator(drv, tmp_path):
     run_dir = tmp_path / "run"
     cmd = ["bash", "/x/negative_steering_run_one.sh", "--seq-name", "a b"]
@@ -187,7 +187,7 @@ def test_launch_script_is_executable_and_runs_the_orchestrator(drv, tmp_path):
     assert shlex.split(body.splitlines()[-1])[1:] == cmd
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_dry_run_writes_nothing(drv, tmp_path, capsys):
     cfg = _write_config(tmp_path)
     assert drv.main([str(cfg), "--dry-run"]) == 0
@@ -196,7 +196,7 @@ def test_dry_run_writes_nothing(drv, tmp_path, capsys):
     assert "prepare inputs" in capsys.readouterr().out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_dry_run_reports_when_no_container_is_configured(drv, tmp_path, capsys):
     cfg = tmp_path / "config.yml"
     cfg.write_text('name: "T"\nreference_pdb: "./ref.pdb"\n'
@@ -206,7 +206,7 @@ def test_dry_run_reports_when_no_container_is_configured(drv, tmp_path, capsys):
     assert "no boltz_container" in capsys.readouterr().out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_missing_prepared_inputs_are_detected(drv, tmp_path):
     with pytest.raises(SystemExit, match="prepare did not produce"):
         drv._check_inputs_present(tmp_path)
@@ -214,7 +214,7 @@ def test_missing_prepared_inputs_are_detected(drv, tmp_path):
 
 # ── the committed configs ────────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @pytest.mark.skipif(not REAL_CONFIG.is_file(), reason="benchmark config not present")
 def test_committed_config_produces_the_expected_engine_call(drv):
     """The shipped 6G10 config still translates to the run that produced the results."""
@@ -230,7 +230,7 @@ def test_committed_config_produces_the_expected_engine_call(drv):
     assert "--boltz-constraints" not in plan
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 def test_every_committed_config_is_translatable(drv):
     """No target's config can silently fail to build an engine command."""
     root = REPO_ROOT / "experiments" / "benchmarking"
@@ -255,7 +255,7 @@ def test_every_committed_config_is_translatable(drv):
 
 # ── the full main() path ─────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_full_run_prepares_inputs_then_writes_launch(drv, tmp_path, monkeypatch, capsys):
     """The happy path: prepare is invoked, then launch.sh is written from it."""
     cfg = _write_config(tmp_path)
@@ -279,7 +279,7 @@ def test_full_run_prepares_inputs_then_writes_launch(drv, tmp_path, monkeypatch,
     assert "LAUNCH_SCRIPT=" in capsys.readouterr().out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_prepare_only_stops_before_launch(drv, tmp_path, monkeypatch, capsys):
     cfg = _write_config(tmp_path)
 
@@ -295,7 +295,7 @@ def test_prepare_only_stops_before_launch(drv, tmp_path, monkeypatch, capsys):
     assert "prepare-only" in capsys.readouterr().out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_run_without_a_container_is_rejected_after_prepare(drv, tmp_path, monkeypatch, capsys):
     cfg = tmp_path / "config.yml"
     cfg.write_text('name: "T"\nreference_pdb: "./ref.pdb"\n'
@@ -313,7 +313,7 @@ def test_run_without_a_container_is_rejected_after_prepare(drv, tmp_path, monkey
     assert "no boltz_container" in capsys.readouterr().err
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_missing_orchestrator_is_rejected(drv, tmp_path, monkeypatch, capsys):
     cfg = _write_config(tmp_path)
     monkeypatch.setattr(drv, "ORCHESTRATOR", tmp_path / "absent.sh")
@@ -321,7 +321,7 @@ def test_missing_orchestrator_is_rejected(drv, tmp_path, monkeypatch, capsys):
     assert "orchestrator not found" in capsys.readouterr().err
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_yaml_absence_is_reported_with_guidance(drv, tmp_path, monkeypatch):
     """Without PyYAML the driver says where it ships, rather than tracebacking."""
     real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) \
@@ -337,7 +337,7 @@ def test_yaml_absence_is_reported_with_guidance(drv, tmp_path, monkeypatch):
         drv._load_yaml(_write_config(tmp_path))
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_provide_interface_mode_passes_the_file(drv, tmp_path):
     iface = tmp_path / "iface.txt"
     iface.write_text("1\n2\n3\n")

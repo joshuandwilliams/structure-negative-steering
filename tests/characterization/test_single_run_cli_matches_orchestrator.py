@@ -4,11 +4,11 @@ test_negsteer_cli.py asserts the CLI emits the same stage commands as
 bin/negative_steering_run_one.sh. That is an argv-level claim. It cannot catch
 a difference in what those commands do once a GPU is involved.
 
-This closes that gap. Both paths run tests/single_run_test/config.yml on the same
+This closes that gap. Both paths run tests/test_run/config.yml on the same
 hardware with the same seed, and their run directories are compared:
 
-    sbatch tests/run_single_run_test.slurm.sh            -> run/
-    sbatch tests/run_single_run_test.slurm.sh --via-cli  -> run_cli/
+    sbatch tests/test_run.slurm.sh            -> run/
+    sbatch tests/test_run.slurm.sh --via-cli  -> run_cli/
 
 Skips cleanly unless both exist, so it costs nothing when only one has run.
 
@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SINGLE_RUN = Path(os.environ.get("NEGSTEER_SINGLE_RUN_BASE", REPO_ROOT / "tests" / "single_run_test"))
+SINGLE_RUN = Path(os.environ.get("NEGSTEER_SINGLE_RUN_BASE", REPO_ROOT / "tests" / "test_run"))
 ORCH = SINGLE_RUN / "run"
 CLI = SINGLE_RUN / "run_cli"
 
@@ -53,7 +53,7 @@ def _key(row: dict) -> tuple[str, str]:
     return row.get("design", ""), row.get("seed_index", "")
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_both
 def test_both_paths_produced_the_same_rows():
     """A different row count means one path ran a different number of designs,
@@ -65,7 +65,7 @@ def test_both_paths_produced_the_same_rows():
         f"only the CLI produced {sorted(cli - orch)}")
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_both
 def test_both_paths_wrote_the_same_columns():
     """A missing column is invisible to the analyses rather than an error, so
@@ -75,7 +75,7 @@ def test_both_paths_wrote_the_same_columns():
     assert orch == cli, f"column difference: {orch ^ cli}"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_both
 def test_every_row_agrees_on_status():
     orch = {_key(r): r for r in _read(ORCH / "raw_per_seed_results.csv")}
@@ -84,7 +84,7 @@ def test_every_row_agrees_on_status():
             f"{_key(row)}: status differs"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_both
 def test_the_pose_agrees_within_tolerance():
     """The number the whole method is judged on. If ra_eff differs by more
@@ -103,7 +103,7 @@ def test_the_pose_agrees_within_tolerance():
     assert compared, "no comparable ra_eff values, so this asserted nothing"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_both
 def test_the_same_residues_were_mutated():
     """Steering picks positions from a seeded ranking. Different positions
@@ -115,7 +115,7 @@ def test_the_same_residues_were_mutated():
             f"{_key(row)}: different residues mutated"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_both
 def test_the_representative_gets_the_same_tier():
     """Tier is what the cohort-level analyses key on."""
@@ -125,7 +125,7 @@ def test_the_representative_gets_the_same_tier():
     assert a[0]["cross_tier"] == b[0]["cross_tier"]
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_both
 def test_only_the_cli_run_carries_a_result_manifest():
     """The manifest is the tool's contract and the orchestrator has no such

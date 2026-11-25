@@ -2,7 +2,7 @@
 // Negative steering over one or more benchmark targets.
 //
 //   nextflow run main.nf --targets "experiments/benchmarking/**/config.yml"
-//   nextflow run main.nf --targets tests/single_run_test/config.yml
+//   nextflow run main.nf --targets tests/test_run/config.yml
 //
 // The two fan-outs, one Boltz call per steered design and one per reverted
 // design, were bash loops inside a single SLURM job. They are channels now, so

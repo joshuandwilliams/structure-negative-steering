@@ -35,7 +35,7 @@ import compute_metrics as cm  # noqa: E402
 np = pytest.importorskip("numpy")
 
 GT = (_REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
-      / "6G10.pdb")
+          / "6G10.pdb")
 needs_pdb = pytest.mark.skipif(not GT.is_file(), reason="6G10 reference absent")
 
 REC_LEN, EFF_LEN = 76, 83
@@ -96,7 +96,7 @@ def _parse(pred_dir: Path, native: Path | None = None) -> list[dict]:
 
 # ── parse_boltz2 over a correct pose ─────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_boltz_directory_is_parsed_into_metric_rows(tmp_path):
     out = _boltz_output(tmp_path / "out", GT)
@@ -104,7 +104,7 @@ def test_a_boltz_directory_is_parsed_into_metric_rows(tmp_path):
     assert rows, "parse_boltz2 returned nothing for a well-formed directory"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_perfect_pose_scores_a_weighted_jaccard_of_one(tmp_path):
     """Scoring the native against itself is the fixed point of the metric."""
@@ -112,7 +112,7 @@ def test_a_perfect_pose_scores_a_weighted_jaccard_of_one(tmp_path):
     assert float(rows[0]["weighted_jaccard"]) == pytest.approx(1.0, abs=1e-6)
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_wrong_pose_scores_a_low_weighted_jaccard(tmp_path):
     """The reflected effector shares almost no contacts with the truth."""
@@ -122,7 +122,7 @@ def test_a_wrong_pose_scores_a_low_weighted_jaccard(tmp_path):
         f"a reflected effector scored {rows[0]['weighted_jaccard']}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_contact_count_is_reported(tmp_path):
     rows = _parse(_boltz_output(tmp_path / "out", GT), GT)
@@ -130,7 +130,7 @@ def test_the_contact_count_is_reported(tmp_path):
     assert rows[0]["contact_residues"], "no contact residue list recorded"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_confidence_sidecar_is_read(tmp_path):
     out = _boltz_output(tmp_path / "out", GT)
@@ -139,7 +139,7 @@ def test_the_confidence_sidecar_is_read(tmp_path):
     assert float(rows[0]["ptm"]) == pytest.approx(0.66)
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_pae_derived_metrics_reach_the_row(tmp_path):
     out = _boltz_output(tmp_path / "out", GT, inter_pae=2.0)
@@ -148,7 +148,7 @@ def test_pae_derived_metrics_reach_the_row(tmp_path):
         assert rows[0][col] not in (None, ""), f"{col} was not produced"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_a_confident_interface_outscores_a_hopeless_one(tmp_path):
     """The whole point of the PAE metrics, checked end to end."""
@@ -160,7 +160,7 @@ def test_a_confident_interface_outscores_a_hopeless_one(tmp_path):
     assert g > b, f"a hopeless interface ({b}) outscored a confident one ({g})"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_an_empty_directory_yields_no_rows(tmp_path):
     empty = tmp_path / "empty"
@@ -168,7 +168,7 @@ def test_an_empty_directory_yields_no_rows(tmp_path):
     assert _parse(empty, GT) == []
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_parsing_without_a_native_still_produces_confidence(tmp_path):
     """Cold-start rows have no comparison basis but still carry confidence."""
@@ -179,7 +179,7 @@ def test_parsing_without_a_native_still_produces_confidence(tmp_path):
 
 # ── the CLI ──────────────────────────────────────────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_cli_writes_a_metrics_csv(tmp_path):
     out = _boltz_output(tmp_path / "out", GT)
@@ -200,7 +200,7 @@ def test_the_cli_writes_a_metrics_csv(tmp_path):
     assert rows, "the metrics CSV has no rows"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_pdb
 def test_the_cli_accepts_mutated_positions(tmp_path):
     """Mutated positions drive the mutation-reliance column."""

@@ -68,7 +68,7 @@ def _run_cli(target: str, out_path: Path) -> None:
     assert rc == 0, f"cross_summary_cli failed for {target} with rc={rc}"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @pytest.mark.parametrize("target,expected_tier", TARGETS)
 def test_cross_summary_matches_committed_run(target, expected_tier, tmp_path):
     """Regenerating a real run's cross summary reproduces every computed column."""
@@ -90,7 +90,7 @@ def test_cross_summary_matches_committed_run(target, expected_tier, tmp_path):
         "\n  ".join(mismatches)
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @pytest.mark.parametrize("target,expected_tier", TARGETS)
 def test_cross_tier_is_assigned_from_seed_pass_count(target, expected_tier, tmp_path):
     """Tier follows n_pass/n_seeds, so it is asserted against the known answer.
@@ -117,7 +117,7 @@ def test_cross_tier_is_assigned_from_seed_pass_count(target, expected_tier, tmp_
         assert n_pass == 0
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_missing_passing_summary_degrades_to_tier_none(tmp_path):
     """A missing input warns and emits a tier-none row rather than failing.
 
@@ -133,7 +133,7 @@ def test_missing_passing_summary_degrades_to_tier_none(tmp_path):
     assert len(rows) == 1 and rows[0]["cross_tier"] == "none"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_every_emitted_row_is_counted(tmp_path):
     """The row count matches the number of sequences asked for.
 

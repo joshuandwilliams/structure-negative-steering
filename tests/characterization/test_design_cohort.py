@@ -57,7 +57,7 @@ def _make_run(tmp_path, mpnn_id, row_type="steered", n_clean=3, n_seeds=3):
 # ── Construction ───────────────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstruction:
     def test_basic(self, tmp_path):
         cohort = dc.DesignCohort(runs=[
@@ -88,7 +88,7 @@ class TestConstruction:
 # ── Lookup ────────────────────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestLookup:
     def test_get_existing(self, tmp_path):
         a = _make_run(tmp_path, "a")
@@ -103,7 +103,7 @@ class TestLookup:
 # ── Row-type filtering ────────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestRowTypeFiltering:
     def test_steered_and_controls(self, tmp_path):
         cohort = dc.DesignCohort(runs=[
@@ -121,7 +121,7 @@ class TestRowTypeFiltering:
 # ── Tier breakdown ────────────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestTierBreakdown:
     def test_full_breakdown(self, tmp_path):
         cohort = dc.DesignCohort(runs=[
@@ -146,7 +146,7 @@ class TestTierBreakdown:
 # ── by_tier and survivors ─────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestByTierAndSurvivors:
     @pytest.fixture
     def cohort(self, tmp_path):
@@ -173,7 +173,7 @@ class TestByTierAndSurvivors:
 # ── Ranking ───────────────────────────────────────────────────────
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestRanking:
     def test_ranked_by_composite(self, tmp_path):
         cohort = dc.DesignCohort(runs=[
@@ -190,7 +190,7 @@ class TestRanking:
         ]
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestImmutability:
     def test_frozen(self, tmp_path):
         cohort = dc.DesignCohort(runs=[_make_run(tmp_path, "x")])

@@ -48,7 +48,7 @@ def prep():
 
 # ── index-file parsing ───────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 @pytest.mark.parametrize("text,expected", [
     ("1\n2\n3\n", [1, 2, 3]),
     ("1,2,3\n", [1, 2, 3]),
@@ -65,7 +65,7 @@ def test_index_file_grammar(prep, tmp_path, text, expected):
 
 # ── the derivation, against 6G10's known answer ──────────────────────────────
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 def test_derive_reproduces_the_committed_inputs(prep, tmp_path):
@@ -88,7 +88,7 @@ def test_derive_reproduces_the_committed_inputs(prep, tmp_path):
     assert design == [], "design_region none should protect only the true interface"
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 def test_design_region_all_covers_the_whole_receptor(prep, tmp_path):
@@ -99,7 +99,7 @@ def test_design_region_all_covers_the_whole_receptor(prep, tmp_path):
         list(range(1, len(rec) + 1))
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 def test_design_region_interface_is_the_interface_shifted_to_one_based(prep, tmp_path):
@@ -111,7 +111,7 @@ def test_design_region_interface_is_the_interface_shifted_to_one_based(prep, tmp
     assert design1 == [i + 1 for i in iface0]
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 def test_provided_interface_file_is_used_verbatim(prep, tmp_path):
@@ -123,7 +123,7 @@ def test_provided_interface_file_is_used_verbatim(prep, tmp_path):
     assert prep._parse_index_file(out / "true_interface.txt") == [0, 2, 5, 41]
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 def test_provided_design_region_file_is_used_verbatim(prep, tmp_path):
@@ -137,14 +137,14 @@ def test_provided_design_region_file_is_used_verbatim(prep, tmp_path):
 
 # ── rejection paths ──────────────────────────────────────────────────────────
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_absent_complex_is_rejected(prep, tmp_path, capsys):
     assert prep.main(["--complex", str(tmp_path / "nope.pdb"),
                       "--outdir", str(tmp_path)]) == 2
     assert "complex PDB not found" in capsys.readouterr().err
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 def test_absent_interface_file_is_rejected(prep, tmp_path, capsys):
@@ -153,7 +153,7 @@ def test_absent_interface_file_is_rejected(prep, tmp_path, capsys):
     assert "--interface-file not found" in capsys.readouterr().err
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 def test_absent_design_region_file_is_rejected(prep, tmp_path, capsys):
@@ -163,7 +163,7 @@ def test_absent_design_region_file_is_rejected(prep, tmp_path, capsys):
     assert "--design-region-file not found" in capsys.readouterr().err
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 def test_out_of_range_interface_index_is_rejected(prep, tmp_path, capsys):
@@ -175,7 +175,7 @@ def test_out_of_range_interface_index_is_rejected(prep, tmp_path, capsys):
     assert "out of range" in capsys.readouterr().err
 
 
-@pytest.mark.local_integration
+@pytest.mark.logic
 @needs_deps
 @needs_fixture
 @pytest.mark.parametrize("flag", ["--receptor-chain", "--effector-chain"])

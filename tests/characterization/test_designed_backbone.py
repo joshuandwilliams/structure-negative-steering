@@ -27,7 +27,7 @@ def contig():
     return cs.ContigSpec.from_resolved_string("A1-10/5/A15-20 B")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstruction:
     def test_basic(self, tmp_path, contig):
         s = _make_fake_psp(tmp_path)
@@ -67,7 +67,7 @@ class TestConstruction:
                 structure=None)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestAccessors:
     def test_design_region(self, tmp_path, contig):
         s = _make_fake_psp(tmp_path)
@@ -105,7 +105,7 @@ class TestAccessors:
         assert b.effector_chain == "Y"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestFromPdbAndContig:
     def test_constructs_via_convenience(self, tmp_path):
         p = tmp_path / "f.pdb"
@@ -118,7 +118,7 @@ class TestFromPdbAndContig:
         assert b.sc_score == 0.65
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestImmutability:
     def test_frozen(self, tmp_path, contig):
         s = _make_fake_psp(tmp_path)
@@ -129,7 +129,7 @@ class TestImmutability:
             b.design_id = "new"  # type: ignore
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestRepr:
     def test_repr_includes_id_and_sc(self, tmp_path, contig):
         s = _make_fake_psp(tmp_path)

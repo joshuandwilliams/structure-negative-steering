@@ -138,6 +138,11 @@ timeline.html
 # because eight of them have no descendant anywhere in this repo's history.
 archive/
 
+# The testing image's def is local-only. The image it builds is installed
+# under the regular boltz2_negsteer.img name on the HPC, so publishing this
+# would only confuse anyone building from containers/boltz2_negsteer.def.
+containers/boltz2_negsteer_testing.def
+
 # ----- Working notes, local only -----
 notes/repo-cleanup-playbook.md
 docs/development_notes/

@@ -71,7 +71,7 @@ def _read(path: Path) -> list[dict]:
 
 # ── completeness ─────────────────────────────────────────────────────────────
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 def test_both_variants_cover_the_same_targets():
     """A target present in one variant must be present in the other.
@@ -88,7 +88,7 @@ def test_both_variants_cover_the_same_targets():
     )
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 @pytest.mark.parametrize("variant,target", ALL, ids=lambda x: getattr(x, "name", x))
 def test_run_carries_every_expected_output(variant, target):
@@ -103,7 +103,7 @@ def test_run_carries_every_expected_output(variant, target):
     assert not missing, f"{variant}/{target.name}: cycle_0/ is missing {missing}"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 @pytest.mark.parametrize("variant,target", ALL, ids=lambda x: getattr(x, "name", x))
 def test_cross_summary_has_exactly_one_representative(variant, target):
@@ -115,7 +115,7 @@ def test_cross_summary_has_exactly_one_representative(variant, target):
         f"{variant}/{target.name}: unknown tier {rows[0]['cross_tier']!r}"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 @pytest.mark.parametrize("variant,target", ALL, ids=lambda x: getattr(x, "name", x))
 def test_tier_none_means_nothing_cleared_the_passing_gate(variant, target):
@@ -140,7 +140,7 @@ def test_tier_none_means_nothing_cleared_the_passing_gate(variant, target):
         )
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 @pytest.mark.parametrize("variant,target", ALL, ids=lambda x: getattr(x, "name", x))
 def test_graded_tiers_agree_with_the_seed_pass_count(variant, target):
@@ -161,7 +161,7 @@ def test_graded_tiers_agree_with_the_seed_pass_count(variant, target):
 
 # ── the cold start ───────────────────────────────────────────────────────────
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 @pytest.mark.parametrize("variant,target", ALL, ids=lambda x: getattr(x, "name", x))
 def test_plan_records_a_usable_cold_start(variant, target):
@@ -175,7 +175,7 @@ def test_plan_records_a_usable_cold_start(variant, target):
         f"{variant}/{target.name}: plan.json records no receptor sequence"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 @pytest.mark.parametrize("variant,target", ALL, ids=lambda x: getattr(x, "name", x))
 def test_per_seed_results_contain_the_unsteered_baseline(variant, target):
@@ -188,7 +188,7 @@ def test_per_seed_results_contain_the_unsteered_baseline(variant, target):
     assert len(seeds) >= 1, f"{variant}/{target.name}: cold start has no seed index"
 
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 @pytest.mark.parametrize("variant,target", ALL, ids=lambda x: getattr(x, "name", x))
 def test_recorded_runtime_is_positive(variant, target):
@@ -200,7 +200,7 @@ def test_recorded_runtime_is_positive(variant, target):
 
 # ── the constrained variant is what it claims to be ──────────────────────────
 
-@pytest.mark.hpc
+@pytest.mark.check_test_run
 @needs_runs
 @pytest.mark.parametrize("variant,target", ALL, ids=lambda x: getattr(x, "name", x))
 def test_launch_script_matches_the_variant_directory(variant, target):

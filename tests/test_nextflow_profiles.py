@@ -60,14 +60,14 @@ def _profile_bodies() -> dict[str, str]:
     return out
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_there_is_no_profile_named_standard() -> None:
     """Nextflow applies `standard` whenever -profile is omitted. Having one
     meant a bare `nextflow run` on the cluster silently took laptop settings."""
     assert "standard" not in _profile_bodies()
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_cluster_profile_redefines_no_label_selector() -> None:
     """It must not touch a `withLabel:` block at all. On 25.10 that replaces
     the block above rather than adding to it, and the resources vanish."""
@@ -79,7 +79,7 @@ def test_the_cluster_profile_redefines_no_label_selector() -> None:
     )
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_cluster_directives_live_in_the_process_block() -> None:
     """Where the hpc profile leaves them, so they must actually be there."""
     text = CONFIG.read_text()
@@ -88,7 +88,7 @@ def test_the_cluster_directives_live_in_the_process_block() -> None:
         assert needed in process_block, f"{needed} missing from the process block"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_laptop_profile_is_complete_in_itself() -> None:
     """It does get replaced, so every directive it needs must be written out
     rather than inherited from the block above."""
@@ -99,7 +99,7 @@ def test_the_laptop_profile_is_complete_in_itself() -> None:
         assert "cpus" in chunk and "memory" in chunk, f"{label} must set its own size"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_gpu_concurrency_is_bounded_on_the_label_not_the_executor() -> None:
     """One gpu task holds one A100, so maxForks on that label IS the share of
     jic-gpu this repo takes. executor.queueSize cannot do the job, because it is
@@ -112,7 +112,7 @@ def test_gpu_concurrency_is_bounded_on_the_label_not_the_executor() -> None:
     assert "maxForks" in gpu, "the gpu label must bound its own concurrency"
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_queue_size_does_not_throttle_the_gpu_bound() -> None:
     """queueSize counts every SLURM task in flight. If it were at or below the
     GPU bound, the cpu stages would silently steal GPU concurrency and the
@@ -125,7 +125,7 @@ def test_queue_size_does_not_throttle_the_gpu_bound() -> None:
         "compete with Boltz for the same slots.")
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 def test_the_gpu_bound_does_not_exceed_the_partition() -> None:
     """jic-gpu has 26 A100s: 1 each on j1024n2-n3, 2 on n4-n7, 4 on n8-n11.
     Asking for more than exists cannot help, and would only queue."""

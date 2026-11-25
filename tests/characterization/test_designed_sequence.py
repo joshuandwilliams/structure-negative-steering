@@ -31,7 +31,7 @@ _NATIVE_DR = "MNRSV"   # the wild-type residues at design positions
 _MPNN_DR = "MPRSY"     # MPNN-designed at design positions
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestConstruction:
     def test_basic(self, tmp_path):
         b = _make_backbone(tmp_path)
@@ -69,7 +69,7 @@ class TestConstruction:
                 designed_residues=_MPNN_DR, native_residues=_NATIVE_DR)
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestSequenceViews:
     def test_to_fasta(self, tmp_path):
         b = _make_backbone(tmp_path)
@@ -117,7 +117,7 @@ class TestSequenceViews:
         assert d.n_changes() == 0
 
 
-@pytest.mark.local_unit
+@pytest.mark.logic
 class TestImmutability:
     def test_frozen(self, tmp_path):
         b = _make_backbone(tmp_path)
