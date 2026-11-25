@@ -395,3 +395,215 @@ def test_harvest_reversions_writes_an_empty_result_without_a_plan(run_dir, capsy
     assert out.is_file(), "harvest left no results file at all"
     assert json.loads(out.read_text()) in ([], {}, None) or \
         not json.loads(out.read_text())
+
+
+# ── the predict and collect stages on their own ──────────────────────────────
+#
+# The chain fixture above drives the happy path once. These build their own
+# small runs to reach the branches it cannot: the resume check, a design whose
+# prediction never landed, the skip-steering short-circuit, and the multi-seed
+# aggregate summary that only exists when num_seeds > 1.
+
+def _stub_boltz(scratch: Path, prediction: Path):
+    """A run_boltz stand-in that relabels its structure to what was asked for.
+
+    The engine refuses a prediction whose receptor sequence is not the one it
+    requested, so the stub has to honour that or every design fails for the
+    wrong reason.
+    """
+    counter = [0]
+
+    def fake(yaml_path, out_dir, container, recycling_steps,
+             diffusion_samples, seed, no_kernels):
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        counter[0] += 1
+        d = scratch / f"pred_{counter[0]}"
+        d.mkdir(parents=True, exist_ok=True)
+        pred = d / "prediction.pdb"
+        shutil.copy(prediction, pred)
+        requested = _requested_sequence(out_dir)
+        if requested:
+            _relabel_receptor(pred, requested)
+        return pred
+
+    return fake, counter
+
+
+def _engine(fake_boltz, *argv) -> int:
+    with mock.patch.object(bns, "run_boltz", fake_boltz), \
+            mock.patch.object(sys, "argv",
+                              ["boltz2_negative_steering.py", *argv]):
+        return bns.main()
+
+
+def _small_run(root: Path, *extra: str):
+    """plan + predict every design, on the wrong-interface cold start."""
+    wrong = _wrong_interface_pose(GT, root / "wrong.pdb")
+    work = root / "work"
+    fake, counter = _stub_boltz(root / "scratch", wrong)
+    assert _engine(fake, "plan", "--ground-truth", str(GT),
+                   "--workdir", str(work), "--receptor", "A",
+                   "--effector", "B", "--boltz-container", "/fake.img",
+                   "--n-designs", "2", "--diffusion-samples", "1",
+                   "--recycling-steps", "1", *extra) == 0
+    staged = sorted(d for d in (work / "steered").iterdir() if d.is_dir())
+    for i in range(len(staged)):
+        assert _engine(fake, "predict-one", "--workdir", str(work),
+                       "--index", str(i)) == 0
+    return work, fake, counter
+
+
+# ── resume ───────────────────────────────────────────────────────────────────
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_design_already_predicted_is_not_predicted_again(tmp_path):
+    """Array tasks get requeued. Re-running Boltz on a design that already
+    has a matching prediction would cost an hour of GPU time per requeue."""
+    work, fake, counter = _small_run(tmp_path, "--num-seeds", "1")
+    before = counter[0]
+    assert _engine(fake, "predict-one", "--workdir", str(work),
+                   "--index", "0") == 0
+    assert counter[0] == before, "the prediction was recomputed"
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_prediction_of_the_wrong_sequence_is_recomputed(tmp_path):
+    """The guard behind the resume. A prediction left over from an earlier
+    plan would otherwise be scored as this design's, with the mutation
+    record describing a sequence the structure does not have."""
+    work, fake, counter = _small_run(tmp_path, "--num-seeds", "1")
+    staged = sorted(d for d in (work / "steered").iterdir() if d.is_dir())
+    _relabel_receptor(staged[0] / "prediction.pdb", "W" * 80)
+    before = counter[0]
+    assert _engine(fake, "predict-one", "--workdir", str(work),
+                   "--index", "0") == 0
+    assert counter[0] == before + 1, "a stale prediction was reused"
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_an_index_past_the_designs_is_refused(tmp_path, capsys):
+    """This array is sized from plan.json's design count exactly, so an
+    out-of-range index means the array was submitted against a different
+    plan. That is a real error, and it refuses.
+
+    The reversion array behaves the opposite way, exiting 0 on an index with
+    no work, because its width is fixed at submit time before the number of
+    contaminated designs is known. The two are deliberately different."""
+    work, fake, _ = _small_run(tmp_path, "--num-seeds", "1")
+    assert _engine(fake, "predict-one", "--workdir", str(work),
+                   "--index", "99") == 2
+    assert "out of range" in capsys.readouterr().err
+
+
+# ── collect's refusals ───────────────────────────────────────────────────────
+
+@pytest.mark.logic
+@needs_pdb
+def test_collect_without_a_plan_says_where_to_look(tmp_path, capsys):
+    """collect runs on afterany, so it fires even when the plan stage was
+    cancelled. A traceback there buries the real failure."""
+    work = tmp_path / "work"
+    work.mkdir()
+    fake, _ = _stub_boltz(tmp_path / "scratch", GT)
+    assert _engine(fake, "collect", "--workdir", str(work)) == 1
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert "plan stage failed or never ran" in out
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_collect_on_a_skip_steering_run_has_nothing_to_do(tmp_path, capsys):
+    """The cold start already wrote its own row, so there are no designs."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    fake, _ = _stub_boltz(tmp_path / "scratch", wrong)
+    assert _engine(fake, "plan", "--ground-truth", str(GT),
+                   "--workdir", str(work), "--receptor", "A",
+                   "--effector", "B", "--boltz-container", "/fake.img",
+                   "--n-designs", "2", "--skip-steering",
+                   "--diffusion-samples", "1",
+                   "--recycling-steps", "1") == 0
+    assert _engine(fake, "collect", "--workdir", str(work)) == 0
+    assert "nothing to collect" in capsys.readouterr().out
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_predict_one_on_a_skip_steering_run_has_nothing_to_do(tmp_path,
+                                                              capsys):
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    fake, counter = _stub_boltz(tmp_path / "scratch", wrong)
+    _engine(fake, "plan", "--ground-truth", str(GT), "--workdir", str(work),
+            "--receptor", "A", "--effector", "B",
+            "--boltz-container", "/fake.img", "--n-designs", "2",
+            "--skip-steering", "--diffusion-samples", "1",
+            "--recycling-steps", "1")
+    before = counter[0]
+    assert _engine(fake, "predict-one", "--workdir", str(work),
+                   "--index", "0") == 0
+    assert counter[0] == before
+    assert "nothing to do" in capsys.readouterr().out
+
+
+# ── a design whose prediction never landed ───────────────────────────────────
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_design_with_no_result_is_a_nan_row_not_a_missing_one(tmp_path):
+    """A pre-empted array task leaves no result.json. Dropping the row would
+    make the design disappear from the run rather than appear as a failure,
+    and n_designs would no longer match the number of rows."""
+    work, fake, _ = _small_run(tmp_path, "--num-seeds", "1")
+    staged = sorted(d for d in (work / "steered").iterdir() if d.is_dir())
+    (staged[0] / "result.json").unlink()
+    assert _engine(fake, "collect", "--workdir", str(work)) == 0
+
+    rows = _read(work / "steered_results.csv")
+    plan = json.loads((work / "plan.json").read_text())
+    # One row per design, plus the cold-start row the plan stage wrote.
+    assert len(rows) == len(plan["designs"]) + 1
+    bad = [r for r in rows if r["design"] == staged[0].name]
+    assert bad, f"the failed design is missing from {[r['design'] for r in rows]}"
+    assert bad[0]["receptor_aligned_effector_rmsd"].lower() in ("nan", "")
+
+
+# ── the multi-seed aggregate ─────────────────────────────────────────────────
+
+@pytest.mark.logic
+@needs_pdb
+def test_multi_seed_collect_groups_the_seeds_by_sequence(tmp_path):
+    """Seeds of one sequence are replicates of one question, so the
+    comparison is between sequences and the seeds are what the median is
+    taken over. A per-seed table alone cannot express that."""
+    work, fake, _ = _small_run(tmp_path, "--num-seeds", "3")
+    assert _engine(fake, "collect", "--workdir", str(work)) == 0
+
+    # The cold-start row has no sequence group, so it is not one of the
+    # steered sequences being compared.
+    steered = [r for r in _read(work / "steered_results.csv")
+               if r["sequence_group"] != ""]
+    groups = {}
+    for r in steered:
+        groups.setdefault(r["sequence_group"], []).append(r)
+    assert groups, "no sequence_group column in the per-seed table"
+    assert all(len(v) == 3 for v in groups.values()), \
+        {k: len(v) for k, v in groups.items()}
+    assert {r["seed_index"] for r in steered} == {"0", "1", "2"}
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_single_seed_run_needs_no_aggregate(tmp_path):
+    """The aggregate summary exists to collapse seeds. With one seed per
+    sequence the per-seed table already is the answer."""
+    work, fake, _ = _small_run(tmp_path, "--num-seeds", "1")
+    assert _engine(fake, "collect", "--workdir", str(work)) == 0
+    steered = [r for r in _read(work / "steered_results.csv")
+               if r["sequence_group"] != ""]
+    assert {r["seed_index"] for r in steered} == {"0"}
