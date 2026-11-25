@@ -12,7 +12,7 @@ the sweep is the dose. The script asserts that, and refuses to write a config
 that differs anywhere else.
 
 The reference PDB is not copied. Each config points back at the tracked one under
-experiments/benchmarking/unconstrained/, so there is one copy of each structure.
+data/reference_complexes/, so there is one copy of each structure.
 
 A target can only produce so many distinct sets, and asking for more returns fewer
 with a warning. Where that happens the higher-dose runs duplicate the lower-dose
@@ -58,7 +58,7 @@ def transform(text: str, target: str, dose: int) -> str:
     out = re.sub(r'^name:\s*"[^"]*"',
                  f'name: "{target}_n{dose:02d}"', text, count=1, flags=re.M)
     out = re.sub(r'^(reference_pdb:\s*)"[^"]*"',
-                 rf'\1"../../../benchmarking/unconstrained/{target}/{target}.pdb"',
+                 rf'\1"../../../../data/reference_complexes/{target}.pdb"',
                  out, count=1, flags=re.M)
     out = re.sub(r'^(negsteer_n_designs:\s*)\d+',
                  rf'\g<1>{dose}', out, count=1, flags=re.M)
@@ -79,7 +79,7 @@ def transform(text: str, target: str, dose: int) -> str:
     # And the three must now read what we intended.
     for pattern, what in (
         (rf'^name: "{target}_n{dose:02d}"$', "name"),
-        (rf'^reference_pdb:\s+"\.\./\.\./\.\./benchmarking/unconstrained/{target}/{target}\.pdb"$',
+        (rf'^reference_pdb:\s+"\.\./\.\./\.\./\.\./data/reference_complexes/{target}\.pdb"$',
          "reference_pdb"),
         (rf'^negsteer_n_designs:\s+{dose}\b', "negsteer_n_designs"),
     ):

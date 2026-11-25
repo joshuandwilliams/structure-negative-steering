@@ -29,7 +29,7 @@ name: "6G10_n20"
 # A single PDB containing both chains.  Used as the comparison basis
 # (ground truth) that every steered design is scored against, and to derive
 # the interface.  For 6G10 (Pik-1/AVR-PikD): receptor=A, effector=B.
-reference_pdb:   "../../../benchmarking/unconstrained/6G10/6G10.pdb"
+reference_pdb:   "../../../../data/reference_complexes/6G10.pdb"
 receptor_chain:  "A"          # the protein being steered
 effector_chain:  "B"          # what it should be steered AWAY from binding
 

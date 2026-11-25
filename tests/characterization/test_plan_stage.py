@@ -33,8 +33,7 @@ sys.path.insert(0, str(_REPO_ROOT / "bin"))
 
 import boltz2_negative_steering as bns  # noqa: E402
 
-GT = (_REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
-          / "6G10.pdb")
+GT = (_REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb")
 needs_pdb = pytest.mark.skipif(not GT.is_file(), reason="6G10 reference absent")
 
 REC_LEN, EFF_LEN = 76, 83

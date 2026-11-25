@@ -28,7 +28,7 @@
 name: "6G10_test_run"
 
 # The tracked reference for 6G10, reused rather than duplicated.
-reference_pdb:   "../../experiments/benchmarking/unconstrained/6G10/6G10.pdb"
+reference_pdb:   "../../data/reference_complexes/6G10.pdb"
 receptor_chain:  "A"          # the protein being steered
 effector_chain:  "B"          # what it should be steered AWAY from binding
 

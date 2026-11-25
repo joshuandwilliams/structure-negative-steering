@@ -23,8 +23,7 @@ import compute_metrics as cm  # noqa: E402
 
 np = pytest.importorskip("numpy")
 
-SIXG10 = (_REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
-          / "6G10.pdb")
+SIXG10 = (_REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb")
 needs_pdb = pytest.mark.skipif(not SIXG10.is_file(), reason="6G10 reference absent")
 
 # 6G10 is receptor chain A at 76 residues, effector chain B at 83.

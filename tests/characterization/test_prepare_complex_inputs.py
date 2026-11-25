@@ -16,8 +16,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PREPARE = REPO_ROOT / "scripts" / "prepare_complex_inputs.py"
-SIXG10 = (REPO_ROOT / "experiments" / "benchmarking" / "unconstrained" / "6G10"
-          / "6G10.pdb")
+SIXG10 = (REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb")
 
 OUTPUTS = ("receptor.fasta", "effector.fasta", "true_interface.txt",
            "design_region.txt")
