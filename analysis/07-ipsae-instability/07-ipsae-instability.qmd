@@ -464,7 +464,7 @@ and ipSAE to ≈ 0. Restraints rescue those to full saturation and their scores
 jump to 0.29–0.88. Excluding them, the $d_0$ gain collapses from
 `{python} f"{r1-r0:+.3f}"` to `{python} f"{rs1-rs0:+.3f}"`. So the honest
 statement is that ipSAE has a floor artefact rather than a graded normalisation
-bias: it is bimodal rather than continuous, and a metric that reports ≈ 0 for a
+bias. It is bimodal rather than continuous, and a metric that reports close to 0 for a
 design and 0.88 for the same design under restraints is not measuring that
 design on a stable scale. The argmax-over-residues operator is not implicated, since
 replacing it with a mean changes ρ by `{python} f"{r2-r0:+.3f}"`. Residual

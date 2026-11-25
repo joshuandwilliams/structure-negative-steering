@@ -216,7 +216,7 @@ pd.DataFrame(summary_rows)
 ```
 
 - On a like-for-like oracle baseline, negative steering sits between the
-  unrestrained and restrained columns: it clears more targets than the
+  unrestrained and restrained columns. It clears more targets than the
   unrestrained baseline without the reference restraints' requirement that the
   true interface already be known.
 - The gap between the cold-start row and negative-steered is mostly sampling
@@ -246,7 +246,7 @@ python3 analysis/02-model-choice/model_choice_3way.py
 
 ![Unrestrained, reference-restrained and negative-steered only, same selection rules as the four-way figure above.](thesis-figures/model_choice_comparison_3way.png){#fig-model-choice-3way width="100%"}
 
-- Same ordering as the four-way figure with the ceiling removed: negative
+- Same ordering as the four-way figure with the ceiling removed. Negative
   steering (15/18) edges out reference restraints (14/18), both well above
   unrestrained (9/18).
 - This is the more direct like-for-like comparison for the thesis narrative,

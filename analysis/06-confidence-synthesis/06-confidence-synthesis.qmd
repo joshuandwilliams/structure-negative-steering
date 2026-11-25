@@ -154,7 +154,7 @@ _ = cc.fig_outcome_contrast(
 ```
 
 Rescue and mutation budget are not independent, so the pooled contrast is repeated within
-each of the two well-populated budgets. In the benchmark this matters: the pooled contrast
+each of the two well-populated budgets. This matters in the benchmark. The pooled contrast
 and the 3-mutation contrast point in opposite directions.
 
 ```{python}
@@ -232,7 +232,7 @@ cold start already passes never steers at all, so a pose match does not imply a 
 match. `sequence_match.csv` records the mutation sets of both representatives, which is
 what decides whether a unit's two points are the same molecule.
 
-The benchmark is mostly units where they are not: only 3 of its 12 pose-matched targets
+The benchmark is mostly units where they are not. Only 3 of its 12 pose-matched targets
 carry the same mutations in both arms, and the mismatch runs one way, since the
 unconstrained representative always carries the larger budget. The campaign has enough
 same-sequence units to separate the two, so the thesis figure shows the campaign alone.

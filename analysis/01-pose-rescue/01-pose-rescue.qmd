@@ -185,7 +185,7 @@ plt.show()
 - Histogram of the representative (steered) `ra_eff` across all finished runs,
   coloured by how many of that design's seeds cleanly passed, with the dashed
   line at the 5 Å pass threshold.
-- The distribution is bimodal: a cluster of rescued poses at the low (correct) end
+- The distribution is bimodal. A cluster of rescued poses sits at the low (correct) end
   and a smaller tail of targets steering could not bring under 5 Å. That tail is
   almost entirely 0/3-passing designs.
 
@@ -353,7 +353,7 @@ plt.show()
 ```
 
 
-- Each point is one target: the initial (cold-start) `ra_eff` on x, the steered
+- Each point is one target. The initial (cold-start) `ra_eff` is on x and the steered
   representative `ra_eff` on y.
 - The grey `y = x` diagonal marks no change. Points below it improved with
   steering and points above worsened. The dashed line is the 5 Å pass threshold for
@@ -390,7 +390,7 @@ dockq_df
 representative-design selection as §3.2. Dotted lines mark DockQ's own
 Incorrect/Acceptable/Medium/High boundaries (0.23/0.49/0.80).](thesis-figures/cold_start_vs_steered_dockq.png){#fig-cold-start-vs-steered-dockq width="70%"}
 
-- Same qualitative pattern as the `ra_eff` scatter (§3.2): most points sit
+- Same qualitative pattern as the `ra_eff` scatter in §3.2. Most points sit
   above the diagonal, so steering raises DockQ as well as lowering `ra_eff`.
 - A handful of targets cross an entire DockQ quality band (e.g. Incorrect to
   Medium), which `ra_eff`'s binary <5 Å cutoff does not distinguish.
@@ -418,9 +418,9 @@ plt.show()
 ```
 
 
-- x is the final (representative) `ra_eff` (lower is better); y is the change from
+- x is the final (representative) `ra_eff`, where lower is better. y is the change from
   cold start (negative = improved). The horizontal line separates improved (below)
-  from worsened (above); the vertical dashed line is the 5 Å pass threshold.
+  from worsened (above). The vertical dashed line is the 5 Å pass threshold.
 - The desirable quadrant is bottom-left, meaning low final `ra_eff` and improved by
   steering.
 - A few points sit above y = 0 (worsened) but most improvements are modest in
@@ -435,7 +435,7 @@ classed by whether its pose is correct (< 5 Å) at the cold start (the
 pipeline's own initial Boltz-2 prediction) and after negative steering.
 
 The baseline here is deliberately the pipeline's *own* cold start, not an
-independent Boltz-2 run: because both come from the same run, this is a true
+independent Boltz-2 run. Because both come from the same run, this is a true
 before→after, so the "lost" cell (correct→incorrect) reflects steering actually
 breaking a pose rather than run-to-run prediction variance between two separate
 Boltz-2 jobs.
@@ -486,7 +486,7 @@ plt.show()
 ```
 
 
-- A 2×2 transition matrix: each target is classed by whether the pose is correct
+- A 2×2 transition matrix. Each target is classed by whether the pose is correct
   (< 5 Å) at the cold start (x-axis) and after negative steering (y-axis).
 - The rescued cell (top-left, green) counts incorrect to correct wins. The lost
   cell (bottom-right, red) counts correct to incorrect regressions.
@@ -496,7 +496,7 @@ plt.show()
 
 ---
 
-## 5. Dose response: how many poses does each steering-set count rescue?
+## 5. Dose response, by steering-set count
 
 The rest of this document uses the shipped 20-set benchmark. This section adds
 the dose sweep (`experiments/dose-sweep/`), the same 18 targets re-run at 3,
@@ -604,7 +604,7 @@ print(f"improved (change<0): {(rep['change_ra_eff'] < 0).sum()}, "
   the 18 HMA decoy + AVR benchmark targets, and rescues a meaningful fraction from
   incorrect to correct (≤ 5 Å).
 - The cold start → steered transition (§4) is strictly beneficial across the
-  benchmark: steering rescues incorrect poses and never turns a correct cold-start
+  benchmark. Steering rescues incorrect poses and never turns a correct cold-start
   pose incorrect (the "lost" cell is 0).
 - A handful of targets remain unrescued (§2), sitting well above the 5 Å threshold
   even after steering. That is the residual failure mode worth investigating.

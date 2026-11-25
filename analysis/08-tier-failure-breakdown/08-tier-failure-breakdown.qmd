@@ -8,14 +8,16 @@ jupyter: python3
 
 Date: 24/8/26
 
-For each of the 18 benchmark targets, every steering set in the n = 50
-dose-sweep arm (`experiments/dose-sweep/n50/`) is classified into Tier A
-(all 3 seeds pass), B (some pass), C (one passes), or one of two failure
-modes: misfolded (a chain independently >5 Å from its own reference on at
-least one seed) or wrong pose (every seed folds correctly but the effector
-never reaches <5 Å of the true interface). Three targets (5ZNG, 9IP6, 8B2R)
-have 0 steering sets because their cold start already passed on all 3 seeds,
-so steering was never triggered.
+Every steering set in the n = 50 dose-sweep arm
+(`experiments/dose-sweep/n50/`) is classified, for each of the 18 benchmark
+targets. Tier A is all three seeds passing, B is two, and C is one. A set
+that passed on no seed failed in one of two ways. Misfolded means a chain
+sat more than 5 Å from its own reference on at least one seed, judged
+independently of the other chain. Wrong pose means every seed folded
+correctly but the effector never came within 5 Å of the true interface.
+
+Three targets have no steering sets at all. 5ZNG, 9IP6 and 8B2R passed on
+all three cold-start seeds, so steering never triggered.
 
 Regenerate with:
 
@@ -24,16 +26,18 @@ python3 analysis/08-tier-failure-breakdown/tier_failure_breakdown.py
 python3 analysis/08-tier-failure-breakdown/make_plots.py
 ```
 
-Data-quality note: the n50 run tree leaves
-`steered_n_contacts_on_mutated_positions` blank rather than an explicit 0 on
-most no-reversion rows (unlike the shipped 20-set benchmark, where it is
-always 0 there). Read literally that looks like missing data and silently
-drops those seeds. `tier_failure_breakdown.py` treats blank the same as 0
-(the two never coexist with a real non-zero value in the clean data), which
-is the right read but is worth flagging: `make_plots.py`'s own
-`select_representative()` (used elsewhere in this repo, including
-`dose_sweep_pass_counts.csv`) does not carry this fix, so it can undercount
-seeds and inflate a design's apparent tier on this run tree specifically.
+One data-quality point affects how these counts are read. On most
+no-reversion rows the n50 run tree leaves
+`steered_n_contacts_on_mutated_positions` blank rather than writing an
+explicit 0. The shipped 20-set benchmark always writes the 0. Read
+literally, blank looks like missing data and drops those seeds silently.
+
+`tier_failure_breakdown.py` treats blank and 0 the same, which is the right
+read, because the two never appear alongside a real non-zero value in clean
+data. `make_plots.py`'s `select_representative()` does not carry that fix.
+It is used elsewhere in this repo, including for
+`dose_sweep_pass_counts.csv`, so on this run tree specifically it can
+undercount seeds and overstate a design's tier.
 
 ```{python}
 from pathlib import Path
@@ -53,28 +57,29 @@ df
 
 ![Every steering set's outcome, stacked, targets ordered by how many sets they had (4-50; three targets never steered).](supplementary-figures/tier_failure_stacked_counts.png){width="100%"}
 
-- Raw counts keep the varying denominator visible (6Q76 stops at 4 sets,
-  having saturated its mutation-set pool; most others ran the full 50).
-- Wrong-pose failure dominates the top few targets; misfolding dominates
-  6FUB almost entirely.
+- Raw counts keep the varying denominator visible. 6Q76 stops at 4 sets,
+  having saturated its mutation-set pool, where most targets ran the full 50.
+- Wrong pose is the larger failure mode across the cohort, at 361 sets
+  against 187 misfolded. 6FUB is the exception, misfolding on all 48.
 
 ### 2. Heatmap, share of each target's own sets
 
 ![Same data, normalised per target and shown as a heatmap so composition survives the varying n_sets.](supplementary-figures/tier_failure_heatmap.png){width="70%"}
 
-- Best for spotting which failure mode dominates a specific target at a
-  glance, without the eye needing to rescale bar heights first.
-- 6FUB stands out as 100% misfolded, a distinct failure signature from every
-  other target here.
+- Normalising lets one target's composition be read without the eye
+  rescaling bar heights first.
+- 6FUB is 48 of 48 misfolded and none wrong-posed, which no other target
+  comes close to. 7QPX is the next highest at 24 of 50.
 
 ### 3. Raw counts, ranked by rescued-set count (thesis figure)
 
 ![Raw-count composition, targets ranked by A+B+C count (rescued sets), pastel colours.](supplementary-figures/tier_failure_ranked_counts.png){width="100%"}
 
-- Best for comparing rescue rate itself across targets, since every bar
-  reaches 100% regardless of n_sets.
-- 6Q76 has the best rescue rate of any target shown, but only from 4 sets
-  total, so it is the least statistically supported point on this chart.
+- Ranking by rescued-set count puts the targets steering actually moved at
+  one end and the targets it never moved at the other, which is the
+  comparison the thesis figure is making.
+- 6Q76 has the highest rescue fraction of any target, 3 of 4 sets. It is
+  also the least supported point here, because 4 sets is the whole sample.
 
 ## Summary
 
@@ -88,6 +93,6 @@ print(f"Misfolding share of all failures: "
       f"{d['failed_misfolded'].sum() / (d['failed_misfolded'].sum() + d['failed_wrong_pose'].sum()):.2f}")
 ```
 
-- Wrong pose is the dominant failure mode overall, but misfolding is not
-  negligible and is concentrated on a few targets (6FUB, 7QPX, 9IMU) rather
-  than spread evenly.
+- Wrong pose is the dominant failure mode overall, at 66% of failed sets.
+  Misfolding is not rare, and it concentrates rather than spreading evenly.
+  6FUB, 7QPX and 9IMU carry 91 of the 187 misfolded sets between them.

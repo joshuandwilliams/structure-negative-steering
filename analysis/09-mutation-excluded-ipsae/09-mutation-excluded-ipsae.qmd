@@ -27,7 +27,7 @@ interface, so a mutated position is eligible to set the score.
 
 Separately, 763 of 954 steered campaign predictions are contaminated in the pipeline's
 own sense, a steering mutation in contact with the effector. That is structural rather
-than a failure: the AVR-Pik and AVR-Pia interfaces overlap, so the residues steering is
+than a failure. The AVR-Pik and AVR-Pia interfaces overlap, so the residues steering is
 allowed to mutate sit adjacent to the interface being designed.
 
 `mutation_excluded_ipsae_extract.py` recomputes the metric over restricted receptor
@@ -63,7 +63,7 @@ c = cc.build_representative_table(
 a, b = cc.pose_matched_pairs(u, c)
 ```
 
-The control that makes the rest readable: the reimplementation has to reproduce the
+One control makes the rest readable. The reimplementation has to reproduce the
 number the pipeline stored, otherwise nothing below is about ipSAE.
 
 ```{python}
