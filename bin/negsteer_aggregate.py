@@ -2540,8 +2540,11 @@ def cmd_compute_final_metrics(args: argparse.Namespace) -> int:
     ]
     print(f"Read {len(base_rows)} rows from {all_results_csv.name}")
     if args.populate_all:
-        print("  Filter: --populate-all set — all rows except "
-              "reversion_dropped==1")
+        # No filter at all, reversion_dropped rows included — see
+        # _passes_final_metrics_filter for why the dropped seeds are
+        # needed (holes in the per-seed CSV bias the median).
+        print("  Filter: --populate-all set — every row, "
+              "reversion_dropped included")
     else:
         print(f"  Filter: {metric_col} < {threshold} Å"
               + (" AND steered_receptor_intact == 1" if args.require_intact else "")
