@@ -191,3 +191,114 @@ def test_a_candidate_missing_a_required_field_is_skipped(rev, tmp_path,
     build(tmp_path, candidates=[cand])
     assert rev.cmd_build_contaminated(Args(workdir=tmp_path)) == 0
     assert "missing fields" in capsys.readouterr().err
+
+
+# ── plan-reversions ──────────────────────────────────────────────────────────
+#
+# This stage stages one reverted sequence per contaminated design. The
+# permissive paths matter more than the happy one: every downstream stage
+# reads reversion_plan.json, so an absent file is a crash later rather than a
+# no-op now. Writing an empty manifest is what lets a run with nothing
+# contaminated finish cleanly.
+
+@pytest.mark.logic
+def test_plan_reversions_refuses_without_a_plan(rev, tmp_path, capsys):
+    assert rev.cmd_plan_reversions(Args(workdir=tmp_path)) == 2
+    assert "plan.json not found" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_no_contaminated_file_writes_an_empty_manifest(rev, tmp_path, capsys):
+    """build-contaminated may legitimately never have written one."""
+    build(tmp_path, candidates=[])
+    assert rev.cmd_plan_reversions(Args(workdir=tmp_path)) == 0
+    doc = json.loads((tmp_path / "reversion_plan.json").read_text())
+    assert doc["n_contaminated"] == 0 and doc["entries"] == []
+    assert "no contaminated.json" in capsys.readouterr().out
+
+
+@pytest.mark.logic
+def test_the_chain_names_survive_into_an_empty_manifest(rev, tmp_path):
+    """Downstream reads the chains from this file, so an empty manifest that
+    dropped them would default to A/B on a run that used other names."""
+    build(tmp_path, candidates=[],
+          plan_extra={"pred_receptor_chain": "C", "pred_effector_chain": "D"})
+    assert rev.cmd_plan_reversions(Args(workdir=tmp_path)) == 0
+    doc = json.loads((tmp_path / "reversion_plan.json").read_text())
+    assert doc["pred_receptor_chain"] == "C"
+    assert doc["pred_effector_chain"] == "D"
+
+
+@pytest.mark.logic
+def test_an_empty_contaminated_list_also_writes_an_empty_manifest(rev,
+                                                                  tmp_path,
+                                                                  capsys):
+    build(tmp_path, candidates=[])
+    (tmp_path / "contaminated.json").write_text(json.dumps(
+        {"n_checked": 3, "n_contaminated": 0, "contaminated": []}))
+    assert rev.cmd_plan_reversions(Args(workdir=tmp_path)) == 0
+    assert json.loads((tmp_path / "reversion_plan.json").read_text())[
+        "entries"] == []
+    assert "no contaminated designs" in capsys.readouterr().out
+
+
+# ── predict-reversion-one ────────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_predict_one_refuses_without_a_plan(rev, tmp_path, capsys):
+    assert rev.cmd_predict_reversion_one(
+        Args(workdir=tmp_path, index=0)) == 2
+    assert "plan.json not found" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_predict_one_refuses_without_a_manifest(rev, tmp_path, capsys):
+    build(tmp_path, candidates=[])
+    assert rev.cmd_predict_reversion_one(
+        Args(workdir=tmp_path, index=0)) == 2
+    assert "run plan-reversions first" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("idx", [-1, 0, 5])
+def test_an_index_with_no_work_exits_cleanly(rev, tmp_path, capsys, idx):
+    """These run as SLURM array tasks. A slot with no work must exit 0, or an
+    over-provisioned array reports failures for tasks that had nothing to do.
+    """
+    build(tmp_path, candidates=[])
+    (tmp_path / "reversion_plan.json").write_text(json.dumps({"entries": []}))
+    assert rev.cmd_predict_reversion_one(
+        Args(workdir=tmp_path, index=idx)) == 0
+    assert "nothing to do" in capsys.readouterr().out
+
+
+# ── harvest-reversions ───────────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_harvest_refuses_without_a_plan(rev, tmp_path, capsys):
+    assert rev.cmd_harvest_reversions(
+        Args(workdir=tmp_path, compute_metrics_script=None)) == 2
+    assert "plan.json not found" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_harvest_with_no_manifest_writes_an_empty_results_file(rev, tmp_path,
+                                                               capsys):
+    """kickoff-finalize reads this file. Without it every intact design would
+    be dropped for having no verdict, rather than flowing through as-is."""
+    build(tmp_path, candidates=[])
+    assert rev.cmd_harvest_reversions(
+        Args(workdir=tmp_path, compute_metrics_script=None)) == 0
+    assert (tmp_path / "reversion_results.json").read_text().strip() == "{}"
+    assert "no reversion_plan.json" in capsys.readouterr().out
+
+
+@pytest.mark.logic
+def test_harvest_refuses_a_missing_compute_metrics_script(rev, tmp_path,
+                                                          capsys):
+    build(tmp_path, candidates=[])
+    (tmp_path / "reversion_plan.json").write_text(json.dumps({"entries": []}))
+    assert rev.cmd_harvest_reversions(Args(
+        workdir=tmp_path,
+        compute_metrics_script=tmp_path / "nope.py")) == 2
+    assert "compute_metrics.py not found" in capsys.readouterr().err
