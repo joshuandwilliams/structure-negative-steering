@@ -1,8 +1,11 @@
-# Structure Negative Steering
+# structure-negative-steering <img src="docs/logo.png" align="right" height="120" alt="" />
 
 [![Tests](https://github.com/joshuandwilliams/structure-negative-steering/actions/workflows/test.yml/badge.svg)](https://github.com/joshuandwilliams/structure-negative-steering/actions/workflows/test.yml)
 [![Lint](https://github.com/joshuandwilliams/structure-negative-steering/actions/workflows/lint.yml/badge.svg)](https://github.com/joshuandwilliams/structure-negative-steering/actions/workflows/lint.yml)
-![tests](https://img.shields.io/badge/tests-936%20passing-brightgreen) ![coverage](https://img.shields.io/badge/coverage-66%25%20bin%20%7C%2098%25%20scripts-yellow) ![python](https://img.shields.io/badge/python-3.11-blue) ![nextflow](https://img.shields.io/badge/nextflow-%E2%89%A524.04-blue) ![status](https://img.shields.io/badge/status-results%20current-brightgreen)
+[![Codecov test coverage](https://codecov.io/gh/joshuandwilliams/structure-negative-steering/graph/badge.svg)](https://app.codecov.io/gh/joshuandwilliams/structure-negative-steering)
+![python](https://img.shields.io/badge/python-3.11-1e90ff?logo=python)
+![nextflow](https://img.shields.io/badge/nextflow-25.10.4-0dc09d?logo=nextflow)
+![boltz](https://img.shields.io/badge/boltz-2.2.1-orange)
 
 A standalone home for the Boltz-2 negative-steering engine, so it can be run and tested on arbitrary inputs in isolation. Negative steering mutates the receptor surface residues that a prediction wrongly places in contact with the effector, so the model can no longer settle there. Residues at the interface you intend to keep are protected from mutation, so what the method removes is a competing site rather than the intended one.
 
@@ -10,17 +13,21 @@ A standalone home for the Boltz-2 negative-steering engine, so it can be run and
 
 ## Status
 
-The benchmark is complete, the committed analyses are current, and the test suite passes.
+The benchmark is complete and the committed analyses are current. Every analysis renders, and every committed CSV and figure regenerates from the pinned environment.
 
-Coverage over `bin/` is 66% and gated as a ratchet that may only rise. `scripts/` is at 98%. The remaining gap is concentrated in the multi-cycle loop of `boltz2_iterate_steering` and the reversion harvest in `reversion`, which need a GPU and the Boltz image. The single-run test (below) is how those are reached.
+Coverage is gated as a ratchet that may only rise. The remaining gap is concentrated in the multi-cycle loop of `boltz2_iterate_steering` and the reversion harvest in `reversion`, which need a GPU and the Boltz image. The single-run test (below) is how those are reached. The badge above is the live number.
 
-CI runs on every push and pull request. `lint.yml` is ruff, pinned to the version in `environment.yml` so it applies the same rule set as a local run. `test.yml` runs the two local test tiers, then stub-runs the workflow to check the DAG still wires up. The `hpc` tier is not run there, since it needs a GPU, the Boltz image or a finished run.
+CI runs on every push and pull request. `lint.yml` is ruff, pinned to the version in `environment.yml` so it applies the same rule set as a local run. `test.yml` runs the `logic` tier, then stub-runs the workflow to check the DAG still wires up. The `check_test_run` tier is not run there, since it asserts on the output of a real cluster run.
 
-The committed results were produced by the previous single-job runner, not by the Nextflow workflow that replaced it. The stage sequence and every scientific parameter are unchanged, so a re-run reproduces them, but they have not been re-run.
+Two things are known to be wrong, and are recorded here rather than left to be discovered.
+
+**The effector template never reached Boltz.** `write_boltz_yaml` emits the `templates:` block inside the effector's chain entry. Boltz reads `templates` only from the root of the schema, at `boltz 2.2.1 data/parse/schema.py:1603`, and ignores an unrecognised key inside a chain entry without raising. Every prediction this repo has produced therefore ran without the effector template. The paired template and template-free runs in `structure-prediction-benchmarking` returned byte-identical structures for every seed, which is how it was found. The code is left as it is so the committed results stay reproducible. Fixing it invalidates every run in `experiments/`, so it means rerunning the sweep.
+
+**The committed results predate the workflow.** They were produced by the previous single-job runner, not by the Nextflow workflow that replaced it. The stage sequence and every scientific parameter are unchanged, so a rerun reproduces them, but they have not been rerun.
 
 ## How it runs
 
-![Negative-steering workflow](docs/pipeline_flowchart.svg)
+![Negative-steering workflow](docs/steering_method_flowchart.svg)
 
 One target is one `config.yml`. The two fan-outs, one Boltz-2 call per steered design and one per reverted design, were bash loops inside a single SLURM job. They are Nextflow channels now, so each prediction is a task with its own resources, retry and failure. The width of each fan-out is read from the stage that precedes it rather than from the config, because the plan legitimately stages fewer designs than asked, or none at all when the cold start already passes.
 
@@ -173,14 +180,14 @@ That stage is the awkward one, because the container path is what it is reading.
 ./scripts/sync_to_hpc.sh                       # from the Mac. Excludes experiments/ and analysis/
 
 # on the HPC, from the repo root. One sbatch, nothing on the login node.
-sbatch scripts/run_workflow.slurm.sh tests/workflow_check/config.yml
+sbatch scripts/run_workflow.slurm.sh tests/test_run/config.yml
 sbatch scripts/run_workflow.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml
 sbatch scripts/run_workflow.slurm.sh 'experiments/benchmarking/**/config.yml'
 
 # The header is a default and sbatch's own flags override it. Trim with care:
 # the head job being killed at its walltime orphans whatever it has already
 # submitted, so leave room for the GPU queue rather than for the work alone.
-sbatch -t 12:00:00 scripts/run_workflow.slurm.sh tests/workflow_check/config.yml
+sbatch -t 12:00:00 scripts/run_workflow.slurm.sh tests/test_run/config.yml
 
 # on a laptop, no container and no GPU:
 nextflow run main.nf -profile local --targets '...' -stub-run   # walk the DAG
@@ -198,7 +205,7 @@ So the cluster directives live in the `process` block, `hpc` sets only `process.
 
 Every run artefact lands in `.nextflow-reports/`: the trace the compute-cost analysis reads, the HTML report and timeline, and the log. The config places the first three. The log is chosen before the config is read, so it needs `NXF_LOG_FILE`, which the submit wrapper exports, or `nextflow -log .nextflow-reports/nextflow.log run ...` on a hand-rolled invocation. Without either, Nextflow drops `.nextflow.log` in whatever directory you launched from. `.nextflow/` is Nextflow's own state directory and cannot be moved; it is hidden and gitignored.
 
-`tests/workflow_check/config.yml` is the first real run of the workflow itself. It is 6G10 at the shipped benchmark settings with `negsteer_n_designs` cut from 20 to 3, so the steering fan-out is 9 GPU tasks rather than 60. 6G10 was chosen because its cold start fails at 23.9 A against the 5 A threshold and its committed run contaminated 4 of 6 checked designs, so both fan-outs actually carry work. Like the single-run test it is not a benchmark configuration and its numbers must never be pooled with `experiments/benchmarking/`.
+`tests/test_run/config.yml` drives this path too. It is the same file the single-run test uses, described under Tests below, so the workflow and the engine CLI are compared on identical inputs.
 
 `-stub-run` checks the wiring on a laptop in seconds, with no container and no GPU. Every stage has a stub that writes a plausible artefact, so the channel shapes, the two fan-outs and both empty-fan-out bypasses are all exercised.
 
@@ -347,37 +354,40 @@ Pooling per-target medians gives each target one vote regardless of how many pre
 
 ## Tests
 
-936 tests across three tiers, one marker each.
+Two tiers, one marker each. A marker says what a test needs, not where it happens to run.
 
-| Tier | Where it runs | Covers |
+| Tier | Needs | Covers |
 |:---|:---|:---|
-| `local_unit` | anywhere with Python | pure helpers on synthetic input |
-| `local_integration` | Mac, no cluster | the committed fixtures and references |
-| `hpc` | needs a finished run or a GPU | a run tree, or a fresh engine run on the cluster |
+| `logic` | Python and the `test` extra | pure helpers on synthetic input, plus the committed fixtures and reference structures |
+| `check_test_run` | the output of a real run | a finished run tree on disk |
 
 ```bash
 mamba env create -f environment.yml && mamba activate negsteer-analysis
-pytest -m local_unit                          # fastest
-pytest -m "local_unit or local_integration"   # everything that needs no run
-pytest                                        # adds the hpc tier
-sbatch tests/run_pytest.slurm.sh -m hpc       # against a run already on disk
-sbatch tests/run_single_run_test.slurm.sh   # produce a fresh run, then assert
+pytest -m logic                  # everything that needs no run
+pytest                           # adds check_test_run, against a run already on disk
+sbatch tests/test_run.slurm.sh   # produce a fresh run, then assert on it
 ```
 
 ### The single-run test
 
-`tests/run_single_run_test.slurm.sh` runs the engine end to end on a GPU
+`tests/test_run.slurm.sh` runs the engine end to end on a GPU
 node and then asserts on what it produced. This is the only test that reaches
 the plan and collect stages of `boltz2_negative_steering`, the per-cycle loop in
 `boltz2_iterate_steering`, and the contamination and reversion harvest in
 `reversion`. None of those can run without the Boltz image.
 
-`tests/single_run_test/config.yml` is 6Q76 with every cost knob at its floor, one design
-by one seed by one diffusion sample. 6Q76 was chosen because it is the smallest
-complex whose cold start fails, at 7.4 Å against the 5 Å threshold, so the
-steering path actually runs. The three smaller targets all pass at cold start
-and would skip the half of the engine worth testing. That is roughly 3 Boltz
-calls against the ~305 a benchmark target runs, so expect minutes.
+`tests/test_run/config.yml` is the shipped 6G10 benchmark configuration with
+one knob turned down, `negsteer_n_designs` at 3 rather than 20. The fan-out is
+then 3 designs by 3 seeds, 9 prediction tasks instead of 60. 6G10 was chosen
+because its cold start fails badly, 23.9 Å against the 5 Å threshold, so the
+plan stages designs and the steering fan-out actually runs. Its committed run
+also contaminated 4 of 6 checked designs, so the reversion fan-out is exercised
+too. Neither empty-fan-out bypass in `main.nf` is covered by it, and the stub
+run in CI is what covers those.
+
+One config drives both entry points, the Nextflow workflow and the engine CLI,
+so the two paths are compared on identical inputs and neither can lose coverage
+to the other.
 
 It is not a benchmark configuration and its numbers must never be pooled with
 `experiments/benchmarking/`.
@@ -394,7 +404,7 @@ number would still look plausible.
 Validate the config on a laptop first, which needs no GPU:
 
 ```bash
-./scripts/negative_steering.py tests/single_run_test/config.yml --prepare-only
+./scripts/negative_steering.py tests/test_run/config.yml --prepare-only
 ```
 
 Most of `bin/` is the same code the pipeline ships, so most of these tests came
@@ -449,5 +459,8 @@ live in the Singularity image built from `containers/boltz2_negsteer.def`.
 
 `containers/` holds the definition files for the two images this repo needs.
 `boltz2_negsteer.def` builds the engine runtime, Boltz-2 with its CUDA stack.
-`pytest_runner.def` builds the image `tests/run_pytest.slurm.sh` runs the
-cluster tier inside, so nothing is installed on the airgapped host.
+`pytest_runner.def` built a separate image for the cluster tier. It is
+superseded and nothing calls it. The Boltz image now carries pytest and
+coverage, so the assertions run in the same image that ran the engine, which
+is what lets coverage see the stages at all. Coverage has to be installed in
+the process executing the code.

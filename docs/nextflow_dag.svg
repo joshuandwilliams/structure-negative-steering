@@ -116,8 +116,8 @@
   <rect x="340" y="834" width="300" height="50" rx="8" fill="#eaf5ea" stroke="#4c8c4a" stroke-width="2"/>
   <text x="490" y="856" text-anchor="middle" font-size="13" font-weight="bold" fill="#24491f">HARVEST</text>
   <text x="490" y="874" text-anchor="middle" font-size="11" fill="#24491f">accept or reject each reversion, finalise</text>
-  <text x="326" y="854" text-anchor="end" font-size="11" fill="#666666">--max-cycles 0, so no</text>
-  <text x="326" y="869" text-anchor="end" font-size="11" fill="#666666">follow-up cycle is submitted</text>
+  <text x="326" y="854" text-anchor="end" font-size="11" fill="#666666">follow-up cycles are gone,</text>
+  <text x="326" y="869" text-anchor="end" font-size="11" fill="#666666">--max-cycles has no effect</text>
 
   <line x1="490" y1="884" x2="490" y2="916" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
 

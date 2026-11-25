@@ -7,6 +7,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@v5
 
@@ -32,7 +34,15 @@ jobs:
       # Three tests skip here and that is expected. addopts carries -ra, so the
       # reasons are printed in the log rather than being asserted on.
       - name: Run the local test tiers
-        run: pytest -m logic
+        run: pytest -m logic --cov-report=xml
+
+      # Skipped until the CODECOV_TOKEN secret is added to the repository.
+      - name: Upload coverage to Codecov
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          files: coverage.xml
 
   # The workflow is not runnable in CI: every stage shells out to singularity,
   # and the GPU stages need Boltz. -stub-run replaces each script with its stub,
@@ -41,8 +51,8 @@ jobs:
   workflow:
     runs-on: ubuntu-latest
     # Job-wide, so the launcher cannot quietly resolve to a newer Nextflow on
-    # any step. This is the version containers/NextFlow.def bakes in and the
-    # cluster therefore runs.
+    # any step. This is the version the cluster runs, baked into NextFlow.def
+    # in receptor-resurfacing-pipeline, which is where that image is built.
     env:
       NXF_VER: 25.10.4
     steps:
@@ -68,8 +78,8 @@ jobs:
       - name: Install the config driver's dependencies
         run: pip install -e .[test]
 
-      # Pinned to the version the cluster runs, which is the version
-      # containers/NextFlow.def bakes in. CI on a newer Nextflow is CI that
+      # Pinned to the version the cluster runs, from the same image def as
+      # above. CI on a newer Nextflow is CI that
       # cannot see the config bug that took a run down: 25.10 replaces a
       # `withLabel:` block when a profile redefines it, 26.04 merges.
       - name: Install Nextflow, pinned to the cluster's version
