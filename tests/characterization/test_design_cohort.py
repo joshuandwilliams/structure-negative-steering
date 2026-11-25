@@ -196,3 +196,128 @@ class TestImmutability:
         cohort = dc.DesignCohort(runs=[_make_run(tmp_path, "x")])
         with pytest.raises((AttributeError, Exception)):
             cohort.runs = ()  # type: ignore
+
+
+# ── the two emitters and the directory factory ───────────────────────────────
+#
+# Both emitters hand a (name, csv path) list to cross_summary.aggregate. The
+# name keys every row of the cross-sequence summary, so a duplicate silently
+# overwrites a run and a wrongly derived one relabels it. aggregate itself is
+# stubbed here: what is under test is the list these build.
+
+@pytest.mark.logic
+def test_to_cross_summary_csv_names_each_run_by_its_sequence_id(monkeypatch,
+                                                                tmp_path):
+    seen = {}
+    import cross_summary
+    monkeypatch.setattr(cross_summary, "aggregate",
+                        lambda **kw: seen.update(kw) or 0)
+
+    cohort = dc.DesignCohort(runs=(_make_run(tmp_path / "seqA", "seqA"),
+                                   _make_run(tmp_path / "seqB", "seqB")))
+    assert cohort.to_cross_summary_csv(tmp_path / "out.csv") == 0
+    assert [n for n, _ in seen["sequences"]] == ["seqA", "seqB"]
+    assert seen["sequences"][0][1].name == "passing_summary.csv"
+
+
+def _seqdir(root: Path, name: str) -> Path:
+    d = root / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "passing_summary.csv").write_text("x\n")
+    return d
+
+
+@pytest.mark.logic
+def test_from_dirs_walks_one_subdirectory_per_sequence(monkeypatch, tmp_path):
+    seen = {}
+    import cross_summary
+    monkeypatch.setattr(cross_summary, "aggregate",
+                        lambda **kw: seen.update(kw) or 0)
+    runs = tmp_path / "runs"
+    for n in ("seqB", "seqA"):
+        _seqdir(runs, n)
+    (runs / "a_file.txt").write_text("not a dir")
+    assert dc.DesignCohort.emit_cross_summary_from_dirs(
+        runs_dirs=[runs], output_path=tmp_path / "o.csv") == 0
+    assert [n for n, _ in seen["sequences"]] == ["seqA", "seqB"]
+
+
+@pytest.mark.logic
+def test_explicit_pairs_come_first_and_win_a_name_clash(monkeypatch, tmp_path):
+    """A name seen twice must not produce two rows for one sequence."""
+    seen = {}
+    import cross_summary
+    monkeypatch.setattr(cross_summary, "aggregate",
+                        lambda **kw: seen.update(kw) or 0)
+    runs = tmp_path / "runs"
+    _seqdir(runs, "seqA")
+    explicit = tmp_path / "elsewhere.csv"
+    assert dc.DesignCohort.emit_cross_summary_from_dirs(
+        runs_dirs=[runs], output_path=tmp_path / "o.csv",
+        explicit_pairs=[("seqA", explicit), ("seqA", explicit)]) == 0
+    assert seen["sequences"] == [("seqA", explicit)]
+
+
+@pytest.mark.logic
+def test_a_directory_that_does_not_exist_is_skipped(monkeypatch, tmp_path):
+    seen = {}
+    import cross_summary
+    monkeypatch.setattr(cross_summary, "aggregate",
+                        lambda **kw: seen.update(kw) or 0)
+    runs = tmp_path / "runs"
+    _seqdir(runs, "seqA")
+    assert dc.DesignCohort.emit_cross_summary_from_dirs(
+        runs_dirs=[runs, tmp_path / "nope"],
+        output_path=tmp_path / "o.csv") == 0
+    assert [n for n, _ in seen["sequences"]] == ["seqA"]
+
+
+@pytest.mark.logic
+def test_a_subdirectory_whose_name_is_not_a_sequence_id_is_skipped(
+        monkeypatch, tmp_path):
+    """The name becomes a column key, so only the safe character set passes."""
+    seen = {}
+    import cross_summary
+    monkeypatch.setattr(cross_summary, "aggregate",
+                        lambda **kw: seen.update(kw) or 0)
+    runs = tmp_path / "runs"
+    _seqdir(runs, "seqA")
+    _seqdir(runs, "bad name!")
+    assert dc.DesignCohort.emit_cross_summary_from_dirs(
+        runs_dirs=[runs], output_path=tmp_path / "o.csv") == 0
+    assert [n for n, _ in seen["sequences"]] == ["seqA"]
+
+
+@pytest.mark.logic
+def test_no_sequences_at_all_is_an_error_not_an_empty_summary(tmp_path):
+    assert dc.DesignCohort.emit_cross_summary_from_dirs(
+        runs_dirs=[tmp_path / "nope"], output_path=tmp_path / "o.csv") == 2
+
+
+@pytest.mark.logic
+def test_from_runs_directory_skips_files_and_unloadable_runs(monkeypatch,
+                                                             tmp_path):
+    runs = tmp_path / "runs"
+    for n in ("seqA", "seqB"):
+        _seqdir(runs, n)
+    (runs / "stray.txt").write_text("x")
+
+    def fake_from_workdir(workdir, mpnn_sequence_id, **kw):
+        # seqB fails to load, which must drop it rather than the cohort.
+        if mpnn_sequence_id == "seqB":
+            return None
+        return _make_run(workdir, mpnn_sequence_id)
+
+    monkeypatch.setattr(nsr.NegativeSteeringRun, "from_workdir",
+                        staticmethod(fake_from_workdir))
+    cohort = dc.DesignCohort.from_runs_directory(runs)
+    assert len(cohort.runs) == 1
+
+
+@pytest.mark.logic
+def test_repr_reports_both_counts(monkeypatch):
+    cohort = dc.DesignCohort(runs=())
+    monkeypatch.setattr(type(cohort), "n_steered", lambda self: 4)
+    monkeypatch.setattr(type(cohort), "n_controls", lambda self: 2)
+    r = repr(cohort)
+    assert "n_steered=4" in r and "n_controls=2" in r

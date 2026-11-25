@@ -377,3 +377,82 @@ class TestNPass:
         s = _make_reversion(preds, mp)
         t = pt.PipelineInternalThresholds.default()
         assert s.n_pass(t, _truth(), contam) == 1
+
+
+# ── the remaining guards and counters ────────────────────────────────────────
+#
+# Every list on a StageResult is parallel: predictions, confidences and
+# seed_indices index the same seeds. A length mismatch would silently pair a
+# seed's structure with another seed's confidence, and every per-seed verdict
+# after that point would be about two different predictions.
+
+@pytest.mark.logic
+class TestParallelListGuards:
+    def test_confidences_must_match_predictions(self):
+        with pytest.raises(ValueError, match="confidences length"):
+            sr.StageResult(stage_type="cold_start", config_id="c",
+                           predictions=[_fake_pred(2.0, 1.0)],
+                           confidences=[], seed_indices=[0])
+
+    def test_seed_indices_must_match_predictions(self):
+        with pytest.raises(ValueError, match="seed_indices length"):
+            sr.StageResult(stage_type="cold_start", config_id="c",
+                           predictions=[_fake_pred(2.0, 1.0)],
+                           confidences=[_fake_conf()], seed_indices=[0, 1])
+
+
+@pytest.mark.logic
+class TestContaminationArgumentIsRequired:
+    """A steered or reversion verdict without the contamination set would
+    classify every seed as clean, which is the optimistic answer."""
+
+    def test_steered_verdicts_need_contamination_positions(self):
+        s = _make_steered([_fake_pred(2.0, 1.0)],
+                          PositionSet([5], chain="A", frame="prediction"))
+        with pytest.raises(ValueError, match="contamination_positions"):
+            s.per_seed_verdicts(pt.PipelineInternalThresholds.default(), _truth())
+
+    def test_steered_triggers_next_stage_needs_them_too(self):
+        s = _make_steered([_fake_pred(2.0, 1.0)],
+                          PositionSet([5], chain="A", frame="prediction"))
+        with pytest.raises(ValueError, match="contamination_positions"):
+            s.triggers_next_stage(pt.PipelineInternalThresholds.default(),
+                                  _truth())
+
+
+@pytest.mark.logic
+class TestContaminationCounting:
+    def _mut(self):
+        # The same frame the other verdict tests use; the triple intersection
+        # is only defined between sets in one frame.
+        return PositionSet([5], chain="A", frame="prediction")
+
+    def test_a_cold_start_has_no_contamination_to_count(self):
+        """Cold start carries no mutations, so the count is zero by
+        definition rather than by computation."""
+        s = _make_cold_start([_fake_pred(2.0, 1.0, contact_positions=[5])])
+        assert s.n_contaminated(pt.PipelineInternalThresholds.default(),
+                                _truth(), self._mut()) == 0
+
+    def test_a_reversion_counts_new_contamination(self):
+        """The reversion stage's contaminated verdict is named differently, so
+        counting the steered label here would always return zero."""
+        contam = self._mut()
+        s = _make_reversion([_fake_pred(2.0, 1.0, contact_positions=[5])],
+                            self._mut())
+        n = s.n_contaminated(pt.PipelineInternalThresholds.default(),
+                             _truth(), contam)
+        assert n == 1
+
+    def test_a_frame_mismatch_degrades_one_seed_rather_than_the_stage(self):
+        """Raising here would take down every other seed's verdict too."""
+        class Exploding:
+            def intersection(self, *a):
+                raise RuntimeError("frame mismatch")
+
+        bad = _fake_pred(2.0, 1.0)
+        bad.receptor_contact_residues.return_value = Exploding()
+        s = _make_steered([bad], self._mut())
+        verdicts = s.per_seed_verdicts(
+            pt.PipelineInternalThresholds.default(), _truth(), self._mut())
+        assert verdicts == ["no_data"]

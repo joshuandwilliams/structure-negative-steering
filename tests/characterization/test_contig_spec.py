@@ -323,3 +323,90 @@ class TestImmutability:
         spec = cs.ContigSpec.from_resolved_string("A1-10/5/A15-20")
         chain = spec.chain("A")
         assert isinstance(chain.segments, tuple)
+
+
+# ── the parser's refusals ────────────────────────────────────────────────────
+#
+# Each of these would otherwise produce a ContigChain that looks valid and
+# describes the wrong residues. Refusing is the whole point, so each refusal
+# gets a test rather than being left to the caller to notice.
+
+@pytest.mark.logic
+def test_an_empty_block_is_refused(cs_mod=None):
+    import contig_spec as m
+    with pytest.raises(ValueError, match="empty chain block"):
+        m._parse_block("   ")
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("block,msg", [
+    ("A1-x", "residue range must be int-int"),
+    ("Ax", "residue ref must be an int"),
+    ("1-x", "range must be int-int"),
+    ("5x", "length must be an integer"),
+    ("@1-5", "unrecognised first character"),
+])
+def test_a_malformed_segment_says_which_and_why(block, msg):
+    import contig_spec as m
+    with pytest.raises(ValueError, match=msg):
+        m._parse_block(block)
+
+
+@pytest.mark.logic
+def test_a_block_mixing_two_chains_is_refused(monkeypatch):
+    """Two chains in one block would make the chain id ambiguous, and every
+    fixed segment after the first would be attributed to the wrong chain."""
+    import contig_spec as m
+    with pytest.raises(ValueError, match="mixes chains"):
+        m._parse_block("A1-10/B20-30")
+
+
+@pytest.mark.logic
+def test_a_block_with_no_chain_anchor_is_refused():
+    """All de novo and no fixed segment means there is nothing to anchor the
+    residue numbering to."""
+    import contig_spec as m
+    with pytest.raises(ValueError, match="no chain-prefixed fixed segment"):
+        m._parse_block("5/10")
+
+
+@pytest.mark.logic
+def test_empty_slash_separated_parts_are_skipped():
+    import contig_spec as m
+    chain = m._parse_block("A1-10//A20-30")
+    assert len(chain.segments) == 2
+
+
+@pytest.mark.logic
+def test_a_passthrough_segment_anchors_the_chain_when_it_comes_first():
+    import contig_spec as m
+    chain = m._parse_block("B/5")
+    assert chain.chain_id == "B"
+
+
+# ── segment accessors and normalisation ──────────────────────────────────────
+
+@pytest.mark.logic
+def test_a_passthrough_segment_needs_a_chain():
+    import contig_spec as m
+    with pytest.raises(ValueError, match="must be non-empty"):
+        m.PassthroughSegment(chain="")
+
+
+@pytest.mark.logic
+def test_segments_and_chains_are_normalised_to_tuples():
+    """Constructed from a list, they must still be hashable and frozen."""
+    import contig_spec as m
+    chain = m.ContigChain(chain_id="A", segments=[m.FixedSegment(1, 10)])
+    assert isinstance(chain.segments, tuple)
+    spec = m.ContigSpec(chains=[chain], contig_string="A1-10")
+    assert isinstance(spec.chains, tuple)
+
+
+@pytest.mark.logic
+def test_break_and_passthrough_accessors():
+    import contig_spec as m
+    chain = m._parse_block("A1-10/0/B")
+    assert chain.has_breaks is True
+    assert [s.chain for s in chain.passthrough_segments] == ["B"]
+    assert m._parse_block("A1-10").has_breaks is False

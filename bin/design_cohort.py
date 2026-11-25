@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
+    sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
 
 from negative_steering_run import NegativeSteeringRun  # noqa: E402
 

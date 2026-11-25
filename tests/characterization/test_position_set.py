@@ -249,3 +249,60 @@ class TestRepr:
     def test_large_truncated(self):
         s = ps.PositionSet(range(100), chain="A", frame="designed")
         assert "100 total" in repr(s)
+
+
+# ── frame conversion, every direction ────────────────────────────────────────
+#
+# A PositionSet carries its frame, and the mapper is picked from the (source,
+# target) pair. Picking the wrong one returns plausible integers in the wrong
+# coordinate system, which is the failure that silently protects or mutates
+# the wrong residues.
+
+@pytest.mark.logic
+@pytest.mark.parametrize("src,dst", [
+    ("designed", "prediction"),
+    ("prediction", "native"),
+    ("native", "prediction"),
+])
+def test_every_declared_direction_has_a_mapper(src, dst):
+    from unittest.mock import MagicMock
+    contig = MagicMock()
+    contig.designed_to_native.side_effect = lambda p, c: p + 100
+    contig.native_to_designed.side_effect = lambda p, c: p - 100
+    pset = ps.PositionSet([1, 2], chain="A", frame=src, contig=contig)
+    assert callable(pset._select_mapper(dst))
+
+
+@pytest.mark.logic
+def test_designed_to_prediction_is_the_identity():
+    """Documented as a no-op, so a mapper that shifted would be a bug."""
+    pset = ps.PositionSet([5], chain="A", frame="designed")
+    assert pset._select_mapper("prediction")(5, "A") == 5
+
+
+@pytest.mark.logic
+def test_an_undeclared_direction_is_refused():
+    pset = ps.PositionSet([1], chain="A", frame="native")
+    with pytest.raises(ps.FrameConversionError, match="no conversion mapper"):
+        pset._select_mapper("nonsense")
+
+
+@pytest.mark.logic
+def test_comparing_against_another_type_is_not_equal():
+    pset = ps.PositionSet([1], chain="A", frame="native")
+    assert pset.__eq__(object()) is NotImplemented
+    assert pset != 3
+
+
+# ── the ChimeraX string form ─────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_a_chimerax_string_without_a_chain_is_refused():
+    with pytest.raises(ValueError, match="missing chain"):
+        ps.PositionSet.from_chimerax_string("/:1,2", frame="native")
+
+
+@pytest.mark.logic
+def test_empty_positions_between_commas_are_skipped():
+    pset = ps.PositionSet.from_chimerax_string("/A:1,,2", frame="native")
+    assert list(pset) == [1, 2]

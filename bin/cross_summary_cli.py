@@ -29,7 +29,7 @@ from typing import List, Tuple
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
+    sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
 
 from design_cohort import DesignCohort  # noqa: E402
 
@@ -92,11 +92,15 @@ def main() -> int:
 
     explicit_pairs: List[Tuple[str, Path]] = []
     for raw in args.passing_summary:
+        # _parse_passing_summary_arg does a str.split and a Path(), neither of
+        # which raises ValueError for any string, so this handler cannot fire
+        # today. Kept because that function's contract is a parse, and a parse
+        # is the kind of thing that grows a validation step.
         try:
             explicit_pairs.append(
                 _parse_passing_summary_arg(raw, args.seq_name_mode)
             )
-        except ValueError as e:
+        except ValueError as e:  # pragma: no cover - no input reaches it
             print(f"ERROR: {e}", file=sys.stderr)
             return 2
 

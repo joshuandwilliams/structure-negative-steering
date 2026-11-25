@@ -224,3 +224,95 @@ class TestRealStructure:
             path=pdb, receptor_chain="A", effector_chain="B")
         assert x.independent_receptor_rmsd_vs(x2) == pytest.approx(0.0, abs=1e-6)
         assert x.independent_effector_rmsd_vs(x2) == pytest.approx(0.0, abs=1e-6)
+
+
+# ── caching, repr, and the parse paths ───────────────────────────────────────
+#
+# Every accessor caches per chain. A cache keyed wrongly would return one
+# chain's coordinates for another, which is the kind of error that produces a
+# plausible RMSD against the wrong thing.
+
+def _two_chain_pdb(path, *, alt=False, hydrogens=False):
+    lines, serial = [], 1
+    for chain, n, aa in (("A", 3, "ALA"), ("B", 2, "GLY")):
+        for r in range(1, n + 1):
+            atoms = [("CA", "C")]
+            if hydrogens:
+                atoms.append(("H", "H"))
+            for name, elem in atoms:
+                lines.append(
+                    f"ATOM  {serial:5d}  {name:<3s} {aa} {chain}{r:4d}"
+                    f"    {r:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00"
+                    f"          {elem:>2s}")
+                serial += 1
+            if alt and r == 1:
+                lines.append(
+                    f"ATOM  {serial:5d}  CA  {aa} {chain}{r:4d}"
+                    f"    {99.0:8.3f}{0.0:8.3f}{0.0:8.3f}  0.50  0.00"
+                    f"           C")
+                serial += 1
+    lines.append("END")
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+@pytest.mark.logic
+@pytest.mark.skipif(not _has_gemmi(), reason="gemmi not installed")
+class TestParsingAndCaching:
+    def _psp(self, tmp_path, **kw):
+        p = _two_chain_pdb(tmp_path / "x.pdb", **kw)
+        return psp.ProteinStructurePrediction(
+            path=p, receptor_chain="A", effector_chain="B")
+
+    def test_repr_names_the_file_and_both_chains(self, tmp_path):
+        r = repr(self._psp(tmp_path))
+        assert "x.pdb" in r and "'A'" in r and "'B'" in r
+
+    def test_sequences_are_cached_per_chain(self, tmp_path):
+        x = self._psp(tmp_path)
+        assert x.receptor_sequence() == "AAA"
+        assert x.effector_sequence() == "GG"
+        # Second call comes from the cache, and must not cross chains.
+        assert x.receptor_sequence() == "AAA"
+        assert x.effector_length() == 2
+
+    def test_alternate_conformations_are_counted_once(self, tmp_path):
+        """A duplicated residue would lengthen the sequence and shift every
+        positional index after it."""
+        x = self._psp(tmp_path, alt=True)
+        assert x.receptor_sequence() == "AAA"
+
+    def test_ca_coordinates_are_cached_per_chain(self, tmp_path):
+        x = self._psp(tmp_path)
+        a = x.receptor_ca_coords()
+        assert a.shape == (3, 3)
+        assert x.receptor_ca_coords() is a
+        assert x.effector_ca_coords().shape == (2, 3)
+
+    def test_a_chain_with_no_atoms_gives_an_empty_array(self, tmp_path):
+        """Empty rather than raising, so a missing chain degrades to 'no
+        contacts' instead of taking the metrics step down."""
+        p = _two_chain_pdb(tmp_path / "x.pdb")
+        x = psp.ProteinStructurePrediction(
+            path=p, receptor_chain="A", effector_chain="Z")
+        assert x.effector_ca_coords().shape == (0, 3)
+
+    def test_hydrogens_are_excluded_from_heavy_atoms(self, tmp_path):
+        x = self._psp(tmp_path, hydrogens=True)
+        atoms = x._chain_heavy_atoms_list("A")
+        assert len(atoms) == 3          # the three CAs, not the three Hs
+
+    def test_heavy_atoms_are_cached_per_chain(self, tmp_path):
+        x = self._psp(tmp_path)
+        first = x._chain_heavy_atoms_list("A")
+        assert x._chain_heavy_atoms_list("A") is first
+        assert len(x._chain_heavy_atoms_list("B")) == 2
+
+
+@pytest.mark.logic
+def test_an_empty_effector_chain_is_refused(tmp_path):
+    p = tmp_path / "x.pdb"
+    p.write_text("END\n")
+    with pytest.raises(ValueError, match="effector_chain"):
+        psp.ProteinStructurePrediction(path=p, receptor_chain="A",
+                                       effector_chain="")

@@ -164,3 +164,41 @@ def test_main_regenerates_the_committed_tree_unchanged(gen):
             expected = gen.transform(gen._source_text(spec["arm"], target),
                                      target, variant, spec)
             assert committed.read_text() == expected, f"{variant}/{target} is hand-edited"
+
+
+# ── the remaining refusals ───────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_targets_fall_back_to_git_when_the_tree_is_absent(gen, monkeypatch):
+    """A clean checkout may not have the arm's directory, so the target list
+    comes from git rather than silently being empty."""
+    monkeypatch.setitem(gen.ARM_SOURCE, "unrestrained", "no/such/dir")
+    monkeypatch.setattr(gen, "_git_show",
+                        lambda rev, **kw: "tree x\n\n6G10/\n7QZD/\nREADME.md\n")
+    assert gen._targets("unrestrained") == ["6G10", "7QZD"]
+
+
+@pytest.mark.logic
+def test_no_targets_anywhere_is_refused(gen, monkeypatch):
+    monkeypatch.setitem(gen.ARM_SOURCE, "unrestrained", "no/such/dir")
+    monkeypatch.setattr(gen, "_git_show", lambda rev, **kw: "tree x\n\n")
+    with pytest.raises(SystemExit, match="no targets under"):
+        gen._targets("unrestrained")
+
+
+@pytest.mark.logic
+def test_a_smoke_variant_missing_a_target_is_refused(gen, monkeypatch, tmp_path):
+    """The smoke pair is fixed, so a partial run would report a cohort it did
+    not have."""
+    monkeypatch.setattr(gen, "DEST", tmp_path / "out")
+    monkeypatch.setattr(gen, "_targets", lambda arm: ["7QZD"])   # 9IP6 absent
+    with pytest.raises(SystemExit, match="not all present"):
+        gen.main(["--variant", "smoke_scrambled_unrestrained"])
+
+
+@pytest.mark.logic
+def test_a_missing_reference_structure_is_refused(gen, monkeypatch, tmp_path):
+    monkeypatch.setattr(gen, "DEST", tmp_path / "out")
+    monkeypatch.setattr(gen, "_source_pdb", lambda target: b"")
+    with pytest.raises(SystemExit, match="no reference PDB"):
+        gen.main(["--variant", "smoke_scrambled_unrestrained"])

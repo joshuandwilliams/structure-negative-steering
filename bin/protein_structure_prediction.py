@@ -38,7 +38,7 @@ import numpy as np
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
+    sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
 
 # Three-letter → one-letter AA map.  Single canonical home in
 # contig_utils.py (post-Phase-3); re-exported here for the
