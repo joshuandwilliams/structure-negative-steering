@@ -302,3 +302,355 @@ def test_every_protected_set_source_includes_the_true_interface():
             f"a protected-set branch omits the true interface: {head.strip()!r}. "
             "If that is deliberate, the blindness claim in README.md and "
             "analysis/02-model-choice needs updating with it.")
+
+
+# ── the overlapping cold start, where there is nothing to steer away from ────
+#
+# A third cold start, built by rotating the effector 180 degrees about the axis
+# through the receptor centroid and the interface centroid. The effector stays
+# on the correct face but in the wrong orientation, so ra_eff is 22.7 A while
+# 86% of the wrong-interface residues are also true-interface residues.
+#
+# This is the pathological regime the plan stage has to recognise. Almost every
+# candidate is protected, so steering would have to mutate the binding site to
+# have any effect at all. The engine detects it, halves the mutation count,
+# and in the limit switches to sampling mode, which reseeds the wild type
+# rather than designing anything.
+
+def _overlapping_pose(src: Path, dst: Path, degrees: float = 180.0) -> Path:
+    import math
+
+    import numpy as np
+
+    lines = src.read_text().splitlines(keepends=True)
+
+    def xyz(line):
+        return np.array([float(line[30:38]), float(line[38:46]),
+                         float(line[46:54])])
+
+    rec = np.array([xyz(x) for x in lines
+                    if x.startswith("ATOM") and x[21] == "A"])
+    eff_lines = [x for x in lines
+                 if x.startswith(("ATOM", "HETATM")) and x[21] == "B"]
+    eff = np.array([xyz(x) for x in eff_lines])
+    near = np.linalg.norm(eff[:, None, :] - rec[None, :, :],
+                          axis=2).min(axis=1) < 8.0
+    centre = eff[near].mean(axis=0) if near.any() else eff.mean(axis=0)
+
+    axis = centre - rec.mean(axis=0)
+    axis = axis / np.linalg.norm(axis)
+    theta = math.radians(degrees)
+    K = np.array([[0, -axis[2], axis[1]],
+                  [axis[2], 0, -axis[0]],
+                  [-axis[1], axis[0], 0]])
+    R = np.eye(3) + math.sin(theta) * K + (1 - math.cos(theta)) * (K @ K)
+
+    out = []
+    for line in lines:
+        if (line.startswith(("ATOM", "HETATM")) and len(line) > 54
+                and line[21] == "B"):
+            p = R @ (xyz(line) - centre) + centre
+            out.append(f"{line[:30]}{p[0]:8.3f}{p[1]:8.3f}{p[2]:8.3f}"
+                       f"{line[54:]}")
+        else:
+            out.append(line)
+    dst.write_text("".join(out))
+    return dst
+
+
+@pytest.fixture
+def overlapping(tmp_path):
+    pytest.importorskip("numpy")
+    return _overlapping_pose(GT, tmp_path / "overlapping.pdb")
+
+
+def _plan_of(work: Path) -> dict:
+    return json.loads((work / "plan.json").read_text())
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_overlapping_pose_is_a_failure_on_the_right_face(tmp_path,
+                                                             overlapping):
+    """The premise of the next few tests. Without both halves holding, they
+    would be testing a different situation than the one they describe."""
+    work = tmp_path / "work"
+    assert _run_plan(work, overlapping) == 0
+    plan = _plan_of(work)
+    assert float(plan["initial_receptor_aligned_effector_rmsd"]) > 5.0
+    assert plan["interfaces_overlap"] > 0.5
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_an_overlapping_interface_halves_the_mutation_count(tmp_path,
+                                                            overlapping):
+    """An aggressive mutation count is marginal when the cold start is
+    already on the right face, and the surviving candidates are second-shell
+    residues rather than direct contacts."""
+    work = tmp_path / "work"
+    _run_plan(work, overlapping, "--max-mutations", "6")
+    plan = _plan_of(work)
+    assert plan.get("max_mutations_reduced_from") == 6
+    assert plan["max_mutations_reduced_to"] <= 3
+    assert plan["max_mutations_reduced_reason"]
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_non_overlapping_interface_keeps_the_requested_count(tmp_path):
+    """The reduction is a response to the pathology, not a default."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong, "--max-mutations", "6")
+    plan = _plan_of(work)
+    assert plan["interfaces_overlap"] <= 0.5
+    assert "max_mutations_reduced_from" not in plan
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_overlap_is_recorded_whichever_way_it_falls(tmp_path,
+                                                        overlapping):
+    """It is the number the pathology is diagnosed from, so it belongs in
+    plan.json whether or not it crossed the threshold."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    for pose, name in ((wrong, "a"), (overlapping, "b")):
+        work = tmp_path / name
+        _run_plan(work, pose)
+        assert 0.0 <= _plan_of(work)["interfaces_overlap"] <= 1.0
+
+
+# ── the protected set ────────────────────────────────────────────────────────
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_design_region_is_protected_alongside_the_true_interface(
+        tmp_path):
+    """The design region is the stretch being validated. A steering mutation
+    inside it contaminates the rescue pose by construction, because the
+    construct carries the designed sequence and not the steered one."""
+    region = tmp_path / "region.txt"
+    region.write_text("# 1-based\n30-45\n")
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    assert _run_plan(work, wrong, "--design-region-indices-file",
+                     str(region)) == 0
+    plan = _plan_of(work)
+    assert plan["protected_set_source"] == "design_region_union"
+    protected = set(plan["protected_set_idx"])
+    assert set(range(29, 45)) <= protected          # 1-based 30-45 → 0-based
+    assert set(plan["true_interface_idx"]) <= protected
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_no_design_region_falls_back_to_the_true_interface(tmp_path):
+    """The default source asks for the union, and most runs have no region
+    file. Falling back is what keeps that default usable."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong)
+    plan = _plan_of(work)
+    assert plan["protected_set_idx"] == sorted(plan["true_interface_idx"])
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_legacy_source_ignores_the_design_region(tmp_path):
+    """Kept so a run can be reproduced as it was before the union became the
+    default."""
+    region = tmp_path / "region.txt"
+    region.write_text("30-45\n")
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong, "--protected-set-source", "true_interface",
+              "--design-region-indices-file", str(region))
+    plan = _plan_of(work)
+    assert plan["protected_set_source"] == "true_interface"
+    assert plan["protected_set_idx"] == sorted(plan["true_interface_idx"])
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_design_region_file_that_is_absent_is_refused(tmp_path):
+    """Silently proceeding with no region would leave it unprotected, and
+    the run would look like it had been protected. A wrong cold start is
+    needed to reach the check, because a clean one short-circuits first."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    assert _run_plan(work, wrong, "--design-region-indices-file",
+                     str(tmp_path / "nope.txt")) == 1
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_design_region_outside_the_receptor_is_refused(tmp_path):
+    """The indices are positional, so one past the end means the file was
+    derived against a different receptor."""
+    region = tmp_path / "region.txt"
+    region.write_text("900-910\n")
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    assert _run_plan(work, wrong, "--design-region-indices-file",
+                     str(region)) == 1
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_no_steering_mutation_lands_in_the_design_region(tmp_path):
+    """The point of protecting it. This is the same invariant as the true
+    interface test above, applied to the other protected block."""
+    region = tmp_path / "region.txt"
+    region.write_text("30-45\n")
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong, "--design-region-indices-file", str(region))
+    steered = work / "steered"
+    if not steered.is_dir():
+        pytest.skip("this cold start did not reach the steering stage")
+    wild = _plan_of(work)["wild_type_receptor_seq"]
+    region_idx = set(range(29, 45))
+    for d in sorted(steered.iterdir()):
+        fasta = d / "receptor.fasta"
+        if not fasta.is_file():
+            continue
+        seq = "".join(x for x in fasta.read_text().splitlines()
+                      if not x.startswith(">"))
+        changed = {i for i, (a, b) in enumerate(zip(wild, seq)) if a != b}
+        assert not (changed & region_idx), (
+            f"{d.name} mutated design-region positions "
+            f"{sorted(changed & region_idx)}")
+
+
+# ── the multi-seed cold start ────────────────────────────────────────────────
+
+@pytest.mark.logic
+@needs_pdb
+def test_extra_cold_start_seeds_are_run_and_recorded(tmp_path):
+    """One cold start cannot distinguish a prediction that is reliably wrong
+    from one Boltz happens to get wrong on that seed. The per-seed rows are
+    what the median across seeds is taken over."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    assert _run_plan(work, wrong, "--num-seeds", "3") == 0
+    plan = _plan_of(work)
+    assert len(plan["cold_start_seeds"]) == 3
+    assert plan["cold_start_n_clean"] == 0
+    assert plan["cold_start_all_clean"] is False
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_extra_seeds_get_distinct_boltz_seeds(tmp_path):
+    """Same seed means the same prediction, which would make the confirmation
+    a copy of the first run rather than a second sample."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong, "--num-seeds", "3")
+    records = _plan_of(work)["cold_start_seeds"]
+    seeds = [r["boltz_seed"] for r in records]
+    assert len(set(seeds)) == 3
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_skip_steering_does_not_pay_for_extra_seeds(tmp_path):
+    """The extra seeds exist to confirm a steering decision. With steering
+    off there is no decision to confirm, so the GPU time is wasted."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    assert _run_plan(work, wrong, "--num-seeds", "3", "--skip-steering") == 0
+    assert len(_plan_of(work)["cold_start_seeds"]) == 1
+
+
+# ── the candidate pool ───────────────────────────────────────────────────────
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_pool_smaller_than_the_mutation_count_caps_the_count(tmp_path):
+    """Capping keeps protection strict. The alternative, loosening the
+    protected set to reach the requested count, puts steering mutations
+    inside the region being validated, which contaminates the rescue pose by
+    construction. Fewer mutations beats contaminated ones."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    assert _run_plan(work, wrong, "--max-mutations", "40") == 0
+    plan = _plan_of(work)
+    assert plan["max_mutations_reduced_from"] == 40
+    assert 1 <= plan["max_mutations_effective"] < 40
+    assert plan["protected_set_idx"] == sorted(plan["true_interface_idx"])
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_recorded_mutation_count_is_the_effective_one(tmp_path):
+    """Later cycles and the reversion pass read plan["max_mutations"], so on
+    a reduced run it has to be the count that was actually used. The number
+    the user asked for moves to max_mutations_requested."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong, "--max-mutations", "40")
+    plan = _plan_of(work)
+    assert plan["max_mutations_requested"] == 40
+    assert plan["max_mutations"] == plan["max_mutations_effective"]
+    assert plan["max_mutations"] < 40
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_an_unreduced_run_records_the_requested_count(tmp_path):
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong, "--max-mutations", "3")
+    plan = _plan_of(work)
+    assert plan["max_mutations"] == 3
+    assert plan["max_mutations_effective"] == 3
+    assert "max_mutations_requested" not in plan
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_the_pool_is_widened_to_hold_the_mutation_count(tmp_path):
+    """--candidate-pool-size is a floor, not a ceiling. A pool narrower than
+    max_mutations could not supply enough distinct positions for one design,
+    so every design would draw the same ones."""
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong, "--max-mutations", "12",
+              "--candidate-pool-size", "4")
+    plan = _plan_of(work)
+    assert len(plan["candidate_pool"]) >= plan["max_mutations_effective"]
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_a_fully_protected_interface_falls_back_to_the_second_shell(tmp_path):
+    """Every direct candidate protected is not the same as nothing to do.
+    The fallback looks one shell out, at residues near the predicted effector
+    but outside both the wrong interface and the protected set."""
+    region = tmp_path / "region.txt"
+    region.write_text("1-70\n")
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    rc = _run_plan(work, wrong, "--design-region-indices-file", str(region),
+                   "--max-mutations", "6")
+    plan = _plan_of(work)
+    assert plan["candidate_pool"] == []
+    assert plan["second_shell_fallback_used"] is False
+    assert rc == 1
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_an_unsteerable_run_still_writes_the_cold_start_row(tmp_path):
+    """The cold start is a result even when steering cannot proceed. Losing
+    it would drop the target from the comparison entirely rather than
+    recording that it had nothing steerable."""
+    region = tmp_path / "region.txt"
+    region.write_text("1-70\n")
+    wrong = _wrong_interface_pose(GT, tmp_path / "wrong.pdb")
+    work = tmp_path / "work"
+    _run_plan(work, wrong, "--design-region-indices-file", str(region))
+    rows = (work / "steered_results.csv").read_text().splitlines()
+    assert len(rows) == 2, "expected a header and the cold-start row"

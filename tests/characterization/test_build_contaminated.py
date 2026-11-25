@@ -302,3 +302,375 @@ def test_harvest_refuses_a_missing_compute_metrics_script(rev, tmp_path,
         workdir=tmp_path,
         compute_metrics_script=tmp_path / "nope.py")) == 2
     assert "compute_metrics.py not found" in capsys.readouterr().err
+
+
+# ── the per-candidate loop and the CL-3 majority gate ────────────────────────
+#
+# The loop shells out to compute_metrics.py once per surviving candidate to
+# get the steered pose's contact residues, intersects them with that design's
+# cumulative mutation history, and records the intersection as the positions
+# reversion must revert.
+#
+# The gate on top of it is the part worth pinning. Reversion runs for a design
+# only when at least half of its correctly-placed seeds are contaminated. The
+# pre-Phase-4 behaviour fired on any single contaminated seed, which sent
+# designs whose contamination was a one-seed artefact into a reversion pass
+# that cost a full prediction each. A below-majority design is left alone, and
+# its contaminated seeds still count as failures in n_pass at the aggregate
+# level — they are simply not worth a reversion.
+#
+# The subprocess is real. The loop runs sys.executable itself, so the stub is
+# a Python file that reads the contacts it should report out of the prediction
+# directory.
+
+STUB_CONTACTS = """\
+import csv, sys
+argv = sys.argv[1:]
+out = argv[argv.index("--output-csv") + 1]
+pdir = argv[argv.index("--prediction-dir") + 1]
+try:
+    contacts = open(pdir + "/stub_contacts.txt").read().strip()
+except FileNotFoundError:
+    contacts = ""
+if contacts == "FAIL":
+    sys.stderr.write("stub refused\\n")
+    sys.exit(7)
+if contacts == "NOCSV":
+    sys.exit(0)
+if contacts == "EMPTY":
+    open(out, "w").write("model_name,contact_residues\\n")
+    sys.exit(0)
+with open(out, "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=["model_name", "contact_residues",
+                                      "n_contact_residues"])
+    w.writeheader()
+    w.writerow({"model_name": "boltz2", "contact_residues": contacts,
+                "n_contact_residues": len([c for c in contacts.split(",")
+                                           if c])})
+"""
+
+
+def _pdb(rec=12, eff=7) -> str:
+    lines = []
+    n = 0
+    for chain, count in (("A", rec), ("B", eff)):
+        for i in range(1, count + 1):
+            n += 1
+            lines.append(
+                f"ATOM  {n:5d}  CA  ALA {chain}{i:4d}    "
+                f"{i:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00 80.00\n")
+    return "".join(lines)
+
+
+class Run:
+    """A cycle-0 collect workdir with predictions on disk."""
+
+    def __init__(self, root: Path, *, threshold=5.0):
+        self.root = root
+        root.mkdir(parents=True, exist_ok=True)
+        self.script = root / "stub_cm.py"
+        self.script.write_text(STUB_CONTACTS)
+        (root / "plan.json").write_text(json.dumps({
+            "cycle": 0, "rmsd_threshold": threshold,
+            "pred_receptor_chain": "A", "pred_effector_chain": "B",
+            "effector_interface_residues": [1, 2]}))
+        self.candidates = []
+
+    def design(self, slot, *, seed=0, ra=2.0, muts=((3, "A", "W"),),
+               contacts="3,26", pdb=True, rec=12, eff=7, name=None):
+        """One per-seed prediction of one design slot."""
+        d = self.root / (name or f"{slot}_s{seed}")
+        d.mkdir(parents=True, exist_ok=True)
+        if pdb:
+            (d / "prediction.pdb").write_text(_pdb(rec, eff))
+        (d / "stub_contacts.txt").write_text(contacts)
+        if muts is not None:
+            rows = "".join(f"{p}\t{w}\t{m}\n" for p, w, m in muts)
+            (d / "mutations.tsv").write_text("pos1\twt\tmut\n" + rows)
+        self.candidates.append({
+            "design": slot, "design_idx": len(self.candidates),
+            "seed_index": seed,
+            "receptor_aligned_effector_rmsd_vs_truth": ra,
+            "pdb": str(d / "prediction.pdb")})
+        return self
+
+    def write(self):
+        (self.root / "prefilter.json").write_text(json.dumps({
+            "cycle": 0, "parent_pathway": None,
+            "intact_candidates": self.candidates}))
+        return self
+
+    def run(self, rev, **kw):
+        args = Args(workdir=self.root, pae_cutoff=10.0, contact_cutoff=5.0,
+                    compute_metrics_script=self.script)
+        args.__dict__.update(kw)
+        return rev.cmd_build_contaminated(args)
+
+    def doc(self):
+        return json.loads((self.root / "contaminated.json").read_text())
+
+
+@pytest.mark.logic
+def test_the_positions_to_revert_are_the_mutations_in_contact(rev, tmp_path):
+    """Position 3 is both mutated and contacting, so the rescue pose depends
+    on a residue the construct will not carry. Position 26 contacts but was
+    never mutated, and position 9 was mutated but does not contact."""
+    run = (Run(tmp_path / "wd")
+           .design("design_00", muts=((3, "A", "W"), (9, "A", "Y")),
+                   contacts="3,26").write())
+    assert run.run(rev) == 0
+    entry = run.doc()["contaminated"][0]
+    assert entry["positions_to_revert"] == [3]
+    assert entry["steered_contact_residues"] == [3, 26]
+
+
+@pytest.mark.logic
+def test_a_design_with_no_mutation_in_contact_is_not_contaminated(rev,
+                                                                   tmp_path):
+    run = (Run(tmp_path / "wd")
+           .design("design_00", muts=((9, "A", "Y"),), contacts="3,26")
+           .write())
+    assert run.run(rev) == 0
+    assert run.doc()["n_contaminated"] == 0
+    assert run.doc()["n_checked"] == 1
+
+
+@pytest.mark.logic
+def test_a_cold_start_with_no_mutations_can_never_be_contaminated(rev,
+                                                                  tmp_path):
+    run = Run(tmp_path / "wd").design("initial", muts=(),
+                                      contacts="3,26").write()
+    assert run.run(rev) == 0
+    assert run.doc()["n_contaminated"] == 0
+
+
+@pytest.mark.logic
+def test_the_full_mutation_history_travels_with_the_entry(rev, tmp_path):
+    """The reversion pass reverts against this history, so a dropped
+    mutation would be reverted to the wrong residue or not at all."""
+    run = (Run(tmp_path / "wd")
+           .design("design_00", muts=((3, "A", "W"), (9, "G", "Y")),
+                   contacts="3").write())
+    run.run(rev)
+    entry = run.doc()["contaminated"][0]
+    assert entry["cumulative_mutations"] == [[3, "A", "W"], [9, "G", "Y"]]
+    assert entry["steered_ra_eff_vs_truth"] == 2.0
+    assert entry["design_workdir"].endswith("design_00_s0")
+
+
+@pytest.mark.logic
+def test_a_cycle_zero_design_keeps_its_flat_label(rev, tmp_path):
+    """parse_pathway_label cannot read "design_NN", so cycle 0 reads the
+    design's own mutations.tsv rather than walking ancestors it has none of."""
+    run = Run(tmp_path / "wd").design("design_07", contacts="3").write()
+    run.run(rev)
+    assert run.doc()["contaminated"][0]["label"] == "design_07"
+
+
+# ── the majority gate ────────────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_a_single_contaminated_seed_out_of_three_does_not_trigger(rev,
+                                                                  tmp_path):
+    """One seed in three is a prediction artefact rather than a property of
+    the design, and reverting it costs a full prediction. This is the gate
+    that replaced the per-seed trigger."""
+    run = (Run(tmp_path / "wd")
+           .design("design_00", seed=0, contacts="3")
+           .design("design_00", seed=1, contacts="26")
+           .design("design_00", seed=2, contacts="26")
+           .write())
+    assert run.run(rev) == 0
+    assert run.doc()["n_contaminated"] == 0
+
+
+@pytest.mark.logic
+def test_two_contaminated_seeds_out_of_three_trigger(rev, tmp_path):
+    """ceil(3/2) is 2, so two is the majority."""
+    run = (Run(tmp_path / "wd")
+           .design("design_00", seed=0, contacts="3")
+           .design("design_00", seed=1, contacts="3")
+           .design("design_00", seed=2, contacts="26")
+           .write())
+    run.run(rev)
+    assert run.doc()["n_contaminated"] == 2
+
+
+@pytest.mark.logic
+def test_only_the_contaminated_seeds_are_queued(rev, tmp_path):
+    """The clean seeds of a triggering design need no reversion, so staging
+    them would spend a prediction on a question already answered."""
+    run = (Run(tmp_path / "wd")
+           .design("design_00", seed=0, contacts="3")
+           .design("design_00", seed=1, contacts="3")
+           .design("design_00", seed=2, contacts="26")
+           .write())
+    run.run(rev)
+    assert {e["seed_index"] for e in run.doc()["contaminated"]} == {0, 1}
+
+
+@pytest.mark.logic
+def test_one_contaminated_seed_out_of_two_triggers(rev, tmp_path):
+    """ceil(2/2) is 1, so an even split counts as a majority. Half the seeds
+    of a design depending on a residue that will not exist is enough."""
+    run = (Run(tmp_path / "wd")
+           .design("design_00", seed=0, contacts="3")
+           .design("design_00", seed=1, contacts="26")
+           .write())
+    run.run(rev)
+    assert run.doc()["n_contaminated"] == 1
+
+
+@pytest.mark.logic
+def test_a_single_seed_design_triggers_on_that_seed(rev, tmp_path):
+    """ceil(1/2) is 1. Most runs are single-seed, so this is the common
+    case and the gate must not suppress it."""
+    run = Run(tmp_path / "wd").design("design_00", contacts="3").write()
+    run.run(rev)
+    assert run.doc()["n_contaminated"] == 1
+
+
+@pytest.mark.logic
+def test_each_design_slot_is_gated_separately(rev, tmp_path):
+    """The grouping key is the slot, not the run. One design's clean seeds
+    must not raise another design's threshold."""
+    run = (Run(tmp_path / "wd")
+           .design("design_00", seed=0, contacts="3")
+           .design("design_00", seed=1, contacts="3")
+           .design("design_01", seed=0, contacts="26")
+           .design("design_01", seed=1, contacts="26")
+           .write())
+    run.run(rev)
+    labels = {e["label"] for e in run.doc()["contaminated"]}
+    assert labels == {"design_00"}
+
+
+@pytest.mark.logic
+def test_the_gating_decision_is_reported(rev, tmp_path, capsys):
+    run = (Run(tmp_path / "wd")
+           .design("design_00", contacts="3")
+           .design("design_01", contacts="26")
+           .write())
+    run.run(rev)
+    assert "1 / 2 designs trigger reversion" in capsys.readouterr().out
+
+
+# ── candidates the loop cannot evaluate ──────────────────────────────────────
+#
+# Each of these drops one candidate and keeps going, which also leaves
+# n_checked short of the candidate count and so keeps the scratch directory
+# for post-mortem.
+
+@pytest.mark.logic
+def test_a_candidate_whose_prediction_is_gone_is_skipped(rev, tmp_path,
+                                                          capsys):
+    run = Run(tmp_path / "wd").design("design_00", pdb=False).write()
+    assert run.run(rev) == 0
+    assert run.doc()["n_contaminated"] == 0
+    assert "pdb not found" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_n_checked_counts_candidates_entered_not_evaluated(rev, tmp_path):
+    """It is the count that passed the ra_eff gate, so a candidate the loop
+    could not evaluate still appears in it. Reading it as an evaluated count
+    would overstate how much of the run was actually checked."""
+    run = (Run(tmp_path / "wd")
+           .design("design_00", pdb=False)
+           .design("design_01", ra=40.0)
+           .design("design_02", contacts="3")
+           .write())
+    run.run(rev)
+    assert run.doc()["n_checked"] == 2
+
+
+@pytest.mark.logic
+def test_a_candidate_with_no_design_name_is_skipped(rev, tmp_path, capsys):
+    run = Run(tmp_path / "wd").design("design_00", contacts="3").write()
+    run.candidates[0]["design"] = ""
+    run.write()
+    assert run.run(rev) == 0
+    assert run.doc()["n_contaminated"] == 0
+    assert "missing fields" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_a_single_chain_prediction_is_skipped(rev, tmp_path, capsys):
+    """One chain means there is no interface, so there are no contacts to
+    intersect the mutations with."""
+    run = Run(tmp_path / "wd").design("design_00", eff=0,
+                                      contacts="3").write()
+    assert run.run(rev) == 0
+    assert run.doc()["n_contaminated"] == 0
+    assert "could not determine chain lengths" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_unnamed_chains_fall_back_to_the_two_largest(rev, tmp_path):
+    """A prediction that did not use the plan's chain letters is still
+    evaluable, because only the two lengths are needed."""
+    run = Run(tmp_path / "wd").design("design_00", contacts="3").write()
+    (run.root / "plan.json").write_text(json.dumps({
+        "cycle": 0, "rmsd_threshold": 5.0,
+        "pred_receptor_chain": "X", "pred_effector_chain": "Y"}))
+    assert run.run(rev) == 0
+    assert run.doc()["n_contaminated"] == 1
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("marker,message", [
+    ("FAIL", "rc=7"),
+    ("NOCSV", "produced no CSV"),
+    ("EMPTY", "CSV was empty"),
+])
+def test_a_metrics_failure_drops_that_candidate_only(rev, tmp_path, capsys,
+                                                      marker, message):
+    run = (Run(tmp_path / "wd")
+           .design("design_00", contacts=marker)
+           .design("design_01", contacts="3")
+           .write())
+    assert run.run(rev) == 0
+    assert message in capsys.readouterr().err
+    assert {e["label"] for e in run.doc()["contaminated"]} == {"design_01"}
+
+
+@pytest.mark.logic
+def test_the_scratch_directory_is_kept_when_a_candidate_was_dropped(rev,
+                                                                    tmp_path):
+    """The per-candidate CSVs are the only record of what compute_metrics.py
+    saw for the candidate that failed."""
+    run = Run(tmp_path / "wd").design("design_00", contacts="FAIL").write()
+    run.run(rev)
+    assert (run.root / "contamination_scratch").is_dir()
+
+
+@pytest.mark.logic
+def test_the_scratch_directory_is_removed_on_a_clean_run(rev, tmp_path):
+    run = Run(tmp_path / "wd").design("design_00", contacts="3").write()
+    run.run(rev)
+    assert not (run.root / "contamination_scratch").exists()
+
+
+# ── what reaches compute_metrics.py ──────────────────────────────────────────
+
+@pytest.mark.logic
+def test_the_mutated_positions_are_forwarded(rev, tmp_path):
+    """Without them the contamination columns come back blank and every
+    design reads as clean."""
+    STUB_ARGV = STUB_CONTACTS.replace(
+        'with open(out, "w", newline="") as f:',
+        'import json\n'
+        'json.dump(argv, open(pdir + "/argv.json", "w"))\n'
+        'with open(out, "w", newline="") as f:')
+    run = (Run(tmp_path / "wd")
+           .design("design_00", muts=((3, "A", "W"), (9, "G", "Y")),
+                   contacts="3").write())
+    run.script.write_text(STUB_ARGV)
+    run.run(rev)
+    argv = json.loads(
+        (run.root / "design_00_s0" / "argv.json").read_text())
+    assert argv[argv.index("--mutated-positions") + 1] == "3,9"
+    assert argv[argv.index("--pae-cutoff") + 1] == "10.0"
+    assert argv[argv.index("--contact-cutoff") + 1] == "5.0"
+    assert argv[argv.index("--effector-atom-filter-json") + 1] == str(
+        run.root / "plan.json")

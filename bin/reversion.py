@@ -1683,8 +1683,14 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
     }, indent=2, default=str))
 
     # Tidy up scratch on clean runs; leave it if anything failed for
-    # post-mortem.
-    if n_checked == len(intact_candidates):
+    # post-mortem.  Every candidate that completes the loop appends
+    # exactly one per-seed evaluation, so a shortfall means at least one
+    # was dropped (missing PDB, undeterminable chain lengths, or a
+    # compute_metrics.py failure) and its per-row CSV is the only record
+    # of what the metrics call saw.  n_checked is NOT the right test
+    # here: it counts candidates entered, so it equals the passing count
+    # whether or not any of them failed.
+    if len(per_seed_evaluations) == len(passing_candidates):
         try:
             shutil.rmtree(scratch_dir)
         except Exception:
