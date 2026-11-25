@@ -330,3 +330,206 @@ def test_one_bad_design_does_not_stop_the_others(rev, tmp_path):
 def test_an_empty_contaminated_list_writes_an_empty_manifest(rev, tmp_path):
     doc = manifest(rev.write_reversion_plan(tmp_path, [], meta()))
     assert doc["n_contaminated"] == 0 and doc["entries"] == []
+
+
+# ── plan-reversions, through its own CLI ─────────────────────────────────────
+#
+# The stage around write_reversion_plan. It reads the cycle's plan.json for
+# the effector sequence and the Boltz hyperparameters, reads
+# contaminated.json for the designs to stage, and hands both to the function
+# above. The effector sequence is read from the ground-truth PDB's effector
+# chain, or from an override FASTA when the plan recorded one — the same way
+# cmd_plan reads it, so the reverted prediction gets the same effector as the
+# steered prediction it is compared against.
+
+REFERENCE = REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb"
+
+
+class Stage:
+    """A collect workdir ready for plan-reversions."""
+
+    def __init__(self, root, *, plan_extra=None):
+        import shutil
+        self.root = root
+        root.mkdir(parents=True, exist_ok=True)
+        self.truth = root / "truth.pdb"
+        shutil.copy(REFERENCE, self.truth)
+        plan = {"cycle": 0, "ground_truth": str(self.truth),
+                "truth_receptor_chain": "A", "truth_effector_chain": "B",
+                "pred_receptor_chain": "A", "pred_effector_chain": "B",
+                "seed": 0, "num_seeds": 1, "recycling_steps": 3,
+                "diffusion_samples": 1, "boltz_container": "/fake.sif",
+                "no_kernels": True}
+        if plan_extra:
+            plan.update(plan_extra)
+        (root / "plan.json").write_text(json.dumps(plan))
+        self.contaminated = []
+
+    def contaminate(self, label, steered_seq="MKWVTA",
+                    muts=((3, "A", "W"),), revert=(3,), **kw):
+        wd = self.root / "designs" / label
+        wd.mkdir(parents=True, exist_ok=True)
+        (wd / "receptor.fasta").write_text(f">r_{label}\n{steered_seq}\n")
+        entry = {"label": label, "design_idx": len(self.contaminated),
+                 "seed_index": 0, "design_workdir": str(wd),
+                 "cumulative_mutations": [list(m) for m in muts],
+                 "positions_to_revert": list(revert),
+                 "steered_ra_eff_vs_truth": 2.0,
+                 "steered_contact_residues": [3]}
+        entry.update(kw)
+        self.contaminated.append(entry)
+        return self
+
+    def write(self):
+        (self.root / "contaminated.json").write_text(json.dumps(
+            {"n_checked": len(self.contaminated),
+             "n_contaminated": len(self.contaminated),
+             "contaminated": self.contaminated}))
+        return self
+
+    def run(self, rev):
+        argv = ["plan-reversions", "--workdir", str(self.root)]
+        return rev.cmd_plan_reversions(rev.build_parser().parse_args(argv))
+
+    def doc(self):
+        return json.loads(
+            (self.root / "reversion_plan.json").read_text())
+
+
+@pytest.mark.logic
+def test_the_stage_stages_the_contaminated_designs(rev, tmp_path):
+    s = Stage(tmp_path / "wd").contaminate("d0").write()
+    assert s.run(rev) == 0
+    doc = s.doc()
+    assert doc["n_contaminated"] == 1 and doc["n_staged"] == 1
+
+
+@pytest.mark.logic
+def test_the_effector_comes_from_the_ground_truth_chain(rev, tmp_path):
+    """The reverted prediction has to bind the same effector as the steered
+    prediction it is compared against. Reading it from the truth PDB is how
+    cmd_plan got it, so reading it the same way here keeps them identical."""
+    s = Stage(tmp_path / "wd").contaminate("d0").write()
+    s.run(rev)
+    yaml_text = Path(s.doc()["entries"][0]["yaml"]).read_text()
+    assert "MKWVTA".replace("W", "A") in yaml_text          # the receptor
+    assert len(yaml_text) > 100                             # plus an effector
+
+
+@pytest.mark.logic
+def test_an_effector_override_is_used_instead(rev, tmp_path):
+    """A run that fed Boltz a different effector recorded the override in
+    plan.json, and the reversion pass has to use the same one."""
+    fasta = tmp_path / "eff.fasta"
+    fasta.write_text(">eff\nQQQWWWEEE\n")
+    s = Stage(tmp_path / "wd",
+              plan_extra={"effector_fasta_override": str(fasta)})
+    s.contaminate("d0").write()
+    assert s.run(rev) == 0
+    assert "QQQWWWEEE" in Path(s.doc()["entries"][0]["yaml"]).read_text()
+
+
+@pytest.mark.logic
+def test_a_multi_line_override_is_joined(rev, tmp_path):
+    fasta = tmp_path / "eff.fasta"
+    fasta.write_text(">eff\nQQQ\nWWW\nEEE\n")
+    s = Stage(tmp_path / "wd",
+              plan_extra={"effector_fasta_override": str(fasta)})
+    s.contaminate("d0").write()
+    s.run(rev)
+    assert "QQQWWWEEE" in Path(s.doc()["entries"][0]["yaml"]).read_text()
+
+
+@pytest.mark.logic
+def test_the_seed_count_fans_the_staging_out(rev, tmp_path):
+    s = Stage(tmp_path / "wd", plan_extra={"num_seeds": 3})
+    s.contaminate("d0").write()
+    s.run(rev)
+    assert s.doc()["n_staged"] == 3
+
+
+@pytest.mark.logic
+def test_the_constraints_block_is_inherited(rev, tmp_path):
+    """The steered prediction was made under these constraints, so a
+    reverted prediction made without them would not be a comparison."""
+    s = Stage(tmp_path / "wd", plan_extra={
+        "boltz_constraints_block": ["constraints:", "  - pocket:"]})
+    s.contaminate("d0").write()
+    s.run(rev)
+    assert "pocket" in Path(s.doc()["entries"][0]["yaml"]).read_text()
+
+
+@pytest.mark.logic
+def test_a_design_that_cannot_be_staged_is_reported(rev, tmp_path, capsys):
+    """The run continues with the rest, but the shortfall has to be visible
+    or a partial reversion pass reads as a complete one."""
+    s = Stage(tmp_path / "wd").contaminate("bad").contaminate("good",
+                                                              steered_seq="MKWVTY",
+                                                              muts=((6, "A", "Y"),),
+                                                              revert=(6,))
+    s.write()
+    (Path(s.contaminated[0]["design_workdir"]) / "receptor.fasta").unlink()
+    assert s.run(rev) == 0
+    assert s.doc()["n_staged"] == 1
+    err = capsys.readouterr().err
+    assert "1 contaminated design(s) could not be staged" in err
+
+
+# ── predict-reversion-one ────────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_the_array_task_runs_boltz_on_its_own_slot(rev, tmp_path,
+                                                   monkeypatch):
+    """Each slot is one SLURM array task, so it has to pick its YAML by
+    index and write its prediction where the harvest will look for it."""
+    import shutil
+
+    import boltz2_negative_steering as bns
+
+    s = Stage(tmp_path / "wd").contaminate("d0").write()
+    s.run(rev)
+    seen = {}
+
+    def fake_run_boltz(yaml_path, out_dir, container, recycling, samples,
+                       seed, no_kernels):
+        seen.update(yaml=str(yaml_path), container=container, seed=seed,
+                    recycling=recycling, samples=samples,
+                    no_kernels=no_kernels)
+        out = Path(out_dir) / "boltz_out"
+        out.mkdir(parents=True, exist_ok=True)
+        pred = out / "model_0.pdb"
+        shutil.copy(REFERENCE, pred)
+        return pred
+
+    monkeypatch.setattr(bns, "run_boltz", fake_run_boltz)
+    argv = ["predict-reversion-one", "--workdir", str(s.root), "--index", "0"]
+    rc = rev.cmd_predict_reversion_one(rev.build_parser().parse_args(argv))
+    assert rc == 0
+
+    entry = s.doc()["entries"][0]
+    assert seen["yaml"] == entry["yaml"]
+    assert seen["container"] == "/fake.sif"
+    assert seen["seed"] == entry["boltz_seed"]
+    assert (Path(entry["rev_dir"]) / "prediction.pdb").is_file()
+
+
+@pytest.mark.logic
+def test_a_failed_prediction_leaves_a_reason_on_disk(rev, tmp_path,
+                                                     monkeypatch):
+    """The harvest reads this directory later. Without a note it would look
+    like a slot that was never dispatched rather than one that failed."""
+    import boltz2_negative_steering as bns
+
+    s = Stage(tmp_path / "wd").contaminate("d0").write()
+    s.run(rev)
+
+    def boom(*a, **kw):
+        raise RuntimeError("the GPU was not there")
+
+    monkeypatch.setattr(bns, "run_boltz", boom)
+    argv = ["predict-reversion-one", "--workdir", str(s.root), "--index", "0"]
+    assert rev.cmd_predict_reversion_one(
+        rev.build_parser().parse_args(argv)) == 1
+    note = Path(s.doc()["entries"][0]["rev_dir"]) / "predict_error.txt"
+    assert "the GPU was not there" in note.read_text()
+    assert not (note.parent / "prediction.pdb").exists()
