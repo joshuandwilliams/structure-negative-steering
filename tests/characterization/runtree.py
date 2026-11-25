@@ -139,3 +139,61 @@ def candidate(design: str, design_idx: int, **extra) -> Dict:
          "min_dist_to_upstream": 4.0}
     c.update(extra)
     return c
+
+
+# ── the deep layout, for NegativeSteeringRun.from_workdir ────────────────────
+#
+# from_workdir reads actual Boltz output per seed, not CSVs. The directory
+# names carry the grouping: steered/<design>_s<seed>/ and
+# reversions/rev_<design>_s<parent_seed>_s<rev_seed>/. A name parsed wrongly
+# groups one design's seeds under another.
+
+def boltz_outputs(pred_dir: Path, sample: int = 0, *, conf: bool = True,
+                  pdb_text: str = "ATOM\n") -> Path:
+    """The nested Boltz layout a single prediction directory carries."""
+    root = pred_dir / "boltz_results_input" / "predictions" / "input"
+    (root / "pdb").mkdir(parents=True, exist_ok=True)
+    (root / "pdb" / f"input_model_{sample}.pdb").write_text(pdb_text)
+    if conf:
+        (root / f"confidence_input_model_{sample}.json").write_text(
+            '{"ptm": 0.5, "iptm": 0.4, "complex_plddt": 0.8}')
+    return pred_dir
+
+
+def mutations_tsv(d: Path, positions) -> Path:
+    rows = "pos1\twt\tmut\n" + "".join(f"{p}\tA\tK\n" for p in positions)
+    (d / "mutations.tsv").write_text(rows)
+    return d
+
+
+def deep(root: Path, *, cycle: int = 0, seeds=(0,),
+         steered=(), reversions=(), row_type: str | None = None,
+         pdb_text: str = "ATOM\n") -> Path:
+    """Build the directory shape from_workdir walks.
+
+    steered:    iterable of (design_id, [seed, ...], [mutated_position, ...])
+    reversions: iterable of (parent_design, parent_seed, [rev_seed, ...])
+    """
+    cycle_dir = root / f"cycle_{cycle}"
+    cycle_dir.mkdir(parents=True, exist_ok=True)
+    for s in seeds:
+        name = "initial" if s == 0 else f"initial_s{s}"
+        boltz_outputs(cycle_dir / name, pdb_text=pdb_text)
+
+    for design_id, design_seeds, muts in steered:
+        for s in design_seeds:
+            d = boltz_outputs(cycle_dir / "steered" / f"{design_id}_s{s}",
+                              pdb_text=pdb_text)
+            if muts:
+                mutations_tsv(d, muts)
+
+    for parent_design, parent_seed, rev_seeds in reversions:
+        for r in rev_seeds:
+            boltz_outputs(
+                cycle_dir / "reversions"
+                / f"rev_{parent_design}_s{parent_seed}_s{r}",
+                pdb_text=pdb_text)
+
+    if row_type is not None:
+        (root / "row_type.txt").write_text(row_type + "\n")
+    return cycle_dir
