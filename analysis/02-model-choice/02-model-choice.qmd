@@ -233,3 +233,23 @@ pd.DataFrame(summary_rows)
   derived from the true interface, so the combined variant cannot be run on a
   novel target. What 18/18 establishes is that the remaining failures are not
   intrinsic to Boltz-2, since a sufficiently informed prior fixes all of them.
+
+## Three-way variant, without the combined ceiling
+
+The figure above mixes three runnable methods with one ceiling reference
+(reference-restrained + negative-steered) that needs the true interface and
+only landed for a subset of targets. Dropping that fourth series:
+
+```bash
+python3 analysis/02-model-choice/model_choice_3way.py
+```
+
+![Unrestrained, reference-restrained and negative-steered only, same selection rules as the four-way figure above.](thesis-figures/model_choice_comparison_3way.png){#fig-model-choice-3way width="100%"}
+
+- Same ordering as the four-way figure with the ceiling removed: negative
+  steering (15/18) edges out reference restraints (14/18), both well above
+  unrestrained (9/18).
+- This is the more direct like-for-like comparison for the thesis narrative,
+  since every series shown here is a method that could actually be run on an
+  unsolved target (restraints aside, which are a positive control rather
+  than a deployable method, see the note on restraints above).

@@ -264,62 +264,43 @@ for variant in ["msa", "restraints", "no_msa", "negsteer"]:
                alpha=0.65, edgecolor="black", linewidth=0.6,
                zorder=5 if variant == "negsteer" else 4)
 
-# Nudged so the near-coincident groups stay readable: each Boltz model against
-# its restrained variant, the four MSA points clustered at 144-185 min, and
-# the five steering points strung out along one narrow memory band (4.6-5.1
-# GB) where a flat left/right nudge just overlaps them into each other.
-# Labels keyed by (model, variant) alone collide for the five steering rows,
-# which all share "Boltz-2" -- key on the full label instead there.
-LABEL_LEFT = {("ESMFold2", "no_msa"), ("Boltz-2", "no_msa"),
-              ("Boltz-1", "no_msa"), ("ColabFold", "no_msa")}
-LABEL_BELOW = {("Boltz-2", "restraints"), ("Boltz-1", "restraints")}
-# The four MSA points at 144-185 min and the two 20/50-set steering points
-# that land among them are close enough on a log axis that their MARKERS
-# nearly touch, not just their text, so plain offsets cannot separate five
-# labels without still reading as unclear which belongs to which dot. Each
-# gets its own far offset plus a thin leader line back to its point instead.
-# "Boltz-2", "Boltz-1" and "ColabFold" as bare text are ambiguous between
-# their no-MSA and MSA rows, so those three are keyed on (model, variant)
-# rather than text; everything else here has a unique label already.
-LABEL_BY_KEY = {
-    ("Boltz-2", "msa"): (-14, 34, "right", "bottom", True),
-    ("Boltz-1", "msa"): (14, 46, "left", "bottom", True),
-    ("ColabFold", "msa"): (14, -30, "left", "top", True),
-}
-LABEL_BY_TEXT = {
-    "Boltz-2 (3)": (0, 14, "center", "bottom", False),
-    "Boltz-2 (5)": (0, -14, "center", "top", False),
-    "Boltz-2 (10)": (0, 14, "center", "bottom", False),
-    "Boltz-2 (20)": (-10, -34, "right", "top", True),
-    "Boltz-2 (50)": (14, 30, "left", "bottom", True),
-    "AlphaFold3": (0, -34, "center", "top", True),
-    "AlphaFold2-Multimer": (0, -11, "center", "top", False),
-}
+# Fixed placement, no jitter and no leader lines: every label sits directly
+# beside its own point in one of the four cardinal directions. Default is
+# left; these (model, variant) pairs are the explicit exceptions.
+# Boltz-1 msa, AlphaFold3 msa and ColabFold msa are the three red (MSA) points.
+LABEL_RIGHT = {("Boltz-2", "restraints"), ("Boltz-1", "restraints"),
+               ("Boltz-1", "msa"), ("ColabFold", "msa")}
+LABEL_ABOVE_KEY = {("AlphaFold3", "msa")}
+LABEL_BELOW_KEY = set()
+LABEL_ABOVE = {"Boltz-2 (5)"}     # keyed on label text (negsteer rows share "Boltz-2")
+LABEL_BELOW = {"Boltz-2 (3)", "Boltz-2 (10)", "Boltz-2 (20)"}
+LABEL_RIGHT_TEXT = {"Boltz-2 (50)"}
+
+OFFSET = 9  # points, same distance in every direction
 for _, r in med2.iterrows():
     key = (r["model"], r["variant"])
     text = r["label"]
-    leader = False
-    if key in LABEL_BY_KEY:
-        dx, dy, ha, va, leader = LABEL_BY_KEY[key]
-    elif text in LABEL_BY_TEXT:
-        dx, dy, ha, va, leader = LABEL_BY_TEXT[text]
-    elif key in LABEL_BELOW:
-        dx, dy, ha, va = 0, -11, "center", "top"
-    elif key in LABEL_LEFT:
-        dx, dy, ha, va = -8, 0, "right", "center"
+    if key in LABEL_RIGHT or text in LABEL_RIGHT_TEXT:
+        dx, dy, ha, va = OFFSET, 0, "left", "center"
+    elif text in LABEL_ABOVE or key in LABEL_ABOVE_KEY:
+        dx, dy, ha, va = 0, OFFSET, "center", "bottom"
+    elif text in LABEL_BELOW or key in LABEL_BELOW_KEY:
+        dx, dy, ha, va = 0, -OFFSET, "center", "top"
     else:
-        dx, dy, ha, va = 8, 0, "left", "center"
+        dx, dy, ha, va = -OFFSET, 0, "right", "center"
     ax.annotate(text, (r["runtime"], r["memory"]), fontsize=7.5,
                 xytext=(dx, dy), textcoords="offset points", ha=ha, va=va,
-                zorder=6,
-                arrowprops=dict(arrowstyle="-", lw=0.5, color="#999999",
-                                shrinkA=0, shrinkB=4) if leader else None)
+                zorder=6)
 
 ax.set_xscale("log")
 readable_log(ax.xaxis, TIME_TICKS)
 ax.set_xlabel("Median wall-clock per run (minutes, log scale)")
 ax.set_ylabel("Median peak resident memory (GB)")
-ax.set_xlim(right=340)   # room for the right-hand label at the 50-set point (~256 min)
+# Extended well past the data range on both ends, so every edge label (left:
+# AlphaFold3 no-MSA at 1.9 min; right: ColabFold msa, Boltz-1 msa and
+# Boltz-2 (50) at 185-256 min) sits clear of the axes border/tick labels
+# rather than crowding it.
+ax.set_xlim(0.9, 550)
 handles = [plt.Line2D([], [], ls="none", marker="o", markersize=8,
                       mfc=SCATTER_COLOR[a], mec="black", mew=0.7, alpha=0.65)
            for a, _ in SCATTER_LEGEND]

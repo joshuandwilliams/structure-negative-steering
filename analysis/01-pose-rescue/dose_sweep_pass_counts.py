@@ -6,6 +6,11 @@ gitignored, pulled from the cluster) plus dose 0, the cold start each dose's
 own cycle_0/plan.json already carries, which does not depend on
 negsteer_n_designs and is read once from the n03 arm.
 
+Dose 0 is the median of the three cold-start seeds, not seed 0 alone, because
+every other dose is select_representative()'s median over its seeds. Comparing
+one seed against a median would make dose 0 a different kind of number from the
+rest of the curve.
+
 Writes dose_sweep_pass_counts.csv, committed so 01-pose-rescue.qmd renders
 without the dose-sweep run trees present.
 
@@ -14,6 +19,7 @@ Usage:
 """
 
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -35,7 +41,10 @@ def main():
     cold_pass = 0
     for t in targets:
         plan_path = DOSE_SWEEP / f"n{DOSES[0]:02d}" / t / "run" / "cycle_0" / "plan.json"
-        cold = json.loads(plan_path.read_text()).get("initial_receptor_aligned_effector_rmsd")
+        seeds = [s.get("ra_eff") for s
+                 in json.loads(plan_path.read_text()).get("cold_start_seeds", [])]
+        seeds = [v for v in seeds if v is not None]
+        cold = statistics.median(seeds) if seeds else None
         if cold is not None and cold < RA_EFF_THRESHOLD:
             cold_pass += 1
     rows = [{"dose": 0, "n_pass": cold_pass, "n_total": len(targets)}]
