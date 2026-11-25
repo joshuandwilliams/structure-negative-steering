@@ -175,11 +175,15 @@ def transform(text: str, target: str, variant: str, spec: dict) -> str:
         allowed += ["negsteer_n_designs:", "negsteer_diffusion_samples:"]
 
     changed = [(a, b) for a, b in zip(text.splitlines(), out.splitlines()) if a != b]
+    # Both of these are unreachable from the substitutions above, which only
+    # ever rewrite the value on a line whose key is in `allowed` and never
+    # change the line count. They are kept as the check on a future edit: add
+    # a substitution without adding its key to `allowed` and this fires.
     stray = [b for _, b in changed if not b.startswith(tuple(allowed))]
-    if stray:
+    if stray:  # pragma: no cover - guards a future edit
         raise SystemExit(f"ERROR: {variant}/{target} changed lines it should not:\n"
                          + "\n".join(f"  {s}" for s in stray))
-    if len(text.splitlines()) != len(out.splitlines()):
+    if len(text.splitlines()) != len(out.splitlines()):  # pragma: no cover
         raise SystemExit(f"ERROR: {variant}/{target} line count changed.")
 
     # The constraints toggle is NOT set here. It is whatever the source arm

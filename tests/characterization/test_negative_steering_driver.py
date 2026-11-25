@@ -12,6 +12,7 @@ would pass even if every steering knob were dropped.
 from __future__ import annotations
 
 import importlib.util
+import json
 import shlex
 import sys
 from pathlib import Path
@@ -419,3 +420,85 @@ def test_provide_interface_mode_passes_the_file(drv, tmp_path):
     cmd = drv._build_prepare_cmd(drv._load_yaml(cfg), tmp_path, tmp_path / "inputs")
     assert "--interface-file" in cmd
     assert cmd[cmd.index("--interface-file") + 1] == str(iface)
+
+
+# ── --emit-json ──────────────────────────────────────────────────────────────
+#
+# main.nf reads this instead of parsing the YAML itself, so every config key
+# and its default is defined in exactly one place. A key that stops being
+# emitted, or a default that drifts, changes what the workflow runs without
+# changing any config file.
+
+@pytest.mark.logic
+def test_emit_json_carries_every_key_the_workflow_reads(drv, tmp_path, capsys):
+    cfg = _write_config(tmp_path)
+    assert drv.main([str(cfg), "--emit-json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert set(doc) == {
+        "name", "config", "cfg_dir", "inputs_dir", "run_dir", "container",
+        "plan_args", "postprocess_rmsd_threshold",
+        "postprocess_metric_column", "postprocess_contact_cutoff",
+    }
+    assert doc["name"] == "TEST"
+    assert doc["container"] == "/fake/boltz.img"
+
+
+@pytest.mark.logic
+def test_emit_json_defaults_match_the_engine_defaults(drv, tmp_path, capsys):
+    """These are the values a config does not have to state, so they are the
+    ones that can drift unnoticed."""
+    cfg = _write_config(tmp_path)
+    assert drv.main([str(cfg), "--emit-json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["postprocess_rmsd_threshold"] == "5.0"
+    assert doc["postprocess_metric_column"] == "steered_ra_eff_vs_truth"
+    assert doc["postprocess_contact_cutoff"] == "5.0"
+
+
+@pytest.mark.logic
+def test_emit_json_takes_the_config_over_the_default(drv, tmp_path, capsys):
+    cfg = _write_config(tmp_path,
+                        negsteer_postprocess_rmsd_threshold=3.5,
+                        negsteer_postprocess_metric_column="other_column",
+                        negsteer_postprocess_contact_cutoff=7.0)
+    assert drv.main([str(cfg), "--emit-json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["postprocess_rmsd_threshold"] == "3.5"
+    assert doc["postprocess_metric_column"] == "other_column"
+    assert doc["postprocess_contact_cutoff"] == "7.0"
+
+
+@pytest.mark.logic
+def test_emit_json_plan_args_name_the_derived_input_files(drv, tmp_path,
+                                                          capsys):
+    cfg = _write_config(tmp_path)
+    assert drv.main([str(cfg), "--emit-json"]) == 0
+    plan = json.loads(capsys.readouterr().out)["plan_args"]
+    for flag in ("--ground-truth", "--receptor", "--effector",
+                 "--receptor-fasta", "--effector-fasta",
+                 "--true-interface-indices-file",
+                 "--design-region-indices-file"):
+        assert flag in plan
+    assert "true_interface.txt" in plan and "design_region.txt" in plan
+
+
+@pytest.mark.logic
+def test_emit_json_falls_back_to_the_directory_name(drv, tmp_path, capsys):
+    """A config with no name is keyed on its folder, which is what the run
+    directory is named after."""
+    cfg = _write_config(tmp_path)
+    cfg.write_text("\n".join(
+        ln for ln in cfg.read_text().splitlines() if not ln.startswith("name:")))
+    assert drv.main([str(cfg), "--emit-json"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == tmp_path.name
+
+
+@pytest.mark.logic
+def test_emit_json_leaves_the_container_blank_when_there_is_none(drv, tmp_path,
+                                                                 capsys):
+    cfg = _write_config(tmp_path)
+    cfg.write_text("\n".join(
+        ln for ln in cfg.read_text().splitlines()
+        if not ln.startswith("boltz_container:")))
+    assert drv.main([str(cfg), "--emit-json"]) == 0
+    assert json.loads(capsys.readouterr().out)["container"] == ""
