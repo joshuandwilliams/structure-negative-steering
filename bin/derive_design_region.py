@@ -109,11 +109,9 @@ def find_design_entry(metrics, design_id):
     for entry in designs:
         key = entry.get("design") or entry.get("name") or ""
         key = str(key).strip()
+        # ids["with_pdb"] is ids["bare"] + ".pdb", so this one test covers a
+        # key written either way.
         if key in (ids["bare"], ids["with_pdb"]):
-            return entry
-        # Also accept "design_3" matching a stored "design_3.pdb"
-        # and vice versa via stem comparison.
-        if key.endswith(".pdb") and key[:-4] == ids["bare"]:
             return entry
     # Not found — build a helpful error message listing what IS there.
     available = sorted(
@@ -333,7 +331,11 @@ def main():
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    if not indices_0based:
+    if not indices_0based:  # pragma: no cover - unreachable today
+        # derive_positional_indices raises on an empty design region, on an
+        # empty position order, and on any residue missing from that order,
+        # so an empty result would have raised already. Kept because those
+        # are invariants in another function rather than in this one.
         print("ERROR: derivation produced an empty index list",
               file=sys.stderr)
         return 2
