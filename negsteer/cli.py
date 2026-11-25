@@ -125,12 +125,13 @@ def _resolve_container(explicit: str | None) -> str | None:
     """The image the plan stage is told about.
 
     plan requires --boltz-container whether or not it will use it. Inside a
-    container it does not: it detects the runtime and calls boltz directly,
-    nested singularity being unsupported. But argparse still demands the flag,
-    so omitting it fails before the engine gets to decide anything.
+    container it does not use it. It detects the runtime and calls boltz
+    directly, because nested singularity is unsupported. argparse still
+    demands the flag, so omitting it fails before the engine gets to decide
+    anything.
 
-    So pass the running image. It is accurate rather than a placeholder, and it
-    keeps the flag meaningful if the engine ever does shell out again.
+    So pass the running image. It is accurate rather than a placeholder, and
+    it keeps the flag meaningful if the engine ever does shell out again.
     """
     return explicit or _running_image()
 

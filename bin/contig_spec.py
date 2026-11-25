@@ -2,26 +2,30 @@
 contig_spec.py
 --------------
 ContigSpec — RFDiffusion contig strings parsed into structured per-chain
-segments.  Canonical input form: ``A1-10/5/A15-20 B`` (see memory
-project_contig_string_format.md).
+segments.  A typical string looks like ``A1-10/5/A15-20 B``.
 
-Tier 0 type — no upstream dependencies on other Phase 4 types.
+A "contig" is RFDiffusion's own notation for the layout of a designed
+chain.  It says which stretches are copied from the input PDB and which
+are generated from scratch.  This module and ``contig_utils.py`` are the
+only places that notation is interpreted, so they are the single source
+of truth for where the design region sits.  See ``from_string`` below
+for the full grammar.
 
-ContigSpec represents the *resolved* form: after RFDiffusion has sampled
-a specific length for each de novo segment, the contig becomes a
-concrete layout.  The constraint form (with length ranges like ``5-7``)
-is an input string to RFDiffusion and is NOT a runtime type — it's
-plumbed through as text only.
+Tier 0 type — no upstream dependencies on other typed modules.
 
-This module supersedes the 4 existing contig parsers (consolidation
-deferred to higher tiers):
+ContigSpec normally holds the *resolved* form.  Once RFDiffusion has
+sampled a concrete length for each de novo segment, the contig describes
+one fixed layout.  The constraint form, with length ranges like ``5-7``,
+is only an input string to RFDiffusion.  It is passed through as text
+and is not a runtime type.
 
-  - bin/contig_utils.py:parse_block_segments / resolve_contigs /
-    parse_design_region — the closest existing parser; ContigSpec
-    absorbs its functionality here.  contig_utils.py keeps working
-    until callers are migrated.
-  - bin/derive_input_design_region.py:_parse_contigs
-  - bin/pipeline_correct_sequences.py:parse_contig_segments
+``bin/contig_utils.py`` holds the older parser (``parse_block_segments``,
+``resolve_contigs``, ``parse_design_region``).  ContigSpec absorbs its
+behaviour, and contig_utils keeps working until every caller has moved
+over.  Two more parsers once existed in
+``bin/derive_input_design_region.py`` and
+``bin/pipeline_correct_sequences.py``.  Both files have since been
+deleted.
 """
 
 from __future__ import annotations
@@ -37,8 +41,8 @@ from typing import List, Optional, Tuple
 
 @dataclass(frozen=True)
 class FixedSegment:
-    """A fixed (anchored) segment: chain + native residue range
-    (inclusive on both ends)."""
+    """A fixed, anchored segment.  It is a native residue range copied
+    from the input PDB.  Both ends are inclusive."""
     start: int
     end: int
 
@@ -56,11 +60,10 @@ class FixedSegment:
 
 @dataclass(frozen=True)
 class BreakSegment:
-    """A chain-break marker (literal ``0`` token in RFDiffusion contig
-    grammar).  Carries no length and no positions — purely a layout
-    signal between fixed/denovo segments to tell RFDiffusion that the
-    flanking residues are not contiguous.  Position-math methods on
-    ContigChain ignore breaks.
+    """A chain-break marker, written as a literal ``0`` in RFDiffusion's
+    contig grammar.  It carries no length and no positions.  It only
+    tells RFDiffusion that the residues on either side of it are not
+    contiguous.  The position-math methods on ContigChain ignore breaks.
     """
 
     def __post_init__(self) -> None:
@@ -69,10 +72,10 @@ class BreakSegment:
 
 @dataclass(frozen=True)
 class PassthroughSegment:
-    """A bare-chain-letter segment whose residue range cannot be
-    resolved without a reference PDB.  Carried verbatim through the
-    contig pipeline; RFDiffusion expands it from the input PDB at run
-    time.  Like BreakSegment, has no length at the spec level.
+    """A bare chain letter whose residue range needs a reference PDB to
+    resolve.  It is carried through the contig pipeline unchanged, and
+    RFDiffusion expands it from the input PDB at run time.  Like
+    BreakSegment, it has no length here.
     """
     chain: str
 
@@ -83,14 +86,18 @@ class PassthroughSegment:
 
 @dataclass(frozen=True)
 class DeNovoSegment:
-    """A de novo (design) segment.  Carries a length RANGE (min_len,
-    max_len) for both the constraint form (``5-7``) and the resolved
-    form (``5`` is stored as ``min_len == max_len == 5``).  Single
-    representation; no separate types for resolved vs constraint.
+    """A de novo segment, meaning a stretch RFDiffusion designs from
+    scratch.
 
-    Most downstream code only sees resolved segments (RFDiffusion has
-    already sampled a concrete length).  ``length`` returns that
-    integer when ``is_resolved`` is True and raises otherwise.
+    It always carries a length range (min_len, max_len).  The constraint
+    form ``5-7`` becomes (5, 7), and the resolved form ``5`` becomes
+    (5, 5).  One representation covers both, so there is no separate
+    resolved type.
+
+    Most downstream code sees only resolved segments, because
+    RFDiffusion has already sampled a concrete length.  ``length``
+    returns that integer when ``is_resolved`` is True and raises
+    otherwise.
     """
     min_len: int
     max_len: int
@@ -105,13 +112,13 @@ class DeNovoSegment:
 
     @property
     def is_resolved(self) -> bool:
-        """True iff the segment has a single concrete length (min == max)."""
+        """True only if the segment has one concrete length, min == max."""
         return self.min_len == self.max_len
 
     @property
     def length(self) -> int:
-        """Resolved length.  Raises ValueError if the segment is still a
-        range (callers wanting the bounds should read min_len/max_len)."""
+        """The resolved length.  Raises ValueError if the segment is
+        still a range.  Read min_len and max_len for the bounds."""
         if not self.is_resolved:
             raise ValueError(
                 f"DeNovoSegment is unresolved ({self.min_len}-{self.max_len}); "
@@ -121,12 +128,13 @@ class DeNovoSegment:
 
     @classmethod
     def resolved(cls, length: int) -> "DeNovoSegment":
-        """Convenience: a fixed-length de novo segment.  Equivalent to
+        """Build a fixed-length de novo segment.  Same as
         ``DeNovoSegment(length, length)``."""
         return cls(min_len=length, max_len=length)
 
     def to_string(self) -> str:
-        """Serialize: ``5`` if resolved, else ``5-7``."""
+        """Render back to contig text.  A resolved segment gives ``5``
+        and a range gives ``5-7``."""
         if self.is_resolved:
             return str(self.min_len)
         return f"{self.min_len}-{self.max_len}"
@@ -144,15 +152,17 @@ class ContigChain:
     segments: Tuple  # Tuple[Union[FixedSegment, DeNovoSegment], ...]
 
     def __post_init__(self) -> None:
-        # Coerce a list to a tuple so frozen+hashable holds.
+        # Coerce a list to a tuple so the dataclass stays frozen and
+        # hashable.
         if not isinstance(self.segments, tuple):
             object.__setattr__(self, "segments", tuple(self.segments))
 
     @property
     def is_resolved(self) -> bool:
-        """True iff every de novo segment in this chain has a single
-        concrete length AND the chain carries no Passthrough segments
-        (whose length is PDB-dependent and unknown at spec level)."""
+        """True only if every de novo segment in this chain has one
+        concrete length, and the chain has no Passthrough segments.  A
+        passthrough segment's length depends on the input PDB, so it is
+        unknown here."""
         for s in self.segments:
             if isinstance(s, DeNovoSegment) and not s.is_resolved:
                 return False
@@ -162,9 +172,9 @@ class ContigChain:
 
     @property
     def _length_bearing(self) -> List:
-        """Length-bearing segments only — Fixed + DeNovo.  Break and
-        Passthrough segments are excluded; position-math methods iterate
-        this list rather than ``self.segments``."""
+        """The segments that have a length, meaning Fixed and DeNovo.
+        Break and Passthrough segments are left out.  The position-math
+        methods walk this list, not ``self.segments``."""
         return [
             s for s in self.segments
             if isinstance(s, (FixedSegment, DeNovoSegment))
@@ -172,10 +182,10 @@ class ContigChain:
 
     @property
     def total_length(self) -> int:
-        """Total residues in the resolved chain (sum of fixed and de
-        novo lengths).  Raises ValueError if any de novo segment is
-        still a range — use min_total_length / max_total_length
-        explicitly for the constraint form."""
+        """Total residues in the resolved chain, summing the fixed and
+        de novo lengths.  Raises ValueError if any de novo segment is
+        still a range.  For the constraint form use min_total_length or
+        max_total_length instead."""
         if not self.is_resolved:
             raise ValueError(
                 "ContigChain is unresolved; total_length is undefined.  "
@@ -186,8 +196,9 @@ class ContigChain:
 
     @property
     def min_total_length(self) -> int:
-        """Minimum total residues across the chain (constraint form).
-        Passthrough segments contribute 0 (unknown length until PDB)."""
+        """Smallest total residue count the chain can have.
+        Passthrough segments contribute 0, since their length is not
+        known until the input PDB is read."""
         return sum(
             s.length if isinstance(s, FixedSegment) else s.min_len
             for s in self._length_bearing
@@ -195,7 +206,7 @@ class ContigChain:
 
     @property
     def max_total_length(self) -> int:
-        """Maximum total residues across the chain (constraint form).
+        """Largest total residue count the chain can have.
         Passthrough segments contribute 0."""
         return sum(
             s.length if isinstance(s, FixedSegment) else s.max_len
@@ -219,13 +230,13 @@ class ContigChain:
         return [s for s in self.segments if isinstance(s, PassthroughSegment)]
 
     def designed_position_to_native(self, designed_pos: int) -> Optional[int]:
-        """For a 1-based designed-frame position on this chain, return
-        the corresponding native residue number, or None if the position
-        falls in a de novo segment.
+        """Map a 1-based designed-frame position to its native residue
+        number.  Returns None if the position falls in a de novo
+        segment, because designed residues have no native counterpart.
 
-        Walks the segments in order, tracking the cumulative designed
-        position; when the running cursor crosses ``designed_pos``, the
-        position is in the current segment.
+        The method walks the segments in order and tracks the running
+        designed position.  When the cursor passes ``designed_pos``,
+        that position lies in the current segment.
         """
         if designed_pos < 1:
             return None
@@ -242,10 +253,9 @@ class ContigChain:
         return None
 
     def native_position_to_designed(self, native_pos: int) -> Optional[int]:
-        """For a native residue number on this chain, return the
-        corresponding 1-based designed-frame position, or None if the
-        native position is not anchored by any fixed segment (i.e. it
-        falls in or between the de novo / non-anchored regions).
+        """Map a native residue number to its 1-based designed-frame
+        position.  Returns None if no fixed segment anchors that native
+        position, which happens inside or between de novo regions.
         """
         cursor = 0
         for seg in self._length_bearing:
@@ -257,7 +267,8 @@ class ContigChain:
         return None
 
     def is_design_region_position(self, designed_pos: int) -> bool:
-        """True iff designed_pos is in a de novo segment on this chain."""
+        """True only if designed_pos sits in a de novo segment on this
+        chain."""
         cursor = 0
         for seg in self._length_bearing:
             seg_start = cursor + 1
@@ -279,8 +290,8 @@ class ContigChain:
         return out
 
     def fixed_anchor_positions(self) -> List[int]:
-        """The 1-based designed-frame positions that DO have native
-        counterparts (i.e. fall in fixed segments)."""
+        """The 1-based designed-frame positions that do have native
+        counterparts, meaning those inside fixed segments."""
         out: List[int] = []
         cursor = 0
         for seg in self._length_bearing:
@@ -295,16 +306,15 @@ class ContigChain:
 # ═════════════════════════════════════════════════════════════════════════
 
 
-# Bare chain identifier (e.g. ` B` after a space) — entire chain
-# included with no design regions.  Used for the effector chain
-# typically.  Encoded as a ContigChain with one "PassthroughSegment"
-# (modelled as a FixedSegment of unknown length but with placeholder
-# start/end pending PDB lookup).  Most consumers don't need to know
-# the actual residue range of a passthrough chain at the spec level —
-# RFDiffusion expands it from the input PDB at run time.  For Tier 0
-# the simplest model: a passthrough chain is a ContigChain with an
-# empty segments tuple; downstream code that needs the actual range
-# reads it from the input PDB directly.
+# A bare chain identifier, such as the ` B` in `A1-10/5 B`, means the
+# whole chain is included with no design regions.  This is usually the
+# effector chain.  A whole block that is one bare letter parses to a
+# ContigChain with an empty segments tuple.  A bare letter inside a
+# slash-separated block parses to a PassthroughSegment.
+#
+# Neither form records a residue range, because the range is not known
+# until the input PDB is read, and RFDiffusion expands it at run time.
+# Code that needs the real range reads the input PDB directly.
 
 # Match a chain segment block (slash-separated) for one chain.
 _SEG_PATTERN = re.compile(r"([A-Za-z]\d+(?:-\d+)?|\d+(?:-\d+)?)")
@@ -312,10 +322,12 @@ _SEG_PATTERN = re.compile(r"([A-Za-z]\d+(?:-\d+)?|\d+(?:-\d+)?)")
 
 @dataclass(frozen=True)
 class ContigSpec:
-    """A resolved RFDiffusion contig: per-chain structured segments.
+    """A resolved RFDiffusion contig, held as structured segments per
+    chain.
 
-    Construct via :meth:`from_resolved_string`.  Direct construction is
-    supported for tests and for programmatic generation.
+    Build one with :meth:`from_resolved_string`.  Direct construction
+    also works, and is used by tests and by code that generates contigs
+    programmatically.
     """
     chains: Tuple  # Tuple[ContigChain, ...]
     contig_string: str
@@ -328,20 +340,23 @@ class ContigSpec:
 
     @classmethod
     def from_string(cls, s: str) -> "ContigSpec":
-        """Parse a contig string in either form.
+        """Parse a contig string in either the resolved or the
+        constraint form.
 
-        Format (see memory project_contig_string_format.md):
-        - Space-separated chain blocks.
-        - Within a block, segments are slash-separated.
-        - Fixed segments are chain-prefixed native residue ranges:
-          ``A1-10`` = chain A residues 1..10.
-        - De novo segments are bare lengths.  ``5`` is resolved
-          (min_len == max_len == 5).  ``5-7`` is constraint form
-          (RFDiffusion samples a length in [5, 7]).  Both round-trip
+        The grammar:
+        - Chain blocks are separated by spaces.
+        - Inside a block, segments are separated by slashes.
+        - A fixed segment is a chain letter plus a native residue range.
+          ``A1-10`` means chain A residues 1 to 10.
+        - A de novo segment is a bare length.  ``5`` is resolved, so
+          min_len == max_len == 5.  ``5-7`` is the constraint form, and
+          RFDiffusion samples a length between 5 and 7.  Both round-trip
           through DeNovoSegment(min_len, max_len).
-        - A bare chain identifier (e.g. ``B`` alone) = entire chain
-          included with no design regions; encoded as a ContigChain with
-          no segments (length-unknown until PDB lookup).
+        - A ``0`` on its own is a chain break.
+        - A block that is one bare chain letter, such as ``B``, means
+          the whole chain with no design regions.  It parses to a
+          ContigChain with no segments, because the chain's length is
+          unknown until the input PDB is read.
         """
         raw = s.strip()
         if not raw:
@@ -355,9 +370,9 @@ class ContigSpec:
 
     @classmethod
     def from_resolved_string(cls, s: str) -> "ContigSpec":
-        """Parse a contig string and assert every de novo segment is
-        resolved.  Raises ValueError if any segment is a range — use
-        ``from_string`` for the constraint-form-tolerant version."""
+        """Parse a contig string and require every de novo segment to
+        be resolved.  Raises ValueError if any segment is a range.  Use
+        ``from_string`` when ranges are acceptable."""
         spec = cls.from_string(s)
         if not spec.is_resolved:
             raise ValueError(
@@ -369,8 +384,8 @@ class ContigSpec:
 
     @property
     def is_resolved(self) -> bool:
-        """True iff every de novo segment across every chain is a single
-        concrete length (min_len == max_len)."""
+        """True only if every de novo segment on every chain has one
+        concrete length, so min_len == max_len."""
         return all(c.is_resolved for c in self.chains)
 
     # ── Per-chain accessors ──────────────────────────────────────────
@@ -394,7 +409,7 @@ class ContigSpec:
     def denovo_segments(self, chain_id: str) -> List[DeNovoSegment]:
         return self.chain(chain_id).denovo_segments
 
-    # ── Frame conversion (per Q7 — lives here, called by PositionSet) ──
+    # ── Frame conversion.  PositionSet calls into these. ─────────────
 
     def designed_to_native(
         self, pos: int, chain: str
@@ -414,11 +429,13 @@ class ContigSpec:
         return self.chain(chain).native_position_to_designed(pos)
 
     def prediction_to_designed(self, pos: int, chain: str) -> int:
-        """Boltz / AF3 emit per-chain 1-based numbering.  For the
-        receptor chain the prediction frame matches the designed frame
-        (the receptor PDB went straight into Boltz).  Documented as a
-        no-op for explicitness; included in the API so callers don't
-        special-case the prediction frame elsewhere."""
+        """Return the position unchanged.
+
+        Boltz and AF3 both emit per-chain 1-based numbering.  For the
+        receptor chain that matches the designed frame exactly, because
+        the receptor PDB went straight into Boltz.  The method exists so
+        callers do not have to special-case the prediction frame.
+        """
         return pos
 
     # ── Design region access ─────────────────────────────────────────
@@ -450,9 +467,9 @@ def _parse_block(block: str) -> ContigChain:
     if len(block) == 1 and block.isalpha():
         return ContigChain(chain_id=block, segments=())
 
-    # Multi-segment block.  Determine the chain ID from the first segment
-    # that has a chain prefix.  All fixed segments in a block must share
-    # the same chain.
+    # Multi-segment block.  The chain ID comes from the first segment
+    # with a chain prefix.  Every fixed segment in a block must name the
+    # same chain.
     parts = block.split("/")
     segments: List = []
     chain_id: Optional[str] = None
@@ -461,14 +478,14 @@ def _parse_block(block: str) -> ContigChain:
         if not seg:
             continue
         if seg == "0":
-            # RFDiffusion chain-break marker.  Carries no length.
+            # RFDiffusion's chain-break marker.  It has no length.
             segments.append(BreakSegment())
             continue
         if seg[0].isalpha():
             chain_letter = seg[0]
             rest = seg[1:]
             if not rest:
-                # Bare chain letter within a block — passthrough.
+                # A bare chain letter inside a block is a passthrough.
                 if chain_id is None:
                     chain_id = chain_letter
                 segments.append(PassthroughSegment(chain=chain_letter))
@@ -498,9 +515,9 @@ def _parse_block(block: str) -> ContigChain:
                 )
             segments.append(FixedSegment(start=lo, end=hi))
         elif seg[0].isdigit():
-            # De novo segment: bare length `5` (resolved) or range `5-7`
-            # (constraint).  Both are stored as (min_len, max_len) with
-            # min == max for the resolved case.
+            # De novo segment.  A bare length `5` is resolved, a range
+            # `5-7` is the constraint form.  Both are stored as
+            # (min_len, max_len), with min == max when resolved.
             if "-" in seg:
                 lo_s, hi_s = seg.split("-", 1)
                 try:
@@ -524,8 +541,8 @@ def _parse_block(block: str) -> ContigChain:
             )
 
     if chain_id is None:
-        # The block was entirely de novo segments with no chain anchor —
-        # unusual.  Refuse rather than guess.
+        # The block held only de novo segments, with nothing to anchor
+        # it to a chain.  Refuse rather than guess the chain.
         raise ValueError(
             f"block {block!r} has no chain-prefixed fixed segment to "
             f"determine the chain identifier"

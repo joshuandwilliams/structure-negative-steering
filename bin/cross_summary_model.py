@@ -4,23 +4,24 @@ cross_summary_model.py
 CrossSummaryRow + CrossSummarySnapshot — a typed read-only view over
 ``cross_sequence_summary.csv``.
 
-The full Phase 4 DesignCohort / NegativeSteeringRun types model the
-underlying experiment (StageResults, PSPs, contamination positions).
-Building them faithfully requires the per-prediction PDB files, the
-gemmi-loaded structures, and the ground-truth PSP — that is the
-"deep" form.
+The DesignCohort and NegativeSteeringRun types in design_cohort.py and
+negative_steering_run.py model the underlying experiment, including
+StageResults, PSPs and contamination positions.  Building them
+faithfully needs the per-prediction PDB files, the gemmi-loaded
+structures and the ground-truth PSP.  That is the "deep" form.
 
-But many cohort-level queries (which sequences survived, what tier did
-each land in, what is the composite-ranked order) only need the
-already-aggregated values cross_sequence_summary.csv has stamped onto
-each row.  This module provides a shallow typed view for those
-queries, so callers can opt for the cheap path when the deep form is
+Many cohort-level queries need much less.  Which sequences survived,
+what tier each landed in, and what the composite-ranked order is are
+all answerable from the values cross_sequence_summary.csv already
+stamps onto each row.  This module is a shallow typed view for those
+queries, so a caller can take the cheap path when the deep form is
 overkill.
 
-Both forms expose the same DesignCohort-style interface:
-``survivors()``, ``tier_breakdown()``, ``ranked_by_composite()``.
+Both forms expose the same DesignCohort-style interface, namely
+``survivors()``, ``tier_breakdown()`` and ``ranked_by_composite()``.
 
-Tier 6.5 — sits beside DesignCohort.  No dependency on PSP / gemmi.
+This module sits beside DesignCohort in the same layer.  It depends on
+neither PSP data nor gemmi.
 """
 
 from __future__ import annotations
@@ -53,9 +54,10 @@ def _try_int(v) -> Optional[int]:
 class CrossSummaryRow:
     """One row of cross_sequence_summary.csv as a typed record.
 
-    Carries the cohort-level decisions stamped onto each MPNN sequence:
-    tier, n_pass, outcome, composite score, run-one runtime.  Native
-    columns not yet typed remain accessible via the ``extras`` dict.
+    Carries the cohort-level decisions stamped onto each MPNN
+    sequence, namely tier, n_pass, outcome, composite score and
+    run-one runtime.  Columns that are not yet typed stay reachable
+    through the ``extras`` dict.
     """
     mpnn_sequence: str
     row_type: str
@@ -103,9 +105,9 @@ class CrossSummaryRow:
 class CrossSummarySnapshot:
     """Typed view over a cross_sequence_summary.csv.
 
-    Read-only.  Exposes the cohort queries DesignCohort exposes
-    (survivors / tier_breakdown / ranked_by_composite) on a row-level
-    basis without needing the deep StageResult / PSP scaffolding.
+    Read-only.  Answers the same cohort queries DesignCohort answers,
+    survivors / tier_breakdown / ranked_by_composite, from the rows
+    alone.  No StageResult or PSP scaffolding is needed.
     """
     rows: Tuple[CrossSummaryRow, ...]
     source_csv: Optional[Path] = None
@@ -148,7 +150,7 @@ class CrossSummarySnapshot:
         return [r for r in self.steered_rows() if r.cross_tier == tier]
 
     def survivors(self) -> List[CrossSummaryRow]:
-        """Tier A/B/C steered rows — the set fed to the orthogonal stage."""
+        """Tier A/B/C steered rows, the set fed to the orthogonal stage."""
         return [
             r for r in self.steered_rows()
             if r.cross_tier in ("A", "B", "C")
@@ -165,8 +167,8 @@ class CrossSummarySnapshot:
     def ranked_by_composite(self) -> List[CrossSummaryRow]:
         """Sort steered rows by (tier_order, -composite_score).
 
-        Equivalent to the existing ``_assign_cross_ranks`` in
-        cross_summary.py — used here as a verification path."""
+        This matches ``_assign_cross_ranks`` in cross_summary.py.  It
+        exists here as an independent way to check that result."""
         def key(r: CrossSummaryRow):
             tier_idx = self._TIER_ORDER.get(r.cross_tier, 99)
             composite = r.cross_composite_score

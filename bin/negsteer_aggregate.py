@@ -55,16 +55,16 @@ _AGG_RENAME = {
 }
 
 
-# Internal keys that must be DROPPED at write time (they were
-# duplicates or are now superseded).
+# Internal keys that must be DROPPED at write time.  Each one is
+# either a duplicate or has been superseded.
 _AGG_DROP = {
     "delta_receptor_aligned_effector_rmsd",  # trivially derivable
     "rank",                                  # legacy cycle-0 row index
     "rank_by_truth",                         # superseded by rank_by_ra_eff
-    # The old "steered_*" fields the code used to write under those
-    # exact names (when the base columns had been overwritten).  After
-    # the finalize refactor, base columns are no longer overwritten,
-    # so these duplicates are unnecessary.  Drop if present (defensive).
+    # The code used to write these "steered_*" fields under exactly
+    # these names, back when it overwrote the base columns.  Finalize
+    # no longer overwrites base columns, so they are redundant.  Drop
+    # them if present, defensively.
     "steered_ra_eff_vs_truth",
     "steered_independent_receptor_rmsd",
     "steered_independent_effector_rmsd",
@@ -96,9 +96,10 @@ _AGG_CONTINUOUS_METRICS = (
     "ipsae_ba_15",
     "ipsae_min_15",
     "actifptm",
-    # Per-prediction native-PDB-dependent metrics (P0-29 / P0-38),
-    # moved from compute_interface_metrics.py / run_biophysical_metrics.py
-    # so they aggregate alongside the Boltz-derived metrics.
+    # These two need the ground-truth PDB.  They used to be computed
+    # afterwards by compute_interface_metrics.py and
+    # run_biophysical_metrics.py.  They moved here so they aggregate
+    # alongside the Boltz-derived metrics.
     "interface_plddt",
     "weighted_jaccard",
 )
@@ -140,25 +141,24 @@ def format_mutation_strings(
     """Build the two portable mutation-description strings from a
     list of (pos1, wt, mut) tuples.
 
-    Returns (chimerax_spec, aa_changes):
-      chimerax_spec:  "/A:5,12,37"  — copy-paste ready; user prepends
-                      their own "#N" model number.  Positions are sorted
-                      ascending and deduplicated.
-      aa_changes:     "L5A V12K G37P" — space-separated wt+pos+mut
+    Returns (chimerax_spec, aa_changes).
+      chimerax_spec   "/A:5,12,37", ready to paste once the user
+                      prepends their own "#N" model number.
+                      Positions are sorted ascending and deduplicated.
+      aa_changes      "L5A V12K G37P", space-separated wt+pos+mut
                       tokens, also sorted by position.
 
-    Empty mutation list → ("", "").
+    An empty mutation list gives ("", "").
     """
     if not mutations:
         return ("", "")
-    # Sort by position and deduplicate: if the same position appears
-    # twice (cumulative history across cycles where an ancestor touched
-    # a position and a descendant touched it again), keep the first
-    # occurrence in the chain order — which is the earliest edit, not
-    # the most recent one.  Dedup by position only for the chimerax
-    # spec; the aa-changes string keeps every entry because re-edits
-    # are scientifically meaningful (even though the pipeline's
-    # burnt-positions logic usually prevents them).
+    # Sort by position and deduplicate.  A position can appear twice
+    # when one edit was later applied on top of another at the same
+    # place.  The chimerax spec keeps the first occurrence in chain
+    # order, which is the earliest edit rather than the most recent.
+    # The aa-changes string keeps every entry, because re-edits are
+    # scientifically meaningful even though the pipeline's
+    # burnt-positions logic usually prevents them.
     seen = set()
     unique_positions = []
     for pos, _wt, _mut in mutations:
@@ -178,13 +178,14 @@ def format_mutation_strings(
 def _translate_aggregate_row(r: Dict) -> Dict:
     """Apply _AGG_RENAME and _AGG_DROP to produce a row dict ready
     for CSV writing.  Also adds derived columns:
-      - steered_passes_filter (computed from steered_receptor_intact
-        and steered_ra_eff_vs_truth — populated by the writer if the
-        downstream compute-final-metrics step recorded filter inputs)
-      - reverted_passes_filter (likewise from reverted_receptor_intact)
-      - reverted_receptor_intact (derived from reverted RMSDs)
+      - steered_passes_filter, from steered_receptor_intact and
+        steered_ra_eff_vs_truth.  The writer populates it if the later
+        compute-final-metrics step recorded the filter inputs.
+      - reverted_passes_filter, likewise from
+        reverted_receptor_intact
+      - reverted_receptor_intact, derived from the reverted RMSDs
 
-    Pure dict transformation; does not touch other rows.
+    A pure dict transformation.  It never touches other rows.
     """
     out: Dict = {}
     # First, drop the keys that should never appear in output
@@ -309,19 +310,20 @@ def _populate_reverted_mutations(rows: List[Dict],
         parent_pathway = r.get("parent_pathway", "") or ""
 
         # Derive the per-design label used by contaminated.json and
-        # reversion_results.json.  Cycle-0 rows have pathway="cycle_0"
-        # (a constant, not a per-design identifier); the per-design
-        # identifier is in the "design" column (e.g. "design_04").
-        # Cycle-1+ rows have pathway = the leaf label (e.g. "c0d05.c1d03").
+        # reversion_results.json.  Cycle-0 rows have
+        # pathway="cycle_0", a constant rather than a per-design
+        # identifier, so the identifier comes from the "design"
+        # column instead, such as "design_04".  Cycle-1+ rows had
+        # pathway set to the leaf label, such as "c0d05.c1d03".
         if cycle == 0:
             leaf_label = r.get("design", "")
         else:
             leaf_label = r.get("pathway", "")
 
-        # For ANY row that went through reversion (pose_holds or any
-        # dropped verdict), surface the set of mutated positions that
-        # were contacting the effector in the steered prediction —
-        # the contamination that triggered the reversion.
+        # For ANY row that went through reversion, whether pose_holds
+        # or a dropped verdict, surface the mutated positions that
+        # were contacting the effector in the steered prediction.
+        # That is the contamination which triggered the reversion.
         if verdict != "":
             cdoc = _load_contaminated_doc(cycle, parent_pathway)
             for e in cdoc.get("contaminated", []):
@@ -335,14 +337,13 @@ def _populate_reverted_mutations(rows: List[Dict],
         # For ANY reverted row (pose_holds, pose_collapses,
         # new_contamination), populate the reverted contact data
         # from reversion_results.json.  The per-seed aggregator
-        # downstream needs the REAL contamination set per seed to
-        # compute the per-position majority correctly.  Blanking
-        # these columns for non-pose_holds rows (the pre-audit
-        # behaviour) caused the aggregator to see empty contact sets
-        # for seeds whose harvest actually flagged contamination,
-        # inflating the pose_holds count and misclassifying the
-        # outcome as pose_holds when some seeds actually
-        # said new_contamination.
+        # downstream needs each seed's real contamination set to
+        # compute the per-position majority correctly.  An earlier
+        # version blanked these columns on non-pose_holds rows.  The
+        # aggregator then saw empty contact sets for seeds whose
+        # harvest had flagged contamination, which inflated the
+        # pose_holds count and called the outcome pose_holds when some
+        # seeds had said new_contamination.
         if verdict != "":
             rev_data = _load_rev_results(cycle, parent_pathway)
             rev_entry = rev_data.get(leaf_label) or {}
@@ -365,10 +366,10 @@ def _populate_reverted_mutations(rows: List[Dict],
         rev_data = _load_rev_results(cycle, parent_pathway)
         rev_entry = rev_data.get(leaf_label) or {}
 
-        # Read positions_to_revert from contaminated.json (the
-        # authoritative source — reversion_results.json does not
-        # carry this field).  Fall back to reversion_plan.json
-        # entries if contaminated.json lookup fails.
+        # Read positions_to_revert from contaminated.json, the
+        # authoritative source.  reversion_results.json does not
+        # carry this field.  Fall back to the reversion_plan.json
+        # entries if the contaminated.json lookup fails.
         positions_to_revert: set = set()
         cdoc = _load_contaminated_doc(cycle, parent_pathway)
         for e in cdoc.get("contaminated", []):
@@ -398,8 +399,8 @@ def _populate_reverted_mutations(rows: List[Dict],
             mut_tsv = Path(pdb_col).parent / "mutations.tsv"
             cum_muts = read_mutations_tsv_full(mut_tsv)
 
-        # Filter out reverted positions; for positions touched twice
-        # (rare) keep the most recent edit
+        # Filter out reverted positions.  Where a position was touched
+        # twice, which is rare, keep the most recent edit.
         latest_by_pos: Dict[int, Tuple[int, str, str]] = {}
         for pos, wt, mut in cum_muts:
             latest_by_pos[pos] = (pos, wt, mut)
@@ -419,17 +420,15 @@ def _row_is_clean_steered(r: Dict) -> bool:
     not contaminated AND steered prediction passes the structural
     filter (intact AND ra_eff < 5 Å).
 
-    P0.4 (changed from earlier behaviour): the eligibility predicate
-    used to gate on `steered_ipsae_min` being populated, as a proxy
-    for "compute-final-metrics ran on this row, which it only does
-    for ra_eff-passing rows".  That proxy breaks under
-    `compute-final-metrics --populate-all`, which populates ipSAE
-    for every non-dropped row including wrong-interface ones, and
-    would otherwise let those rows into the composite ranking.  The
-    proxy is now replaced with a direct ra_eff check against a
-    hardcoded 5 Å threshold matching the steering pipeline's default
-    (rmsd_threshold).  Rows missing ra_eff entirely are still
-    excluded.
+    The ra_eff check is direct.  It used to be a proxy: the predicate
+    gated on `steered_ipsae_min` being populated, which stood in for
+    "compute-final-metrics ran on this row, and it only runs on
+    ra_eff-passing rows".  That proxy breaks under
+    `compute-final-metrics --populate-all`, which populates ipSAE for
+    every non-dropped row including wrong-interface ones, and would
+    let those rows into the composite ranking.  The 5 Å threshold is
+    hardcoded to match the steering pipeline's default rmsd_threshold.
+    Rows missing ra_eff entirely are still excluded.
     """
     if r.get("design") == "initial":
         return False
@@ -441,7 +440,7 @@ def _row_is_clean_steered(r: Dict) -> bool:
             return False
     except (ValueError, TypeError):
         return False
-    # Direct ra_eff check (replaces the legacy ipSAE-presence proxy).
+    # Direct ra_eff check.  See the docstring for what it replaced.
     ra_str = r.get("steered_ra_eff_vs_truth", "")
     if ra_str in ("", None):
         return False
@@ -461,12 +460,11 @@ def _row_is_pose_holds(r: Dict) -> bool:
     passes the structural filter (intact AND ra_eff < 5 Å).
 
     Mirrors the ra_eff check in _row_is_clean_steered so the two
-    eligibility predicates are consistent: a pose_holds row whose
-    reverted prediction has terrible ra_eff (e.g. 25 Å) should not
-    be ranking-eligible, just as a clean steered row with terrible
-    steered ra_eff is excluded.  This was previously only enforced
-    implicitly by the reversion harvest's intact filter, which does
-    not cover ra_eff."""
+    eligibility predicates agree.  A pose_holds row whose reverted
+    prediction has a terrible ra_eff (say 25 Å) should not be
+    ranking-eligible, just as a clean steered row with a terrible
+    steered ra_eff is excluded.  The only earlier guard was the
+    reversion harvest's intact filter, which does not cover ra_eff."""
     if r.get("reversion_verdict") != "pose_holds":
         return False
     try:
@@ -515,18 +513,18 @@ def _ranking_metric(r: Dict, name: str) -> Optional[float]:
 
 
 def _ranking_composite(r: Dict) -> Optional[float]:
-    """Composite ranker score (P0.3): true_jaccard − 0.05 · ra_eff_vs_truth.
+    """Composite ranker score: true_jaccard − 0.05 · ra_eff_vs_truth.
     Higher is better.
 
-    Eligibility matches _ranking_metric.  ra_eff is sourced from
-    steered_ or reverted_ per the row type; true_jaccard is always
-    sourced from steered_true_jaccard because the jaccard overlap is
-    computed once on the steered prediction and not recomputed after
-    reversion (the interface identity is carried by the designed
-    sequence, not the steering mutations).
+    Eligibility matches _ranking_metric.  ra_eff comes from steered_
+    or reverted_ depending on the row type.  true_jaccard always comes
+    from steered_true_jaccard, because the jaccard overlap is computed
+    once on the steered prediction and never recomputed after
+    reversion.  The interface identity is carried by the designed
+    sequence, not by the steering mutations.
 
-    Returns None if either component is missing / unparseable or the
-    row is not ranking-eligible.
+    Returns None if either component is missing or unparseable, or if
+    the row is not ranking-eligible.
     """
     ra = _ranking_metric(r, "ra_eff_vs_truth")
     if ra is None:
@@ -545,13 +543,14 @@ def _ranking_composite(r: Dict) -> Optional[float]:
 
 def _compute_unified_ranks(rows: List[Dict]) -> None:
     """Add rank_by_ra_eff and rank_by_composite_score columns.  Both
-    ranks are 1-based; rank 1 is best.  Eligible rows: clean steered
-    (no contamination, passes filter) OR pose_holds (passes reverted
-    filter).  Ineligible rows get blank.
+    ranks are 1-based and rank 1 is best.  A row is eligible if it is
+    clean steered (no contamination, passes the filter) or pose_holds
+    (passes the reverted filter).  Ineligible rows get blank.
 
-    P0.3: rank_by_composite_score is the primary ranker.  Score is
-    true_jaccard − 0.05 · ra_eff_vs_truth; higher is better.
-    P0.4: rank_by_ipsae_min is dropped entirely.
+    rank_by_composite_score is the primary ranker.  Its score is
+    true_jaccard − 0.05 · ra_eff_vs_truth, where higher is better.
+    A third rank, rank_by_ipsae_min, used to sit alongside these two
+    and is now dropped entirely.
     """
     # Initialise blanks
     for r in rows:
@@ -586,10 +585,10 @@ def _compute_unified_ranks(rows: List[Dict]) -> None:
 def _agg_continuous(values: List[Optional[float]]) -> Tuple[Optional[float], Optional[float], int]:
     """Aggregate a list of per-seed values into (median, MAD, n_used).
 
-    None / NaN / Inf entries are dropped.  MAD is the median of absolute
-    deviations from the median; pairs naturally with median for small N
-    (SD on N=3 is dominated by single outliers and gives wildly variable
-    estimates run-to-run, MAD is robust).
+    None, NaN and Inf entries are dropped.  MAD is the median of the
+    absolute deviations from the median.  It suits small N better than
+    SD does.  SD on N=3 is dominated by a single outlier and swings
+    wildly from run to run, while MAD is robust to one bad seed.
 
     Returns (None, None, 0) if no usable values.
     """
@@ -618,9 +617,9 @@ def _agg_majority_binary(values: List[Optional[int]]) -> Tuple[Optional[int], in
     """Aggregate a list of per-seed 0/1 values into
     (majority_value, n_positive, n_used).
 
-    Majority threshold is ≥ ceil(N/2).  None / unparseable entries are
-    dropped from the count (tolerates partial failures).  Returns
-    (None, 0, 0) if no usable values.
+    The majority threshold is ≥ ceil(N/2).  None and unparseable
+    entries are dropped from the count, which tolerates partial
+    failures.  Returns (None, 0, 0) if no usable values.
     """
     clean: List[int] = []
     for v in values:
@@ -649,9 +648,9 @@ def _agg_majority_positions(
     A position is in the aggregate set iff ≥ ceil(N/2) seeds report it.
     Returns (aggregate_positions, position_to_seed_count, n_seeds_used).
 
-    `position_to_seed_count` is exposed so the aggregator can record
-    near-miss positions (e.g. a position that 1 of 3 seeds reported)
-    as diagnostic context, not just the majority result.
+    `position_to_seed_count` is returned so the aggregator can record
+    near-miss positions as diagnostic context, not just the majority
+    result.  A position reported by 1 of 3 seeds is an example.
 
     Empty input → ([], {}, 0).
     """
@@ -677,9 +676,9 @@ def _agg_majority_positions(
 
 def _parse_position_csv(s: str) -> List[int]:
     """Parse a comma-separated string of 1-based positions into a list
-    of ints.  Tolerates blanks and non-integer tokens.  Used to convert
-    contact_residues / mutated_contact_positions CSV strings back into
-    sets for aggregation."""
+    of ints.  Tolerates blanks and non-integer tokens.  Converts the
+    contact_residues and mutated_contact_positions CSV strings back
+    into sets for aggregation."""
     if not s:
         return []
     out = []
@@ -698,22 +697,23 @@ def _aggregate_per_sequence(
     per_seed_rows: List[Dict],
     prefix: str,
 ) -> Dict:
-    """Aggregate a list of per-seed rows (all sharing one unique
-    sequence) into a single summary dict.
+    """Aggregate a list of per-seed rows, all sharing one unique
+    sequence, into a single summary dict.
 
-    `prefix` is "steered_" or "reverted_".  All metric column names
-    in the per-seed rows are expected to start with this prefix; the
-    aggregated output uses `<prefix><metric>_median`, `_mad`, `_n_used`
-    for continuous; `<prefix><metric>_majority`, `_n_positive`,
-    `_n_used` for binary; `<prefix><metric>_majority` (CSV string),
-    `<prefix><metric>_per_seed_counts` (JSON map), `_n_used` for
-    position sets.
+    `prefix` is "steered_" or "reverted_".  Every metric column in
+    the per-seed rows must start with it.  The output column names
+    are:
+      continuous     `_median`, `_mad`, `_n_used`
+      binary         `_majority`, `_n_positive`, `_n_used`
+      position sets  `_majority` as a CSV string,
+                     `_per_seed_counts` as a JSON map, `_n_used`
+    each suffixed onto `<prefix><metric>`.
 
     Identification fields (`design`, `pdb`, `cycle`, `pathway`) are
-    pulled from the FIRST row.  Rows in the same sequence_group should
-    share these by construction (same unique sequence → same design
-    name minus the `_sN` suffix).  The aggregated `design` field is
-    the bare name without the `_sN` suffix.
+    pulled from the FIRST row.  Rows in one sequence_group share these
+    by construction, because the same unique sequence gives the same
+    design name once the `_sN` suffix is removed.  The aggregated
+    `design` field is that bare name.
 
     Returns the aggregated dict.  Caller is responsible for merging
     aggregated steered + aggregated reverted records into one row.
@@ -774,37 +774,55 @@ def _classify_outcome(
     Returns (outcome, reason).  Outcome is one of pose_holds,
     pose_collapses, new_contamination, no_reversion.
 
-    no_reversion is returned when the aggregated record carries no
-    reverted metrics at all (i.e. no seed in this group needed
-    reversion: either cold-start skip_steering, or steering ran but
-    no seed had contamination on mutated positions).
+    What each outcome means for the wet-lab construct.  The construct
+    carries none of the steering mutations, so a pose that depends on
+    a mutated residue touching the effector is not evidence about the
+    real molecule.  Reversion puts the contaminating mutations back to
+    wild type and re-predicts.
+      pose_holds        the pose survives that reversion, so the
+                        prediction is usable for wet-lab triage.
+      pose_collapses    the reverted prediction fails the structural
+                        filter, so the pose needed the mutations.
+                        Dropped.
+      new_contamination the reverted pose instead leans on a different
+                        mutated contact, so it is no better.  Dropped.
+      no_reversion      nothing needed reverting.  The aggregated
+                        record carries no reverted metrics at all,
+                        either because cold start skipped steering or
+                        because no seed had contamination on a mutated
+                        position.
 
     The aggregated pose_holds outcome requires ALL of:
       1. The aggregated structural filter passes (intact_majority = 1
          AND median ra_eff < cutoff AND no position-majority contamination)
-      2. At least ONE individual per-seed verdict says pose_holds
-         (verdict_counts["pose_holds"] >= 1)
+      2. At least ONE per-seed verdict is pose-passing, counting both
+         pose_holds and clean_steered
+      3. The non-failing seed count holds up against each failure
+         count, as described below
 
-    Rationale for the any-seed gate (v8, replaces the earlier ceil(N/2)
-    majority gate from Bug E): with `num_seeds = 3` and a per-seed
-    pose_holds rate around 10-15% on this scaffold (measured from v7),
-    majority-of-3 is architecturally unreachable even when several
-    designs individually have one clean-pass seed.  The aggregated
-    median/position-majority rules already exclude the "every seed
-    failed differently" artefact that Bug E was originally aimed at:
-    if no seed individually passes, pose_holds count == 0 and this
-    gate short-circuits.  If exactly one seed passes and the other
-    two fail in different ways, the aggregated position-majority
-    check on `reverted_mutated_contact_positions_majority` only
-    flags contamination when ≥ ceil(N/2) seeds contaminate at a
-    shared position — so sporadic per-seed contamination at unrelated
-    positions does NOT trigger it, which is what Bug E was worried
-    about.  That concern is now handled by also requiring the
-    per-seed failure distribution not to be a majority-failure:
-    we additionally require pose_holds + no_data
-    > each of (pose_collapses, new_contamination).
-    In words: among seeds that produced a verdict, the "pass or no-op"
-    count must exceed either of the failure counts.
+    Why one seed is enough for rule 2.  An earlier version demanded a
+    ceil(N/2) majority, which guarded against the "every seed failed
+    differently" artefact, where no seed passes yet the aggregate
+    still looks clean.  But with `num_seeds = 3` and a per-seed
+    pose_holds rate around 10-15% on this scaffold, majority-of-3 is
+    unreachable even when several designs each have one clean-pass
+    seed.  The aggregated rules already exclude the artefact.  If no
+    seed passes, the pose-passing count is 0 and rule 2
+    short-circuits.  And a position only enters
+    `reverted_mutated_contact_positions_majority` when ≥ ceil(N/2)
+    seeds contaminate at that same position, so sporadic per-seed
+    contamination at unrelated positions never trips the
+    contamination check.
+
+    Rule 3 covers the case left over, where one seed passes while the
+    other two fail the same way at different positions.  The
+    non-failing count is pose_holds + clean_steered + no_data.  The
+    code downgrades only when that count is strictly smaller than the
+    larger failure count, so it has to be at least as large as each
+    failure count rather than larger than each.  An even split is
+    therefore kept as pose_holds rather than downgraded.  Where the
+    two failure modes tie, the downgrade picks pose_collapses as the
+    more conservative call.
 
     `verdict_counts` is the {verdict: count} dict produced by
     _per_seed_verdict_breakdown.  Keys: pose_holds, pose_collapses,
@@ -820,10 +838,10 @@ def _classify_outcome(
     nnd = int(verdict_counts.get("no_data", 0))
     ncs = int(verdict_counts.get("clean_steered", 0))
     n_total_verdicts = nph + npc + nnc + nnd + ncs
-    # Pose-passing-equivalent count: explicit per-seed pose_holds
-    # PLUS clean_steered (steered prediction was structurally fine
-    # AND had no contamination, so no reversion was needed — the
-    # steered structure is the final verdict for that seed).
+    # Pose-passing count: explicit per-seed pose_holds plus
+    # clean_steered.  A clean_steered seed was structurally fine and
+    # uncontaminated, so no reversion was needed and its steered
+    # structure is the final verdict for that seed.
     nph_eff = nph + ncs
 
     # Structural filter on the aggregated reverted metrics.
@@ -846,18 +864,17 @@ def _classify_outcome(
                 f"reverted ra_eff median {ra_med_f:.2f} ≥ "
                 f"cutoff {structural_ra_eff_cutoff:.2f}")
 
-    # Contamination check on the aggregated reverted contact set.
-    # A position only appears in `reverted_mutated_contact_positions_majority`
-    # if ≥ ceil(N/2) seeds individually contacted at that position, so
-    # sporadic per-seed contamination at unrelated positions does not
-    # trigger this — which is the Bug E "every seed failed differently"
-    # artefact we still need to guard against.
+    # Contamination check on the aggregated reverted contact set.  A
+    # position only appears in
+    # `reverted_mutated_contact_positions_majority` if ≥ ceil(N/2)
+    # seeds contacted at that position.  That is what keeps the "every
+    # seed failed differently" artefact out of the check.
     #
-    # notes11 gating: Only positions inside the design region ∪ true
-    # interface count as contamination, matching the pre-reversion
-    # policy.  Positions outside the gated set (e.g. off-interface
-    # "reaching bit" contacts) are acceptable by construction and
-    # should not downgrade the aggregated verdict.
+    # Gating: only positions inside the design region ∪ true interface
+    # count as contamination, which matches the pre-reversion policy.
+    # Positions outside the gated set, such as off-interface "reaching
+    # bit" contacts, are acceptable by construction and must not
+    # downgrade the aggregated verdict.
     contam_majority = agg.get(
         "reverted_mutated_contact_positions_majority", "")
     if contam_majority:
@@ -884,12 +901,10 @@ def _classify_outcome(
         # else: all majority contacts are at ungated positions — fall
         # through to the pose_holds path
 
-    # Any-seed gate: at least one seed must individually pass —
-    # either as an explicit pose_holds verdict OR as clean_steered
-    # (no reversion needed because steered prediction had zero
-    # contamination on mutated positions).  This is the weaker
-    # gate that replaces the Bug E majority-of-N gate; see
-    # docstring for rationale.
+    # Any-seed gate: at least one seed must pass on its own, either
+    # with an explicit pose_holds verdict or as clean_steered.  This
+    # is the weaker gate that replaced an earlier majority-of-N rule.
+    # See the docstring for why.
     if nph_eff < 1:
         # Zero seeds passed individually.  Choose downgraded verdict
         # based on plurality of failure modes; ties favour
@@ -905,13 +920,13 @@ def _classify_outcome(
                 f"no_data={nnd}, clean_steered={ncs}); "
                 f"downgrading to {downgraded}")
 
-    # Bug-E residual guard: if the minority-of-failures is still the
-    # majority of seeds in either direction, that's a weak signal —
-    # we need the number of seeds that didn't individually fail
-    # (pose_holds + clean_steered + no_data) to be at least as large
-    # as each failure count.  This prevents "1 passes, 2 fail the
-    # same way (but at different positions so no position reaches
-    # majority)" from being called pose_holds.
+    # Residual guard for the "every seed failed differently" artefact.
+    # If either failure mode outnumbers the seeds that did not fail,
+    # the pass is a weak signal.  The non-failing count is pose_holds
+    # + clean_steered + no_data, and it must be at least as large as
+    # each failure count.  This stops "1 passes, 2 fail the same way
+    # at different positions, so no position reaches majority" from
+    # being called pose_holds.
     non_failing = nph_eff + nnd
     if non_failing < max(npc, nnc):
         if nnc > npc:
@@ -945,29 +960,26 @@ def _per_seed_verdict_breakdown(
     and into the aggregate outcome classifier.
 
     The authoritative per-seed verdict is the `reversion_verdict`
-    column, which was set by `classify_reversion_verdict` in
-    cmd_harvest_reversions on the fresh reversion_results.json data
-    (before the aggregate CSV blanked contact columns for non-pose_holds
-    rows in _populate_reverted_mutations).  We prefer that column when
-    present and fall back to re-deriving the verdict from the raw
-    reverted_* columns only when it isn't.
+    column.  `classify_reversion_verdict` set it inside
+    cmd_harvest_reversions, working on the fresh
+    reversion_results.json data, before the aggregate CSV blanked
+    contact columns for non-pose_holds rows in
+    _populate_reverted_mutations.  We prefer that column when it is
+    present, and re-derive the verdict from the raw reverted_*
+    columns only when it is not.  Without that preference, a row
+    whose reverted_mutated_contact_positions column had been blanked
+    for display would be read here as pose_holds, inflating the
+    pose_holds count.
 
-    The `clean_steered` bucket (added later) covers the case where
-    the steered prediction had ZERO contamination on the mutated
-    positions, so the reversion pass was correctly skipped — there
-    was nothing to revert.  These rows have a blank reversion_verdict
-    AND blank reverted_* columns AND
-    steered_n_contacts_on_mutated_positions == 0.  Without this
-    bucket they were misclassified as no_data, which incorrectly
-    demoted otherwise-strong designs in the per-sequence triage
-    (notes12 / chat 'rank-1 issue').  clean_steered is treated as
-    pose-passing-equivalent in _classify_outcome and in
-    the cross-sequence tier classifier.
-
-    Without the verdict-column preference for the explicit-verdict
-    cases, rows whose reverted_mutated_contact_positions column was
-    blanked for display would be misclassified here as pose_holds,
-    inflating the pose_holds count.
+    The `clean_steered` bucket was added later.  It covers a steered
+    prediction with ZERO contamination on the mutated positions, where
+    the reversion pass was correctly skipped because there was nothing
+    to revert.  Those rows have a blank reversion_verdict, blank
+    reverted_* columns, and steered_n_contacts_on_mutated_positions
+    == 0.  Before the bucket existed they landed in no_data, which
+    pushed otherwise-strong designs down the per-sequence triage and
+    cost them the top rank.  clean_steered counts as pose-passing in
+    _classify_outcome and in the cross-sequence tier classifier.
     """
     counts = {
         "pose_holds": 0,
@@ -998,14 +1010,14 @@ def _per_seed_verdict_breakdown(
         # Verdict column is blank.  Two sub-cases:
         #
         # (i)  Steered prediction had ZERO contamination on mutated
-        #      positions, so reversion was skipped intentionally.
-        #      The steered structure is the final result for this
-        #      seed — count it as clean_steered (pass-equivalent).
+        #      positions, so reversion was skipped on purpose.  The
+        #      steered structure is the final result for this seed,
+        #      so count it as clean_steered and treat it as a pass.
         #
-        # (ii) Reversion was attempted but the row is missing the
+        # (ii) Reversion was attempted but the row lacks the
         #      reverted_* fields needed to classify it.  Re-derive
-        #      from raw reverted_* columns; fall back to no_data
-        #      if anything is missing or unparseable.
+        #      from the raw reverted_* columns, falling back to
+        #      no_data if anything is missing or unparseable.
         steered_n_contacts_str = r.get(
             "steered_n_contacts_on_mutated_positions", "")
         try:
@@ -1013,12 +1025,12 @@ def _per_seed_verdict_breakdown(
         except (TypeError, ValueError):
             steered_n_contacts = None
 
-        # Heuristic for (i): steered row is intact, has zero
-        # contamination, and the reverted_* fields are entirely
-        # blank (no attempt was made).  Require the steered row
-        # itself to also be structurally OK (intact + ra_eff in
-        # range) — otherwise a "no contamination" steered miss
-        # would silently count as a pass.
+        # Test for (i): the steered row is intact, has zero
+        # contamination, and the reverted_* fields are all blank,
+        # meaning no attempt was made.  The steered row must itself
+        # be structurally sound, intact with ra_eff in range.
+        # Otherwise a steered miss that happened to have no
+        # contamination would silently count as a pass.
         if steered_n_contacts == 0:
             try:
                 steered_intact = int(r.get("steered_receptor_intact", ""))
@@ -1079,21 +1091,21 @@ def _aggregate_csv_fieldnames(rows: List[Dict]) -> List[str]:
     """Return the column order for all_results_multicycle.csv (and the
     joined all_results_multicycle_with_metrics.csv).  Three logical
     blocks (A: identification, B: steering, C: reversion) plus a tail
-    of selection / ranks.  Any row keys not in this list get appended
-    (sorted) at the very end so unexpected fields aren't silently
-    dropped.
+    of selection and ranks.  Any row keys not in this list are
+    appended, sorted, at the very end, so unexpected fields are never
+    silently dropped.
 
-    The Block B `steered_*` confidence columns are populated by
-    compute-final-metrics; they're listed here so that whether or not
-    compute-final-metrics has run, the column order in the produced
-    CSV is the same and consumers can rely on it.
+    compute-final-metrics populates the Block B `steered_*` confidence
+    columns.  They are listed here anyway, so the column order is the
+    same whether or not compute-final-metrics has run and consumers
+    can rely on it.
     """
     preferred = [
         # ── A. Identification ────────────────────────────────────
         "cycle", "pathway", "design",
-        # P0 audit (multi-seed): per-seed grouping metadata.  Two
-        # rows with the same sequence_group differ only by Boltz
-        # seed; per-sequence aggregation collapses them.
+        # Per-seed grouping metadata.  Two rows with the same
+        # sequence_group differ only by Boltz seed, and per-sequence
+        # aggregation collapses them into one row.
         "sequence_group", "seed_index",
         "status", "pdb",
         # ── B. Steering details ──────────────────────────────────
@@ -1202,17 +1214,16 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
         print(f"ERROR: {experiment_root} not a directory", file=sys.stderr)
         return 2
 
-    # Discover every cycle dir and every pathway under it.
-    # The submit script uses two different layouts depending on
-    # --n-cycles:
+    # Find the cycle-0 directory.  The submit script uses one of two
+    # layouts, depending on --n-cycles:
     #   --n-cycles 1: cycle-0 files (plan.json, steered_results.csv,
-    #       steered/, initial_prediction.pdb) live directly in the
-    #       experiment root.  There is no cycle_0/ subdirectory.
-    #   --n-cycles 2+: cycle-0 files live under experiment_root/cycle_0/
-    #       and additional cycle_N/ subdirectories are created as the
-    #       chain runs.
-    # Detect which layout we're in by checking for the canonical
-    # cycle-0 artefact (plan.json) in each location.
+    #       steered/, initial_prediction.pdb) sit directly in the
+    #       experiment root, with no cycle_0/ subdirectory.
+    #   --n-cycles 2+: cycle-0 files sit under experiment_root/cycle_0/
+    #       and further cycle_N/ subdirectories appear as the chain
+    #       runs.
+    # Look for plan.json, the canonical cycle-0 artefact, in each
+    # location to tell which layout this is.
     pathways: List[Dict] = []
     nested_cycle_0 = experiment_root / "cycle_0"
     if (nested_cycle_0 / "plan.json").exists():
@@ -1283,12 +1294,12 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
             cycle0_extra_by_design[c["design"]] = {
                 "min_dist_to_upstream": c.get("min_dist_to_upstream"),
                 "selected_for_next_cycle": 1 if c["design_idx"] in sel_idxs_c0 else 0,
-                # Reversion fields — blank for non-reverted designs.
-                # Note: steered_* base columns are preserved in the
-                # row's existing receptor_aligned_effector_rmsd /
-                # independent_*_rmsd fields and will be renamed by
-                # _translate_aggregate_row at write time.  Reverted
-                # values live only in dedicated reverted_* keys.
+                # Reversion fields, blank for non-reverted designs.
+                # The steered values stay in the row's existing
+                # receptor_aligned_effector_rmsd and
+                # independent_*_rmsd fields, which
+                # _translate_aggregate_row renames at write time.
+                # Reverted values live only in reverted_* keys.
                 "reversion_verdict": c.get("reversion_verdict", ""),
                 "reversion_dropped": c.get("reversion_dropped", ""),
                 "reverted_sequence_used_as_parent": c.get(
@@ -1311,12 +1322,12 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
         if p["label"] == "cycle_0":
             csv_path = wd / "steered_results.csv"
             if not csv_path.exists():
-                # Skip_steering case with a pre-patch driver: no CSV
-                # was written, but the cold-start prediction + plan.json
-                # still exist.  Reconstruct a single initial row from
-                # them so the comparison table gets SOMETHING for this
-                # complex.  This path fires for existing 7B1I-style
-                # workdirs that were aggregated before the patch.
+                # Skip_steering under an older driver wrote no CSV,
+                # but the cold-start prediction and plan.json still
+                # exist.  Reconstruct a single initial row from them
+                # so the comparison table gets SOMETHING for this
+                # complex.  This path fires for 7B1I-style workdirs
+                # that were aggregated before the driver was fixed.
                 initial_pdb = wd / "initial_prediction.pdb"
                 if (cycle_0_dir / "plan.json").exists() and initial_pdb.exists():
                     print("  cycle_0: no steered_results.csv — "
@@ -1337,14 +1348,14 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
                         )
                     except (TypeError, ValueError):
                         intact_flag = ""
-                    # Interface fields: only present if interface
-                    # analysis ran (not the case for all skip types)
+                    # Interface fields are present only if interface
+                    # analysis ran, which not every skip type does.
                     initial_wrong = plan_data.get("initial_wrong_interface_idx") or []
                     true_set = plan_data.get("true_interface_idx") or []
-                    # P0 jaccard-empty-wrong fix: only the truth set is
-                    # required.  Empty initial_wrong gives jaccard = 0,
-                    # not undefined.  See same fix in
-                    # boltz2_negative_steering.py _write_initial_only_csv.
+                    # Only the truth set is required here.  An empty
+                    # initial_wrong gives jaccard = 0, not undefined.
+                    # boltz2_negative_steering.py's
+                    # _write_initial_only_csv does the same.
                     if true_set:
                         n_iface = len(initial_wrong)
                         n_shared_true = len(set(initial_wrong) & set(true_set))
@@ -1375,10 +1386,10 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
                         "pathway": "cycle_0",
                         "parent_pathway": "",
                         "cycle": 0,
-                        # P0 audit: initial baseline is a single
-                        # prediction (no steering, no multi-seed),
-                        # so it gets its own pseudo-group with
-                        # seed_index 0 — keeps grouping logic uniform.
+                        # The initial baseline is a single prediction
+                        # with no steering and no extra seeds.  It gets
+                        # its own pseudo-group with seed_index 0 so the
+                        # grouping logic stays uniform.
                         "sequence_group": "initial",
                         "seed_index": 0,
                         "min_dist_to_upstream": "",
@@ -1396,9 +1407,9 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
                     r["pathway"] = "cycle_0"
                     r["parent_pathway"] = ""
                     r["cycle"] = 0
-                    # Merge in min_dist + selected info from kickoff,
-                    # if available.  The 'initial' baseline row has
-                    # no design entry so it stays blank.
+                    # Merge in min_dist and selection info from
+                    # kickoff where available.  The 'initial' baseline
+                    # row has no design entry, so it stays blank.
                     extra = cycle0_extra_by_design.get(r.get("design", ""), {})
                     r["min_dist_to_upstream"] = extra.get("min_dist_to_upstream", "")
                     r["selected_for_next_cycle"] = extra.get("selected_for_next_cycle", "")
@@ -1413,12 +1424,12 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
                     ):
                         r[k] = extra.get(k, "")
                     # Mutation strings: parse mutations.tsv from the
-                    # design dir (derived from the pdb path).  The
-                    # 'initial' baseline row(s) have no mutations so
-                    # both columns stay empty.  Multi-seed cold-start
-                    # produces design names "initial", "initial_s1",
-                    # "initial_s2", ... — all are baseline rows with
-                    # zero mutations and no mutations.tsv (notes12).
+                    # design dir, which is derived from the pdb path.
+                    # Baseline rows have no mutations, so both columns
+                    # stay empty.  Multi-seed cold start names them
+                    # "initial", "initial_s1", "initial_s2" and so on.
+                    # All of them are baseline rows with zero mutations
+                    # and no mutations.tsv.
                     design_name = r.get("design", "")
                     if design_name == "initial" or design_name.startswith("initial_s"):
                         r["mutations_chimerax"] = ""
@@ -1454,30 +1465,32 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
                            extrasaction="ignore").writeheader()
     if rows:
         # ── Translate internal dict keys to the new clean CSV schema ──
-        # Internal keys preserve historical names so upstream code keeps
-        # working.  Here at the write boundary we rename to a clean
-        # schema with consistent steered_/reverted_ prefixes, drop
-        # redundant columns, and add new derived columns.
+        # Internal keys keep their historical names so upstream code
+        # keeps working.  The write boundary is where they are renamed
+        # to a clean schema with consistent steered_ and reverted_
+        # prefixes, redundant columns dropped, and derived columns
+        # added.
         rows = [_translate_aggregate_row(r) for r in rows]
 
         # ── Compute reverted_mutations_chimerax / _aa / _total for ──
-        # pose_holds rows: cumulative mutation set minus the positions
-        # that were reverted.  All other rows leave these blank.
-        # The reversion data lives in cycle_N/(pathway_<label>/)?
-        # reversion_results.json keyed by pathway label.
+        # pose_holds rows.  Each is the cumulative mutation set minus
+        # the positions that were reverted.  All other rows leave
+        # these blank.  The reversion data lives in
+        # cycle_N/(pathway_<label>/)?reversion_results.json, keyed by
+        # pathway label.
         _populate_reverted_mutations(rows, experiment_root)
 
         # ── Compute unified ranks: for each ranking-eligible row, ──
         # use the canonical metric source (steered or reverted) per
-        # the eligibility rules.  Both ranks are 1-based; rank 1 is
+        # the eligibility rules.  Both ranks are 1-based and rank 1 is
         # best.  Blank for ineligible rows.
         _compute_unified_ranks(rows)
 
         # ── Sort rows: cycle ascending, then initial baseline first ──
-        # within cycle 0, then by rank_by_composite_score ascending
-        # (blank ranks at the bottom).  P0.4: this sort key was
-        # rank_by_ipsae_min; since that column is dropped, we key on
-        # the new primary ranker instead.
+        # within cycle 0, then by rank_by_composite_score ascending,
+        # with blank ranks at the bottom.  This key used to be
+        # rank_by_ipsae_min.  That column is gone, so it keys on the
+        # primary ranker instead.
         def _sort_key(r):
             try:
                 cyc = int(r.get("cycle", 0) or 0)
@@ -1514,8 +1527,8 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
 # all_results_multicycle.csv that passes a final ranking filter.
 # ───────────────────────────────────────────────────────────────────────
 def _count_ca_per_chain(pdb_path: Path) -> "Dict[str, int]":
-    """Count Cα atoms per chain ID from a PDB file.  Stdlib only —
-    keeps this subcommand runnable outside the numpy/gemmi container."""
+    """Count Cα atoms per chain ID from a PDB file.  Stdlib only, so
+    this subcommand still runs outside the numpy/gemmi container."""
     counts: Dict[str, int] = {}
     try:
         with open(pdb_path) as f:
@@ -1550,9 +1563,10 @@ def _float_or_none(x) -> Optional[float]:
 def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
     """Collapse per-seed rows into one aggregated row per unique sequence.
 
-    Reads the per-seed CSV (all_results_multicycle_with_metrics.csv if
-    compute-final-metrics has run, else all_results_multicycle.csv),
-    groups rows by `sequence_group`, and writes:
+    Reads the per-seed CSV, which is
+    all_results_multicycle_with_metrics.csv if compute-final-metrics
+    has run and all_results_multicycle.csv otherwise.  Groups rows by
+    `sequence_group`, then writes:
 
       raw_per_seed_results.csv         — copy of the input, untouched
                                          (renamed for clarity)
@@ -1563,7 +1577,7 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
                                          aggregated reverted record and
                                          per-seed verdict counts
 
-    Aggregation rules (per P0 audit decisions):
+    Aggregation rules:
       - continuous metrics      → median + MAD across seeds
       - 0/1 categoricals        → majority vote, ≥ ceil(N/2)
       - position-set categoricals → per-position majority
@@ -1580,17 +1594,18 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
         `reversion_plan.json` manifest, aggregates per unique reverted
         sequence, then maps the aggregate back to every steered
         sequence whose contaminated state pointed at that reverted
-        hash.  This matches the user's stage-4 spec: one reverted
-        result mapped onto several steering results.
+        hash.  One reverted result can therefore serve several
+        steering results.
     """
     experiment_root: Path = args.experiment_root.resolve()
     if not experiment_root.is_dir():
         print(f"ERROR: {experiment_root} not a directory", file=sys.stderr)
         return 2
 
-    # Prefer the with_metrics CSV (if compute-final-metrics has run)
-    # because we want the aggregated record to reflect confidence
-    # metrics too.  Fall back to the unmetriced CSV with a warning.
+    # Prefer the with_metrics CSV, which exists once
+    # compute-final-metrics has run, so the aggregated record covers
+    # the confidence metrics too.  Otherwise fall back to the
+    # unmetriced CSV and warn.
     metrics_csv = experiment_root / "all_results_multicycle_with_metrics.csv"
     plain_csv = experiment_root / "all_results_multicycle.csv"
     if metrics_csv.exists():
@@ -1612,20 +1627,20 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
     print(f"  read {len(rows)} per-seed rows from {per_seed_csv.name}")
 
     # ── Load contamination gating set from cycle_0/plan.json ──────────
-    # See classify_reversion_verdict (reversion.py) and the notes11
-    # policy: only positions inside the design region ∪ true interface
-    # count as contamination.  cycle_0/plan.json stores the indices
-    # 0-based; convert to 1-based to match the coordinate system of
-    # reverted_mutated_contact_positions_majority.  If plan.json can't
-    # be located (unusual layouts / very old runs), the gate is
-    # disabled and legacy behaviour prevails.
+    # Only positions inside the design region ∪ true interface count
+    # as contamination.  classify_reversion_verdict in reversion.py
+    # applies the same rule per seed.  plan.json stores the indices
+    # 0-based, so convert to 1-based to match the coordinate system of
+    # reverted_mutated_contact_positions_majority.  If plan.json
+    # cannot be located, as in unusual layouts or very old runs, the
+    # gate is disabled and the older ungated behaviour applies.
     gating_1b: Set[int] = set()
-    # cold-start trigger threshold (from plan.json).  Used by the
-    # ranking-eligibility gate below so that cold-start aggregates
-    # whose ra_eff is in (5.0, rmsd_threshold] still get a rank
-    # (matches the cold-start all-clean trigger in
-    # boltz2_negative_steering.py).  Defaults to 5.0 (legacy
-    # behaviour) when no plan can be loaded.
+    # Cold-start trigger threshold, also from plan.json.  The
+    # ranking-eligibility gate below uses it so cold-start aggregates
+    # with ra_eff in (5.0, rmsd_threshold] still get a rank, matching
+    # the cold-start all-clean trigger in
+    # boltz2_negative_steering.py.  Defaults to 5.0 when no plan can
+    # be loaded.
     cold_start_rmsd_threshold: float = 5.0
     for candidate in (experiment_root / "cycle_0" / "plan.json",
                       experiment_root / "plan.json"):
@@ -1653,18 +1668,18 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
               "contamination check will use legacy (ungated) behaviour")
 
     # ── Copy per-seed input to raw_per_seed_results.csv ───────────────
-    # Provides a stable filename downstream that means "every seed's
-    # raw outputs", regardless of whether compute-final-metrics ran.
+    # Gives downstream code one stable filename meaning "every seed's
+    # raw outputs", whether or not compute-final-metrics ran.
     raw_csv = experiment_root / "raw_per_seed_results.csv"
     shutil.copy2(per_seed_csv, raw_csv)
     print(f"  wrote {raw_csv.name} (copy of {per_seed_csv.name})")
 
     # ── Group rows by (cycle, pathway, sequence_group) ────────────────
-    # cycle and pathway scope the sequence_group: two designs in
-    # different cycles or pathways with the same sequence_group integer
-    # are NOT the same unique sequence.  Empty sequence_group means a
-    # row that pre-dates the multi-seed plumbing (or the initial
-    # baseline); each such row is its own group of size 1.
+    # cycle and pathway scope the sequence_group.  Two designs in
+    # different cycles or pathways that share a sequence_group integer
+    # are NOT the same unique sequence.  An empty sequence_group marks
+    # the initial baseline, or a row that pre-dates the multi-seed
+    # plumbing.  Each such row becomes its own group of size 1.
     from collections import defaultdict
     groups: Dict[Tuple, List[Dict]] = defaultdict(list)
     singletons: List[Dict] = []
@@ -1690,8 +1705,8 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
     def _canonical_seed(group: List[Dict]) -> Tuple[Dict, str]:
         """Pick the canonical seed for diagnostics.  Returns (row, warning).
 
-        Sort group by steered_ra_eff_vs_truth ascending (NaN/missing →
-        infinity, so they sort to the end).  Pick:
+        Sort the group by steered_ra_eff_vs_truth ascending.  NaN and
+        missing values become infinity, so they sort to the end.  Pick:
           - odd N: index (N-1)//2 (the middle)
           - even N: index N//2  (the upper-middle, i.e. the WORSE of
             the two middle seeds — conservative)
@@ -1769,12 +1784,14 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
             agg["outcome"] = outcome
             agg["outcome_reason"] = reason
         else:
-            # No seed needed reversion (cold-start skip_steering, OR
-            # steering ran but no seed had contamination on mutated
-            # positions).  Outcome is no_reversion; n_pass is still
-            # derived from per-seed verdicts below — a wrong-placement
-            # no-contamination group will have all seeds = no_data and
-            # n_pass = 0 (NOT n_seeds), correctly landing in tier none.
+            # No seed needed reversion, either because cold start
+            # skipped steering or because steering ran and no seed had
+            # contamination on mutated positions.  The outcome is
+            # no_reversion.  n_pass still comes from the per-seed
+            # verdicts below.  A group with the wrong placement and no
+            # contamination has every seed as no_data, so n_pass is 0
+            # rather than n_seeds, which correctly lands it in tier
+            # none.
             agg["outcome"] = "no_reversion"
             agg["outcome_reason"] = ""
 
@@ -1786,11 +1803,11 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
 
         aggregated_rows.append(agg)
 
-    # Singletons (typically the cycle-0 initial baseline) — pass
-    # through with n_seeds=1 and no aggregation suffixes on the
-    # value columns; they go in as-is so the aggregated CSV still
-    # carries them.  We DO populate the canonical_pdb field so
-    # consumers don't have to special-case singletons.
+    # Singletons, usually the cycle-0 initial baseline.  They pass
+    # through as-is with n_seeds=1 and no aggregation suffixes on the
+    # value columns, so the aggregated CSV still carries them.
+    # canonical_pdb IS populated, so consumers do not have to
+    # special-case singletons.
     for r in singletons:
         passthrough = dict(r)
         passthrough["n_seeds"] = 1
@@ -1805,10 +1822,11 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
         aggregated_rows.append(passthrough)
 
     # ── Recompute composite ranks on the aggregated rows ──────────────
-    # The ranker now operates on the median-aggregated rows.  We use
-    # the existing _ranking_composite logic but on the aggregated
-    # column names (e.g. steered_ra_eff_vs_truth_median in place of
-    # steered_ra_eff_vs_truth).  Wrap in an adapter:
+    # The ranker runs on the median-aggregated rows.  These adapters
+    # apply the same logic as _ranking_composite, but read the
+    # aggregated column names, for example
+    # steered_ra_eff_vs_truth_median in place of
+    # steered_ra_eff_vs_truth.
     def _rank_continuous(r: Dict, name_median: str) -> Optional[float]:
         v = r.get(name_median, "")
         if v in ("", None):
@@ -1822,22 +1840,21 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
             return None
 
     def _agg_row_is_clean_steered(r: Dict) -> bool:
-        # Cold-start all-clean aggregates (notes12) have
-        # design == "initial" AND outcome == "no_reversion".
-        # They MUST be ranking-eligible — they're the final output
-        # for cold-start binders.  We admit them via a slightly looser
-        # ra_eff cap (matching the cold-start trigger threshold from
-        # plan.json, default 5.0 for legacy compatibility).  Steered
-        # aggregates use the legacy 5.0 cap unchanged.
+        # A cold-start all-clean aggregate has design == "initial"
+        # AND outcome == "no_reversion".  It MUST be ranking-eligible,
+        # because it is the final output for a cold-start binder.
+        # These rows are admitted under a slightly looser ra_eff cap,
+        # the cold-start trigger threshold from plan.json, which
+        # defaults to 5.0.  Steered aggregates keep the 5.0 cap.
         is_cold_start = (
             r.get("design") == "initial"
             and (r.get("outcome") or "").strip() == "no_reversion"
         )
         if r.get("design") == "initial" and not is_cold_start:
-            # design=="initial" without no_reversion outcome was the
-            # legacy single-row baseline used by extract_passing.py
-            # to sanity-check; preserve that exclusion to avoid
-            # promoting reconstructed initial rows from old workdirs.
+            # design=="initial" without a no_reversion outcome is the
+            # older single-row baseline that extract_passing.py used
+            # as a sanity check.  Keep excluding it, so reconstructed
+            # initial rows from old workdirs are not promoted.
             return False
         outcome = (r.get("outcome") or "").strip()
         if outcome not in ("", "no_reversion"):
@@ -1910,9 +1927,9 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
 
     # ── Write aggregated_results.csv ──────────────────────────────────
     # Build the column list deterministically so the CSV layout is
-    # stable across runs.  Block order: identification, steered,
-    # reverted, verdict + ranks.  Any unexpected keys (e.g. from
-    # singleton passthrough) get appended in sorted order at the end.
+    # stable across runs.  Block order is identification, steered,
+    # reverted, then verdict and ranks.  Unexpected keys, such as the
+    # ones singleton passthrough adds, go in sorted order at the end.
     preferred_cols = [
         # Identification
         "cycle", "pathway", "sequence_group", "design",
@@ -2004,31 +2021,30 @@ def _passes_final_metrics_filter(row: Dict, args: argparse.Namespace,
                                   metric_col: str, threshold: float,
                                   skip_steering_cycle0: bool) -> bool:
     """Apply the cmd_compute_final_metrics passing-row filter to one row."""
-    # P0.2 + P0-audit: --populate-all truly means "populate every
-    # row" — including rows dropped by reversion verdict routing.
-    # Per-seed aggregation requires every seed's steered_*
-    # confidence metrics so the median across seeds is meaningful;
-    # skipping reversion_dropped rows would leave the dropped
-    # seeds as holes in the per-seed CSV and bias the aggregate.
+    # --populate-all means every row, including rows dropped by
+    # reversion verdict routing.  Per-seed aggregation needs every
+    # seed's steered_* confidence metrics for the median across seeds
+    # to be meaningful.  Skipping reversion_dropped rows would leave
+    # those seeds as holes in the per-seed CSV, and a hole shifts the
+    # median towards whichever seeds survived.
     if args.populate_all:
         return True
-    # Default (no --populate-all): skip rows dropped by reversion
-    # verdict routing — confidence metrics on a discarded
-    # prediction are wasted work.  pose_holds rows are NOT
-    # dropped (reversion_dropped == 0); we still compute steered_*
-    # cm metrics on them so the CSV shows what the steered
-    # prediction looked like before reversion.
+    # Default, without --populate-all: skip rows dropped by reversion
+    # verdict routing, because confidence metrics on a discarded
+    # prediction are wasted work.  pose_holds rows are NOT dropped
+    # (reversion_dropped == 0).  We still compute steered_* metrics on
+    # them so the CSV shows what the steered prediction looked like
+    # before reversion.
     try:
         if int(row.get("reversion_dropped", "0") or "0") == 1:
             return False
     except (TypeError, ValueError):
         pass
-    # Skip_steering exemption: include the initial row(s) if their
-    # parent workdir had skip_steering=true.  Applies only to
-    # cycle-0 initial baselines (cycle-1+ rows never have
-    # design=="initial").  Multi-seed cold-start (notes12) writes
-    # additional rows with design names "initial_s1", "initial_s2",
-    # ... — all are baseline rows that need confidence metrics.
+    # Skip_steering exemption: include the initial row or rows if
+    # their parent workdir had skip_steering=true.  Only cycle-0
+    # baselines are ever named "initial".  Multi-seed cold start also
+    # writes "initial_s1", "initial_s2" and so on, and all of those
+    # are baseline rows that need confidence metrics.
     _design = row.get("design", "")
     if (skip_steering_cycle0
             and (_design == "initial" or _design.startswith("initial_s"))
@@ -2054,12 +2070,11 @@ def _passes_final_metrics_filter(row: Dict, args: argparse.Namespace,
 
 
 def _resume_key_for_row(row: Dict) -> str:
-    """Stable per-design resume key (pdb path is unique per design)."""
-    # Resume key is the absolute pdb path because the `pathway` field
-    # is shared across all cycle-0 designs (they all get the literal
-    # string "cycle_0" from cmd_aggregate, which would collide).  The
-    # pdb path is unique per design.  Falls back to pathway then to
-    # an empty string for safety.
+    """Stable per-design resume key.  The pdb path is unique per design."""
+    # The key is the absolute pdb path.  The `pathway` field cannot
+    # serve, because cmd_aggregate gives every cycle-0 design the
+    # literal string "cycle_0", so all of them would collide.  Falls
+    # back to pathway, then to an empty string, for safety.
     return row.get("pdb") or row.get("pathway") or ""
 
 
@@ -2150,12 +2165,12 @@ def _process_passing_row(
     pdb_path_str = row.get("pdb", "")
     pdb_path = Path(pdb_path_str) if pdb_path_str else None
 
-    # Resume.  Take the CURRENT base row (which may have fresh
-    # columns like mutations_aa, rank_by_truth, or new derived
-    # columns that a previous run didn't have) and overlay just
-    # the steered_* / reverted_* metric values from the cached row onto it.  This
-    # prevents the resume path from stomping fresh base columns
-    # with stale data from an older output CSV.
+    # Resume.  Start from the CURRENT base row, which may carry fresh
+    # columns a previous run did not have, such as mutations_aa or
+    # rank_by_truth.  Overlay only the steered_* and reverted_* metric
+    # values from the cached row.  That stops the resume path
+    # overwriting fresh base columns with stale data from an older
+    # output CSV.
     if args.skip_existing and pathway_key in existing_by_key:
         cached = existing_by_key[pathway_key]
         merged = dict(row)  # start from fresh base row
@@ -2181,16 +2196,16 @@ def _process_passing_row(
         return out_row, "failed"
 
     # compute_metrics.py's Boltz-2 parser looks for
-    # confidence_<stem>.json, pae_<stem>.npz, plddt_<stem>.npz
-    # alongside each PDB.  The steering pipeline copies the chosen
-    # Boltz output to `prediction.pdb` but leaves those sidecar
-    # files nested under Boltz's native output layout (e.g.
+    # confidence_<stem>.json, pae_<stem>.npz and plddt_<stem>.npz
+    # beside each PDB.  The steering pipeline copies the chosen Boltz
+    # output to `prediction.pdb` but leaves those sidecar files in
+    # Boltz's own layout, such as
     # `<design>/predictions/<stem>/pdb/<stem>_model_0.pdb` with
-    # `confidence_<stem>_model_0.json` next to it).  If we pointed
-    # --prediction-dir at `prediction.pdb`'s parent we'd get
-    # metrics with ptm=0, iptm=0, pae=0 (only pLDDT would work,
-    # via the B-factor-column fallback).  Instead, locate the
-    # nested sidecar PDB and point the parser at its directory.
+    # `confidence_<stem>_model_0.json` next to it.  Pointing
+    # --prediction-dir at `prediction.pdb`'s parent would give ptm=0,
+    # iptm=0 and pae=0, with only pLDDT surviving through the
+    # B-factor-column fallback.  So find the nested sidecar PDB and
+    # point the parser at its directory instead.
     sidecar_pdb = _locate_boltz_sidecar_pdb(pdb_path)
     if sidecar_pdb is not None:
         pred_dir = sidecar_pdb.parent
@@ -2227,27 +2242,21 @@ def _process_passing_row(
     safe_key = f"cycle{cyc}_{des}".replace("/", "_").replace(" ", "_")
     per_row_csv = scratch_dir / f"{safe_key}.csv"
 
-    # Look up this row's cumulative mutation set.  After
-    # cmd_aggregate's _translate_aggregate_row pass, the column
-    # is named `steered_mutations_chimerax` (renamed from the
-    # legacy `mutations_chimerax`).  We read the post-rename name
-    # with a fallback to the legacy name for any path that
-    # bypasses _translate_aggregate_row.  Format is
-    # "/A:5,26,44,46" (chain letter + 1-based positions).
-    # compute_metrics.py's parse_mutated_positions accepts this
-    # form directly, so we forward the string as-is.  Blank string
-    # (cold start, no mutations) is fine: compute_metrics.py will
-    # emit the contact columns with blank mutated_contact_positions.
+    # Look up this row's cumulative mutation set.  cmd_aggregate's
+    # _translate_aggregate_row pass renames `mutations_chimerax` to
+    # `steered_mutations_chimerax`, so read the new name and fall back
+    # to the old one for any path that skips that pass.  The format is
+    # "/A:5,26,44,46", a chain letter plus 1-based positions, which
+    # compute_metrics.py's parse_mutated_positions accepts as-is.  A
+    # blank string means cold start with no mutations, which is fine.
     #
-    # Bug history: this previously read only `mutations_chimerax`,
-    # which after the _AGG_RENAME refactor is always blank after
-    # aggregate runs.  Consequence: compute_metrics.py ran without
-    # --mutated-positions on every row, blanking the
+    # Bug history: this once read `mutations_chimerax` alone, which is
+    # always blank once aggregate has run.  compute_metrics.py then
+    # ran without --mutated-positions on every row, which blanked
     # steered_mutated_contact_positions and
-    # steered_n_contacts_on_mutated_positions columns for every
-    # design — INCLUDING the ones that HAD been correctly populated
-    # by _populate_reverted_mutations in cmd_aggregate (which
-    # compute-final-metrics runs after).
+    # steered_n_contacts_on_mutated_positions for every design.  That
+    # included the designs _populate_reverted_mutations had already
+    # filled in during cmd_aggregate, which runs first.
     mutations_cx = (
         row.get("steered_mutations_chimerax", "")
         or row.get("mutations_chimerax", "")
@@ -2264,9 +2273,10 @@ def _process_passing_row(
         "--receptor-chain", pred_rec_chain,
         "--effector-chain", pred_eff_chain,
         "--contact-cutoff", str(args.contact_cutoff),
-        # v8 Level 1: effector atom filter from cycle_0 plan.json.
-        # compute_metrics.py reads the 'effector_interface_atoms'
-        # key directly; no materialised filter file needed.
+        # Restrict which effector atoms count for the interface.
+        # compute_metrics.py reads the 'effector_interface_atoms' key
+        # out of cycle_0/plan.json, so no separate filter file is
+        # needed.
         "--effector-atom-filter-json", str(cycle_0_plan_path),
     ]
     # Per-prediction native-PDB-dependent metrics (intact_core +
@@ -2358,9 +2368,9 @@ def cmd_compute_final_metrics(args: argparse.Namespace) -> int:
     confidence / interface / structural-RMSD metrics, and write a
     single joined CSV alongside all_results_multicycle.csv.
 
-    This is an opt-in post-aggregation step.  The fast `aggregate`
-    pass stays stdlib-only; the heavy Kabsch/numpy work only runs
-    when explicitly requested.
+    This is an opt-in step that runs after `aggregate`.  That keeps
+    the fast `aggregate` pass stdlib-only, so the numpy-dependent
+    work only runs when it is asked for.
     """
     experiment_root: Path = args.experiment_root.resolve()
     if not experiment_root.is_dir():
@@ -2386,16 +2396,16 @@ def cmd_compute_final_metrics(args: argparse.Namespace) -> int:
         return 2
 
     # ── Read prediction chain IDs from cycle_0/plan.json ───────────────
-    # We only need the prediction chain IDs (to count Cα atoms per
-    # chain when building --chain-lengths for compute_metrics.py).
-    # The reference PDB and truth chain IDs are NOT needed: structural
-    # RMSDs are already in all_results_multicycle.csv from the
-    # steering pipeline, and compute_metrics.py is only being used
-    # here for confidence metrics (pTM / ipTM / ipSAE / actifPTM /
-    # pLDDT / PAE), none of which depend on a reference.
-    # Detect cycle-0 layout (nested under cycle_0/ for multi-cycle runs,
-    # flat in the experiment root for --n-cycles 1 runs).  Same logic
-    # as cmd_aggregate.
+    # Only the prediction chain IDs are needed, to count Cα atoms per
+    # chain when building --chain-lengths for compute_metrics.py.  The
+    # reference PDB and truth chain IDs are not.  The structural RMSDs
+    # are already in all_results_multicycle.csv from the steering
+    # pipeline, and compute_metrics.py is used here only for the
+    # confidence metrics (pTM, ipTM, ipSAE, actifPTM, pLDDT, PAE),
+    # none of which need a reference.
+    # Detect the cycle-0 layout the same way cmd_aggregate does.  It
+    # is nested under cycle_0/ for multi-cycle runs and flat in the
+    # experiment root for --n-cycles 1 runs.
     nested_cycle_0 = experiment_root / "cycle_0"
     if (nested_cycle_0 / "plan.json").exists():
         cycle_0_plan_path = nested_cycle_0 / "plan.json"
@@ -2456,64 +2466,60 @@ def cmd_compute_final_metrics(args: argparse.Namespace) -> int:
         output_csv = experiment_root / "all_results_multicycle_with_metrics.csv"
     output_csv = Path(output_csv).resolve()
 
-    # The per-design metrics we harvest from compute_metrics.py output.
-    # We NEVER add these as new columns if they collide with existing
-    # base columns — we prefix them with `steered_` so the join is lossless
-    # AND the prefix correctly indicates that these confidence metrics
-    # were computed on the STEERED prediction.  For pose_holds rows the
-    # steered_* metrics describe the pre-reversion pose; corresponding
-    # reverted_* metrics are populated by harvest-reversions.
+    # The per-design metrics harvested from compute_metrics.py.  Each
+    # is prefixed `steered_`, which keeps the join lossless by never
+    # colliding with a base column, and records that the value came
+    # from the STEERED prediction.  On a pose_holds row these describe
+    # the pre-reversion pose, and harvest-reversions fills the
+    # matching reverted_* metrics.
     #
-    # We deliberately DO NOT harvest the structural RMSD columns
-    # (rmsd_receptor, rmsd_effector_*, n_receptor_ca, n_effector_ca)
-    # from compute_metrics.py:
-    #   1. `all_results_multicycle.csv` already carries the
-    #      authoritative per-design RMSDs from the steering pipeline
-    #      (receptor_aligned_effector_rmsd, independent_receptor_rmsd,
-    #      independent_effector_rmsd) in its base columns, and those
-    #      use the correct truth-vs-pred chain mapping.
-    #   2. compute_metrics.py uses a single --receptor-chain /
-    #      --effector-chain pair for BOTH the prediction and the
-    #      reference, so on complexes where truth chains != pred
-    #      chains (7QPX/7QZD — truth B/C vs pred A/B) its structural
-    #      RMSDs would be wrong.
-    # Skipping them also means we don't need --reference-pdb at all,
-    # which in turn means no Kabsch fit per design — much faster.
+    # The structural RMSD columns (rmsd_receptor, rmsd_effector_*,
+    # n_receptor_ca, n_effector_ca) are deliberately NOT harvested.
+    # all_results_multicycle.csv already carries the authoritative
+    # per-design RMSDs from the steering pipeline, with the correct
+    # truth-vs-pred chain mapping, in receptor_aligned_effector_rmsd,
+    # independent_receptor_rmsd and independent_effector_rmsd.
+    # compute_metrics.py instead uses one --receptor-chain and
+    # --effector-chain pair for both the prediction and the reference,
+    # so its RMSDs are wrong wherever those chains differ, as in 7QPX
+    # and 7QZD with truth B/C against pred A/B.  Skipping them also
+    # removes the need for --reference-pdb, and with it the per-design
+    # Kabsch fit, which is a large speed-up.
     METRIC_KEYS_RAW = [
         "avg_plddt", "complex_plddt",
         "ptm", "iptm", "pae_mean", "ipae", "pae_pass_frac",
         "ipsae_ab", "ipsae_ba", "ipsae_min",
-        # 15Å iPSAE — same Dunbrack iPSAE machinery as the 10Å trio
-        # above, evaluated at a more permissive PAE cutoff.  Computed
-        # in the same compute_metrics.py call so no extra subprocess
-        # work — the PAE matrix is already loaded.
+        # 15Å iPSAE uses the same Dunbrack iPSAE machinery as the 10Å
+        # trio above, at a more permissive PAE cutoff.  The same
+        # compute_metrics.py call produces both, so there is no extra
+        # subprocess work and the PAE matrix is loaded once.
         "ipsae_ab_15", "ipsae_ba_15", "ipsae_min_15",
         "actifptm", "af_rank_score",
-        # Per-prediction native-PDB-dependent metrics.  These were
-        # previously computed post-hoc by compute_interface_metrics.py
-        # (and run_biophysical_metrics.py for interface_plddt) on
-        # survivors only — moved here so every steered prediction is
-        # scored on the same metric set as it lands, without a
+        # These three need the ground-truth PDB.  They used to be
+        # computed after the fact, by compute_interface_metrics.py and
+        # by run_biophysical_metrics.py for interface_plddt, and only
+        # on the survivors.  Computing them here scores every steered
+        # prediction on the same metric set as it lands, with no
         # separate sidecar-finding pass.  intact_core and
         # weighted_jaccard are populated when --native-pdb was passed
-        # to compute_metrics.py (the cycle_0 ground truth for this
-        # design); blank otherwise.  interface_plddt only needs the
-        # model PDB and is always populated.
+        # to compute_metrics.py, naming this design's cycle_0 ground
+        # truth, and are blank otherwise.  interface_plddt needs only
+        # the model PDB, so it is always populated.
         "interface_plddt",
         "intact_core",
         "weighted_jaccard",
-        # Interface contacts / contamination check.  See
-        # compute_metrics.py:compute_interface_contacts /
-        # classify_mutation_reliance for definitions.  n_contact_residues
-        # and contact_residues are populated for every row; the
-        # contamination columns (n_contacts_on_mutated_positions,
-        # mutated_contact_positions) are
-        # populated only when the mutation list was supplied — i.e.
-        # never for cold-start / initial rows.
+        # Interface contacts and the contamination check.  See
+        # compute_interface_contacts and classify_mutation_reliance in
+        # compute_metrics.py for the definitions.  n_contact_residues
+        # and contact_residues are populated on every row.  The
+        # contamination columns need a mutation list, so they stay
+        # blank on cold-start and initial rows.
         #
-        # The authoritative contamination check: any mutated residue
-        # that contacts the effector invalidates the metrics.  The
-        # list of such positions is in `mutated_contact_positions`.
+        # `mutated_contact_positions` is the authoritative
+        # contamination signal.  Any mutated residue contacting the
+        # effector invalidates the metrics, and only this column names
+        # which positions those are.  The count next to it,
+        # n_contacts_on_mutated_positions, cannot.
         "n_contact_residues", "contact_residues",
         "n_contacts_on_mutated_positions",
         "mutated_contact_positions",
@@ -2551,10 +2557,10 @@ def cmd_compute_final_metrics(args: argparse.Namespace) -> int:
             augmented_fieldnames.append(k)
 
     # ── Iterate over EVERY row in all_results_multicycle.csv ──────────
-    # Rows that don't pass the filter are still preserved in the
-    # output (with empty steered_* / reverted_* fields) so the joined CSV is a true
-    # superset of all_results_multicycle.csv.  We only shell out to
-    # compute_metrics.py for rows that DO pass the filter.
+    # Rows that fail the filter are still written out, with empty
+    # steered_* and reverted_* fields, so the joined CSV is a true
+    # superset of all_results_multicycle.csv.  Only rows that pass the
+    # filter cost a compute_metrics.py subprocess.
     model_name = args.model
     joined_rows: List[Dict] = []
     n_computed = 0
@@ -2592,21 +2598,22 @@ def cmd_compute_final_metrics(args: argparse.Namespace) -> int:
             n_skipped_resume += 1
         elif status == "computed":
             n_computed += 1
-            # Write output CSV after every successful row so resume works
-            # cleanly even if the job is killed mid-loop.  Use the same
-            # canonical Block A/B/C/End layout as the final writer so the
-            # column order is consistent whether the job completes or is
-            # killed.
+            # The resume contract: the output table is valid after
+            # every computed row.  Rewrite it here, so a job killed
+            # mid-loop leaves a complete, readable CSV that the next
+            # run can resume from.  The layout is the same canonical
+            # Block A/B/C/End order the final writer uses, so the
+            # column order does not depend on how the job ended.
             _write_metrics_csv(output_csv, joined_rows)
         else:  # "failed"
             n_failed += 1
 
     # ── Post-processing pass: derive steered_pae_cutoff_used,
     # steered_confidence_flag, and recompute the unified ranks ─────────
-    # We compute these AFTER the harvest loop because they need a
-    # global view of all populated rows (for the rank) and they need
-    # to apply the threshold flags consistently across both freshly-
-    # computed rows and resumed rows from a previous run.
+    # These run after the harvest loop for two reasons.  The ranks
+    # need a global view of every populated row.  And the threshold
+    # flags must be applied the same way to freshly computed rows and
+    # to rows resumed from a previous run.
     pae_cutoff_used = float(args.pae_cutoff)
     flag_pass_frac_min     = float(args.flag_pass_frac_min)
     flag_iptm_min          = float(args.flag_iptm_min)
@@ -2620,21 +2627,20 @@ def cmd_compute_final_metrics(args: argparse.Namespace) -> int:
             flag_complex_plddt_min, flag_ipae_max,
         )
 
-    # Recompute the unified ranks now that compute-final-metrics has
-    # populated the steered_* confidence columns.  rank_by_ra_eff and
-    # rank_by_composite_score were already populated by aggregate
-    # (both use only steering-pipeline outputs that are available
-    # pre-compute-final-metrics) and will be re-derived here too —
-    # values are deterministic, so the second computation produces
-    # identical output.
+    # Recompute the unified ranks now that the steered_* confidence
+    # columns are populated.  aggregate already set rank_by_ra_eff and
+    # rank_by_composite_score, since both read only steering-pipeline
+    # outputs that exist before this stage.  Re-deriving them is
+    # harmless, because the values are deterministic and the second
+    # computation matches the first.
     _compute_unified_ranks(joined_rows)
 
-    # Final write (covers the case where every row was resume-skipped
-    # or failed and the loop never hit the incremental write path).
-    # Reorder columns into the canonical Block A / B / C / End layout
-    # so the CSV the user actually reads has steered_* metrics inserted
-    # into Block B alongside the steering RMSDs, not appended at the
-    # end as legacy steered_* / reverted_* columns used to be.
+    # Final write.  It covers the case where every row was
+    # resume-skipped or failed, so the loop never reached the
+    # incremental write.  It also reorders the columns into the
+    # canonical Block A / B / C / End layout, which puts the steered_*
+    # metrics in Block B next to the steering RMSDs instead of
+    # appending them at the end.
     _write_metrics_csv(output_csv, joined_rows)
 
     print()
@@ -2746,16 +2752,17 @@ def build_parser() -> argparse.ArgumentParser:
                            "Default 15.0.")
     pcfm.add_argument("--populate-all", dest="populate_all",
                       action="store_true", default=False,
-                      help="P0.2: populate confidence / interface metrics "
-                           "on EVERY non-dropped row, not just rows that "
-                           "pass the ra_eff + intact filter.  Useful for "
-                           "cross-task AUROC analysis where filtered-away "
-                           "rows are needed as the wrong-interface side "
-                           "of the ROC curve.  reversion_dropped==1 rows "
-                           "are still skipped because their metrics are "
-                           "meaningless.  Default: off (preserves legacy "
-                           "behaviour where only filter-passing rows get "
-                           "metrics).")
+                      help="Populate confidence and interface metrics on "
+                           "EVERY row, not just the rows that pass the "
+                           "ra_eff and intact filter.  Rows with "
+                           "reversion_dropped=1 are included too.  A "
+                           "dropped seed with no metrics is a hole in the "
+                           "per-seed table, and a hole shifts the median "
+                           "across seeds towards whichever seeds "
+                           "survived.  Also needed for an AUROC analysis, "
+                           "where the filtered-away rows are the "
+                           "wrong-interface side of the curve.  Default: "
+                           "off, so only filter-passing rows get metrics.")
     pcfm.add_argument("--output-csv", type=Path, default=None,
                       help="Output CSV path "
                            "(default: <experiment-root>/all_results_multicycle_with_metrics.csv)")

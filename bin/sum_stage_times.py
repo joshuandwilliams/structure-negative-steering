@@ -18,6 +18,12 @@ from pathlib import Path
 
 
 def total_seconds(stage_times: Path) -> int:
+    """Add up the seconds in a .stage_times file and return the total.
+
+    Each line is a stage name and its seconds, separated by
+    whitespace.  Any line that does not match that shape is skipped,
+    and a missing file gives 0.
+    """
     if not stage_times.is_file():
         return 0
     total = 0

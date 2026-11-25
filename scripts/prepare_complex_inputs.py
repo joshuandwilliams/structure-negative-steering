@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Prepare standalone negative-steering inputs from a solved complex.
 
-`negative_steering_run_one.sh` needs more than a bare structure: it wants the
-two chain sequences plus a true-interface and a design-region index file. This
-script derives all of them from a single complex PDB (e.g. a reference from
-structure-prediction-benchmarking/data/complexes_for_benchmarking), so you can
-point the engine at, say, 6G10.pdb and run.
+`negative_steering_run_one.sh` needs more than a bare structure. It wants the
+two chain sequences, plus a true-interface and a design-region index file.
+This script derives all of them from a single complex PDB, such as a reference
+from structure-prediction-benchmarking/data/complexes_for_benchmarking. That
+way you can point the engine at, say, 6G10.pdb and run.
 
 Outputs (written into --outdir), in the exact formats the engine expects:
   receptor.fasta       receptor chain sequence
@@ -23,16 +23,19 @@ against the untouched complex, which is what makes it a control.
 
 Interface residues come from one of two modes:
   --derive                 heavy-atom contacts within --contact-cutoff of the
-                           effector (the default; "the interface in the complex")
-  --interface-file FILE    read positional indices from FILE (0-based, one per
-                           line or comma-separated; '#' comments ignored)
+                           effector. This is the default, and it means the
+                           interface as the complex shows it.
+  --interface-file FILE    read positional indices from FILE. They are
+                           0-based, one per line or comma-separated, and '#'
+                           comments are ignored.
 
-The contact detection and sequence extraction reuse the *engine*
-helpers (find_contact_residues_heavy, get_chain_sequence), so the indices and
-sequences line up exactly with what the engine consumes at run time.
+Contact detection and sequence extraction both call the engine's own helpers,
+find_contact_residues_heavy and get_chain_sequence. The indices and sequences
+therefore line up exactly with what the engine reads at run time.
 
-Chains default to receptor=A, effector=B (the complexes_for_benchmarking
-convention); override with --receptor-chain / --effector-chain.
+Chains default to receptor=A and effector=B, which is the
+complexes_for_benchmarking convention. Override them with --receptor-chain and
+--effector-chain.
 """
 
 from __future__ import annotations
@@ -49,7 +52,8 @@ ENGINE_BIN = REPO_ROOT / "bin"
 
 
 def _load_engine_helpers():
-    """Import the engine helpers (need gemmi or biopython + numpy)."""
+    """Import the engine helpers.  They need numpy, plus either gemmi or
+    biopython."""
     sys.path.insert(0, str(ENGINE_BIN))
     try:
         from boltz2_negative_steering import get_chain_sequence  # noqa: E402
@@ -65,7 +69,8 @@ def _load_engine_helpers():
 
 
 def _parse_index_file(path: Path) -> List[int]:
-    """Read 0-based positional indices: one-per-line or comma-separated."""
+    """Read 0-based positional indices, either one per line or
+    comma-separated.  Returns them sorted and deduplicated."""
     out: List[int] = []
     for line in path.read_text().splitlines():
         line = line.split("#", 1)[0].strip()
@@ -81,7 +86,8 @@ def _write_fasta(path: Path, header: str, seq: str) -> None:
 
 
 def ablate_alanine(seq: str, idx0: List[int]) -> str:
-    """Every selected position set to alanine. Positions outside idx0 are kept."""
+    """Set every selected position to alanine.  Positions outside idx0 are
+    left as they were."""
     chars = list(seq)
     for i in idx0:
         chars[i] = "A"
@@ -113,14 +119,16 @@ def ablate_scramble(seq: str, idx0: List[int], seed: int) -> str:
 
 
 def default_ablation_seed(complex_pdb: Path) -> int:
-    """Deterministic per-target seed, so a re-run reproduces the permutation."""
+    """Return a per-target seed derived from the file name, so a re-run
+    reproduces the same permutation."""
     digest = hashlib.sha256(complex_pdb.stem.encode()).hexdigest()
     return int(digest[:8], 16)
 
 
 def _write_ablation_record(path: Path, *, mode: str, seed: int, idx0: List[int],
                            before: str, after: str, complex_pdb: Path) -> None:
-    """What was changed, so the run carries its own provenance."""
+    """Write a record of what the ablation changed, so the run carries its
+    own provenance."""
     moved = [i for i in idx0 if before[i] != after[i]]
     with path.open("w") as f:
         f.write(f"# receptor interface ablation applied by {Path(__file__).name}\n")
@@ -139,7 +147,8 @@ def _write_ablation_record(path: Path, *, mode: str, seed: int, idx0: List[int],
 def _write_true_interface(path: Path, idx0: List[int], *, complex_pdb: Path,
                           receptor_chain: str, effector_chain: str,
                           source: str) -> None:
-    """0-based, one per line — matches derive_true_interface.py's format."""
+    """Write 0-based indices, one per line.  This matches the format
+    derive_true_interface.py produces."""
     with path.open("w") as f:
         f.write(f"# derived from complex {complex_pdb}\n")
         f.write(f"# interface source: {source}\n")
@@ -154,7 +163,9 @@ def _write_true_interface(path: Path, idx0: List[int], *, complex_pdb: Path,
 
 def _write_design_region(path: Path, idx1: List[int], *, complex_pdb: Path,
                          receptor_chain: str, source: str) -> None:
-    """1-based comma-separated — matches derive_design_region.py's format."""
+    """Write 1-based indices, comma-separated.  This matches the format
+    derive_design_region.py produces.  Note that it counts from 1, unlike the
+    true-interface file above."""
     with path.open("w") as f:
         f.write(f"# derived from complex {complex_pdb}\n")
         f.write(f"# design region source: {source}\n")
@@ -215,9 +226,9 @@ def main(argv: List[str]) -> int:
     # --- Sequences ---------------------------------------------------------
     rec_seq = get_chain_sequence(args.complex, args.receptor_chain)
     eff_seq = get_chain_sequence(args.complex, args.effector_chain)
-    # Unreachable with the current engine parser, which raises ValueError on an
-    # absent chain before it can return an empty sequence. Kept as a guard in
-    # case a future parser returns "" instead of raising.
+    # The current engine parser raises ValueError on an absent chain, so it
+    # never returns an empty sequence and neither guard below can fire. They
+    # stay in case a future parser returns "" instead of raising.
     if not rec_seq:  # pragma: no cover - engine raises first
         print(f"ERROR: receptor chain '{args.receptor_chain}' empty in {args.complex}",
               file=sys.stderr)
@@ -258,8 +269,8 @@ def main(argv: List[str]) -> int:
     )
 
     # --- Interface ablation (control) --------------------------------------
-    # The receptor FASTA is written here rather than with the effector above,
-    # because the ablation needs the interface indices.
+    # The receptor FASTA is written here, not alongside the effector above,
+    # because the ablation needs the interface indices first.
     ablation_record = args.outdir / "interface_ablation.txt"
     if args.ablate == "none":
         if ablation_record.exists():

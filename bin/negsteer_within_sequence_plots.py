@@ -13,11 +13,12 @@ per-seed dispersion across the cohort, so a cohort-level median in
 cross_sequence_summary.csv can be told apart from one driven by a
 single rogue seed.
 
-The "final" prediction for each seed is verdict-aware: when reversion
-ran (verdict in pose_holds / pose_collapses / new_contamination) the
-reverted_* metrics are the seed's final values; otherwise the
-steered_* metrics are.  For cold-start-only paths (no mutations
-applied), the steered_* values ARE the cold-start prediction.
+Each seed's "final" prediction is verdict-aware.  When reversion ran,
+meaning the verdict is pose_holds, pose_collapses or
+new_contamination, the reverted_* metrics hold the seed's final
+values.  Otherwise the steered_* metrics do.  On a cold-start-only
+path, where no mutations were applied, the steered_* values ARE the
+cold-start prediction.
 
 Plots produced
 --------------
@@ -27,8 +28,7 @@ negsteer_per_seed_dispersion_overview.png
     representative sequence_group.  X = ra_eff (final), Y =
     true_jaccard (final).  Shape encodes which stage produced the
     final prediction (circle = cold-start, square = steering, triangle
-    = reversion)
-    colour encodes tier.
+    = reversion).  Colour encodes tier.
 
 negsteer_per_seed_dispersion_grid.png
     Small-multiples grid, one panel per MPNN sequence, sorted by
@@ -40,13 +40,12 @@ negsteer_per_seed_dispersion_grid.png
 negsteer_per_design_stage_trajectories.png
     One panel per RFDiffusion design.  X-axis: stage (cold-start →
     steering → reversion).  One line per (MPNN sequence, sg, seed)
-    showing ra_eff at each stage where data exists.  Cold-start point
-    is shared across seeds (single pre-steering prediction)
-    steered
-    and reverted points are per-seed.  Marker placed on the FINAL
-    stage.  Lines coloured by MPNN sequence number (so seq 3 is the
-    same colour wherever it appears across designs).  Dashed line at
-    ra_eff = 5 Å.
+    showing ra_eff at each stage where data exists.  The cold-start
+    point is shared across seeds, because it is a single
+    pre-steering prediction.  The steered and reverted points are
+    per-seed.  The marker sits on the FINAL stage.  Lines are coloured
+    by MPNN sequence number, so seq 3 is the same colour wherever it
+    appears across designs.  Dashed line at ra_eff = 5 Å.
 
 negsteer_weighted_vs_true_jaccard.png
     Single scatter, one point per (MPNN sequence, Boltz seed) of the
@@ -57,25 +56,23 @@ negsteer_weighted_vs_true_jaccard.png
 negsteer_composite_vs_confidence.png
     Multi-panel scatter.  Per panel: X = a confidence metric (median
     across the representative sg's seeds, per MPNN sequence), Y =
-    composite score (per MPNN sequence).  Bounded [0, 1] metrics are
-    shown on a fixed 0-1 axis
-    pLDDT is shown on its native 0-100
-    scale
-    ipae and pae_mean autoscale.  Threshold lines drawn for
-    the 4 gating metrics (complex_pLDDT, ipTM, ipae, pae_pass_frac).
+    composite score (per MPNN sequence).  Metrics bounded to [0, 1]
+    are shown on a fixed 0-1 axis.  pLDDT keeps its native 0-100
+    scale.  ipae and pae_mean autoscale.  Threshold lines are drawn
+    for the 4 gating metrics (complex_pLDDT, ipTM, ipae,
+    pae_pass_frac).
 
 Usage
 -----
-    python test_negsteer_within_sequence_plots.py \\
+    python negsteer_within_sequence_plots.py \\
         --runs-dir tests/negative_steering/receptor_resurfacing_results/negative_steering/runs \\
         --cross-summary-csv tests/negative_steering/receptor_resurfacing_results/negative_steering/cross_sequence_summary.csv \\
         --outdir tests/negative_steering/receptor_resurfacing_results/plots_iter
 
-Sequences with no raw_per_seed_results.csv (or empty CSVs) are
-silently skipped.  Controls (input_control_*) are excluded
-the
-within-sequence plots are about per-seed dispersion of steered
-sequences, not control behaviour.
+Sequences with no raw_per_seed_results.csv, or with an empty one,
+are silently skipped.  Controls (input_control_*) are excluded.  These
+plots are about per-seed dispersion of steered sequences, not about
+control behaviour.
 """
 
 from __future__ import annotations
@@ -111,16 +108,17 @@ COLOUR_VERDICT_NEW  = "#D62728"   # new_contamination
 COLOUR_VERDICT_COL  = "#FFB000"   # pose_collapses
 COLOUR_VERDICT_NA   = "#888888"   # no_data / clean_steered / other
 
-# Constants used by the per-seed classifier and for confidence-metric
-# threshold lines.  Mirror extract_passing.py / cohort plot script.
+# Used by the per-seed classifier and for the confidence-metric
+# threshold lines.  These mirror extract_passing.py and
+# negsteer_plots.py.
 RA_EFF_MAX        = 5.0
 COMPLEX_PLDDT_MIN = 0.70
 IPAE_MAX          = 15.0
 PAE_PASS_FRAC_MIN = 0.10
 IPTM_MIN          = 0.30
 
-# Stage encoding — same shapes as the cohort script's seed-outcomes
-# heatmap so the two scripts are visually consistent.
+# Stage encoding.  Same shapes as the seed-outcomes heatmap in
+# negsteer_plots.py, so the two scripts look consistent.
 STAGE_MARKER = {"cold_start": "o", "steering": "s", "reversion": "^"}
 STAGE_LABEL  = {"cold_start": "Cold-start",
                 "steering":   "Steering",
@@ -261,8 +259,9 @@ def classify_seed(row: Dict) -> Tuple[str, str]:
 
 
 def _rep_sg(seq_dir: Path, cs_lookup: Dict[str, Dict]) -> Optional[str]:
-    """Pick representative sg: cross_summary's pointer if set, else best
-    composite among non-singleton agg rows."""
+    """Pick the representative sequence_group.  Use cross_summary's
+    pointer when it is set.  Otherwise take the best composite among
+    the non-singleton aggregated_results rows."""
     cs_row = cs_lookup.get(seq_dir.name)
     if cs_row:
         rep = (cs_row.get("rep_sequence_group") or "").strip()
@@ -340,9 +339,10 @@ def load_cohort_seeds(
         for row in raw_rows:
             sg = (row.get("sequence_group") or "").strip()
             if sg == "":
-                # Cycle-0 initial baseline row — capture as cold-start
-                # ra_eff for the trajectory plot, then skip (it has no
-                # seed_index / sg).
+                # Cycle-0 initial baseline row.  Capture its ra_eff as
+                # the cold-start value for the trajectory plot, then
+                # skip it.  It has no seed_index and no
+                # sequence_group.
                 v = _try_float(row.get("steered_ra_eff_vs_truth"))
                 if v is not None:
                     cold_baseline[seq_dir_name] = v
@@ -504,13 +504,14 @@ def plot_dispersion_overview(rep_seeds, tiers, out_path):
 
 # ── Plot 1b: per-seed dispersion grid ───────────────────────────────────
 def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
-    """Small-multiples: one panel per MPNN sequence, scatter of ALL
-    its seeds (across all sgs) — ra_eff (final) vs true_jaccard
-    (final).  Non-representative seeds are drawn in grey
-    the
-    representative sg's seeds are coloured green (pass) or red (fail)
-    based on whether ra_eff < 5 Å.  Vertical line at ra_eff = 5.
-    Sorted by composite descending."""
+    """Small-multiples grid, one panel per MPNN sequence.  Each panel
+    scatters ALL that sequence's seeds across all sequence_groups,
+    ra_eff (final) against true_jaccard (final).  Non-representative
+    seeds are drawn in grey.  The representative sequence_group's
+    seeds are coloured green when ra_eff < 5 Å and red otherwise.
+    A vertical line marks ra_eff = 5.  Panels are sorted by composite
+    descending.  Returns False after writing a placeholder figure when
+    no seed carries an ra_eff."""
     names = sorted(rep_seeds.keys(),
                    key=lambda n: -composites.get(n, float("-inf")))
     n = len(names)
@@ -535,11 +536,12 @@ def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
             if s["tj_final"] is not None:
                 all_tj.append(s["tj_final"])
     if not all_ra:
-        # The grid takes its x bound from the cohort's RMSDs, so there is
-        # nothing to scale. Write the placeholder rather than returning
-        # without a file: Nextflow publishes a fixed figure list and a
-        # missing path fails the stage with nothing in the log to explain
-        # it. This is what the cohort module's figures already do.
+        # The grid takes its x bound from the cohort's RMSDs, so there
+        # is nothing to scale.  Write the placeholder rather than
+        # returning without a file.  Nextflow publishes a fixed figure
+        # list, so a missing path fails the stage with nothing in the
+        # log to explain it.  The cohort module's figures already do
+        # this.
         _make_empty_plot("No per-seed RMSD data", out_path)
         return False
     x_max = max(all_ra) * 1.05
@@ -574,9 +576,10 @@ def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
                        edgecolor="#666", linewidth=0.4, alpha=0.6,
                        zorder=2)
 
-        # Then plot rep seeds in green (pass) / red (fail).  Pass =
-        # ra_eff < 5 AND structure intact (we treat any rep-sg seed
-        # whose ra_final < 5 as the pass).
+        # Then plot the representative seeds, green for pass and red
+        # for fail.  A pass means ra_eff < 5 and the structure intact.
+        # Here any representative-sg seed with ra_final < 5 counts as
+        # a pass.
         for s in seeds:
             ra, tj, stage = s["ra_final"], s["tj_final"], s["stage"]
             if ra is None or tj is None:
@@ -637,14 +640,15 @@ def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
 
 # ── Plot 2: per-design stage trajectories ───────────────────────────────
 def plot_stage_trajectories(all_seeds, tiers, cold_baseline, out_path):
-    """Panel per RFDiffusion design.  X-axis: stage (cold-start →
-    steered → reverted).  One line per (MPNN sequence, sg, seed).
-    Cold-start point is shared across all seeds of a sequence (it's
-    a single pre-steering prediction)
-    steering and reversion points
-    are per-seed.  Marker on the FINAL stage.  Lines coloured by MPNN
-    sequence number (so seq 3 is the same colour wherever it appears
-    across designs)."""
+    """One panel per RFDiffusion design.  The x-axis is the stage,
+    cold-start then steered then reverted.  One line per (MPNN
+    sequence, sg, seed).  The cold-start point is shared across all
+    seeds of a sequence, because it is a single pre-steering
+    prediction.  The steering and reversion points are per-seed.  The
+    marker sits on the FINAL stage.  Lines are coloured by MPNN
+    sequence number, so seq 3 is the same colour wherever it appears
+    across designs.  Returns False after writing a placeholder figure
+    when no stage carries an ra_eff."""
     by_design: Dict[str, List[str]] = defaultdict(list)
     for name in all_seeds:
         by_design[_design_id(name)].append(name)
@@ -661,9 +665,9 @@ def plot_stage_trajectories(all_seeds, tiers, cold_baseline, out_path):
     stage_x = {s: i for i, s in enumerate(STAGES)}
     stage_labels = ["Cold-start", "Steering", "Reversion"]
 
-    # Colour per MPNN sequence NUMBER (s0, s1, …) so seq 3 is always
+    # Colour by MPNN sequence NUMBER (s0, s1, …) so seq 3 is always
     # the same colour across designs.  tab10 has 10 distinguishable
-    # colours; cycle for >10.
+    # colours, and the cycle repeats beyond 10.
     cmap = plt.get_cmap("tab10")
 
     def _seq_colour(name: str):
@@ -678,8 +682,8 @@ def plot_stage_trajectories(all_seeds, tiers, cold_baseline, out_path):
                 if v is not None:
                     all_ra.append(v)
     if not all_ra:
-        # Same cause as the dispersion grid: the y axis is the RMSD and
-        # there is no bound for it.
+        # Same cause as the dispersion grid.  The y axis is the RMSD,
+        # and there is no bound to give it.
         _make_empty_plot("No per-seed RMSD data", out_path)
         return False
     y_max = max(all_ra) * 1.05
@@ -751,13 +755,14 @@ def plot_stage_trajectories(all_seeds, tiers, cold_baseline, out_path):
 
 # ── Plot 3: weighted vs true jaccard ────────────────────────────────────
 def plot_weighted_vs_true_jaccard(rep_seeds, tiers, out_path):
-    """Single scatter, one point per (MPNN sequence, Boltz seed) of the
-    representative sequence_group — typically 3 points per sequence.
-    x = true jaccard, y = weighted jaccard.  y=x diagonal.
+    """Single scatter, one point per (MPNN sequence, Boltz seed) of
+    the representative sequence_group.  That is typically 3 points per
+    sequence.  x = true jaccard, y = weighted jaccard, with the y = x
+    diagonal drawn.
 
-    Small random jitter applied to expose stacked points (different
-    seeds with identical metric values otherwise plot on top of each
-    other and look like fewer points)."""
+    A small random jitter exposes stacked points.  Seeds with
+    identical metric values would otherwise plot on top of each other
+    and look like fewer points."""
     fig, ax = plt.subplots(figsize=(7.0, 6.0))
     seen_tiers = set()
     rng = np.random.default_rng(seed=42)   # deterministic jitter
@@ -804,34 +809,34 @@ def plot_weighted_vs_true_jaccard(rep_seeds, tiers, out_path):
 
 # ── Plot 4: composite vs confidence metrics ─────────────────────────────
 def plot_composite_vs_confidence(rep_seeds, composites, tiers, out_path):
-    """Multi-panel scatter: composite (y) vs each confidence metric (x).
-    One point per MPNN sequence (composite is per-sequence
-    confidence
-    metric is the median across that sequence's representative
-    seeds).  Colour by tier.
+    """Multi-panel scatter of composite (y) against each confidence
+    metric (x).  One point per MPNN sequence.  The composite is
+    per-sequence, and the confidence metric is the median across that
+    sequence's representative seeds.  Colour is tier.
 
-    Each tuple: (key, label, threshold, comparison, x_lim).
-    x_lim is None for "auto-scale", else a (min, max) tuple to force
-    the natural range (e.g. metrics that are bounded [0, 1] should
-    show that range so the reader can place each value in context)."""
+    Each entry of `metrics` is (key, label, threshold, comparison,
+    x_lim).  x_lim of None means auto-scale.  Otherwise it is a
+    (min, max) pair forcing the metric's natural range, so a metric
+    bounded to [0, 1] shows that whole range and the reader can place
+    each value in context."""
     metrics = [
-        # Bounded-in-[0,1] confidence metrics — fix the axis so we can
-        # see how close each sequence is to the limits.
-        # avg_plddt is on a 0-100 scale (complex_plddt is the same
-        # metric / 100); we drop complex_plddt and keep avg_plddt with
-        # a 0-100 axis to preserve the natural pLDDT scale.
+        # Confidence metrics bounded to [0, 1].  The axis is fixed so
+        # the reader can see how close each sequence is to the limits.
+        # avg_plddt uses a 0-100 scale, and complex_plddt is the same
+        # metric divided by 100.  complex_plddt is dropped and
+        # avg_plddt kept, which preserves the natural pLDDT scale.
         ("avg_plddt",       "average pLDDT (0-100)", None,            None, (0, 100)),
         ("interface_plddt", "interface pLDDT",       None,             None, (0, 1)),
         ("iptm",            "ipTM",                  IPTM_MIN,         ">=", (0, 1)),
         ("ptm",             "pTM",                   None,             None, (0, 1)),
         ("actifptm",        "actifPTM",              None,             None, (0, 1)),
         ("pae_pass_frac",   "pae_pass_frac",         PAE_PASS_FRAC_MIN, ">=", (0, 1)),
-        # Only the _min variants of ipSAE — _ab and _ba just show
-        # the per-direction asymmetric components and don't add
-        # information to the symmetric min for the cohort plot.
+        # Only the _min variants of ipSAE.  The _ab and _ba columns
+        # give the per-direction asymmetric components, which add
+        # nothing to the symmetric min at cohort level.
         ("ipsae_min",       "ipSAE_min (10 Å)",      None,             None, (0, 1)),
         ("ipsae_min_15",    "ipSAE_min (15 Å)",      None,             None, (0, 1)),
-        # Unbounded metrics — auto-scale.
+        # Unbounded metrics, so auto-scale.
         ("ipae",            "ipae",                  IPAE_MAX,         "<=", None),
         ("pae_mean",        "pae_mean",              None,             None, None),
     ]

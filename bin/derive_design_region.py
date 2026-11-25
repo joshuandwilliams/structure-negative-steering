@@ -2,45 +2,42 @@
 """
 derive_design_region.py
 -----------------------
-Extract the ProteinMPNN-designed residue positions for a given
-RFDiffusion design from `rfdiffusion_metrics.json`, in the 1-based
-positional-index coordinate system used by
+Extract the ProteinMPNN-designed residue positions for one RFDiffusion
+design from `rfdiffusion_metrics.json`.  Positions come out as 1-based
+positional indices, which is what
 `negsteer_aggregate.py compute-final-metrics
---design-region-positions-file`.
+--design-region-positions-file` expects.
 
 Background
 ==========
-`rfdiffusion_metrics.json` stores per-design state with the following
-relevant fields (one entry inside each element of the top-level
-`designs` array):
+Each element of the top-level `designs` array in
+`rfdiffusion_metrics.json` carries two fields this script needs.
 
   per_design_design_residues
-      List of synthetic residue numbers (not real PDB resnums — these
-      are offset from the max fixed resnum by 1000 to avoid collision
-      with fixed residues).  These identify the de novo residues
-      RFDiffusion built for this design.
+      The de novo residues RFDiffusion built for this design.  These
+      are synthetic residue numbers, not real PDB resnums.  They are
+      offset from the highest fixed resnum by 1000 so they cannot
+      collide with the fixed residues.
 
   receptor_position_order
-      The full list of receptor residue numbers in atom-walk order,
-      i.e. the order they appear in the prediction PDB.  This is the
-      same convention the steering pipeline uses to derive
-      `true_interface_idx`.
+      Every receptor residue number in atom-walk order, which is the
+      order they appear in the prediction PDB.  The steering pipeline
+      uses the same convention to derive `true_interface_idx`.
 
 What this script does
 =====================
 1. Loads rfdiffusion_metrics.json.
-2. Finds the design entry matching the supplied name (accepting
-   "design_3", "design_3.pdb", or the bare integer "3").
-3. Intersects per_design_design_residues with receptor_position_order:
-   each synthetic resnum in the design-residue list is looked up in
+2. Finds the design entry matching the supplied name.  It accepts
+   "design_3", "design_3.pdb", or the bare integer "3".
+3. Looks up each synthetic resnum from per_design_design_residues in
    receptor_position_order to get its 0-based positional index.
-4. Converts 0-based indices to 1-based (compute-final-metrics's
-   convention) and writes them to the output file.
+4. Adds 1 to every index, because compute-final-metrics counts from 1,
+   then writes them to the output file.
 
 Output format
 =============
-A text file consumable by compute-final-metrics's
---design-region-positions-file flag.  Format:
+A text file that compute-final-metrics reads through its
+--design-region-positions-file flag:
 
   # derived from <path to rfdiffusion_metrics.json>
   # design: design_3
@@ -56,16 +53,16 @@ Usage
       --design design_3 \\
       --output design_3_design_region.txt
 
-  # Optionally cross-check against the true_interface_idx that
-  # plan.json already has for this design (catches coordinate-
-  # system mismatches):
+  # --cross-check-plan compares the result against the
+  # true_interface_idx that plan.json already holds for this design.
+  # It catches coordinate-system mismatches.
   python3 derive_design_region.py \\
       --metrics-json ... --design design_3 --output ... \\
       --cross-check-plan /path/to/cycle_0/plan.json
 
-On success, exits 0 and prints a summary to stderr.  On any error
-(missing file, design not found, empty result, cross-check mismatch)
-exits non-zero with a descriptive message.
+On success it exits 0 and prints a summary to stderr.  A missing file,
+an unknown design, an empty result or a failed cross-check all exit
+non-zero with a message saying what went wrong.
 """
 
 import argparse
@@ -75,16 +72,16 @@ from pathlib import Path
 
 
 def normalise_design_id(raw):
-    """Accept 'design_3', 'design_3.pdb', or '3'; return all three
-    forms so we can match against whatever key rfdiffusion_metrics.json
-    happens to use."""
+    """Accept 'design_3', 'design_3.pdb', or '3'.  Return both the
+    bare and the .pdb form, so the caller can match whichever key
+    rfdiffusion_metrics.json happens to use."""
     raw = str(raw).strip()
-    # Strip .pdb if present
+    # Drop a trailing .pdb if there is one.
     if raw.endswith(".pdb"):
         stem = raw[:-4]
     else:
         stem = raw
-    # If it's a bare integer, prepend "design_"
+    # A bare integer needs the "design_" prefix.
     if stem.isdigit():
         stem = f"design_{stem}"
     return {
@@ -94,9 +91,11 @@ def normalise_design_id(raw):
 
 
 def find_design_entry(metrics, design_id):
-    """Locate the design record inside metrics['designs'] matching
-    `design_id`.  Returns the entry dict, or raises KeyError with a
-    listing of available designs if not found."""
+    """Find the record in metrics['designs'] that matches `design_id`.
+
+    Returns the entry dict.  Raises KeyError if there is no match, and
+    the message lists the designs that are present.
+    """
     designs = metrics.get("designs")
     if not isinstance(designs, list):
         raise ValueError(
@@ -104,16 +103,16 @@ def find_design_entry(metrics, design_id):
             "(got type %s)" % type(designs).__name__
         )
     ids = normalise_design_id(design_id)
-    # The JSON typically stores the design identifier under the key
-    # "design".  Accept both "design_3" and "design_3.pdb" forms.
+    # The JSON usually stores the identifier under the key "design".
+    # Accept both the "design_3" and "design_3.pdb" spellings.
     for entry in designs:
         key = entry.get("design") or entry.get("name") or ""
         key = str(key).strip()
-        # ids["with_pdb"] is ids["bare"] + ".pdb", so this one test covers a
-        # key written either way.
+        # ids["with_pdb"] is ids["bare"] + ".pdb", so this single test
+        # covers a key written either way.
         if key in (ids["bare"], ids["with_pdb"]):
             return entry
-    # Not found — build a helpful error message listing what IS there.
+    # No match.  Build an error message listing what is there.
     available = sorted(
         str(e.get("design") or e.get("name") or "?") for e in designs
     )
@@ -128,20 +127,18 @@ def find_design_entry(metrics, design_id):
 
 
 def derive_positional_indices(entry):
-    """Return the list of 0-based positional indices corresponding
-    to the design region of `entry`, by intersecting
-    per_design_design_residues with receptor_position_order.
+    """Return the design region of `entry` as 0-based positional
+    indices, sorted ascending.
 
-    This is the exact transform from the user's notes on
-    rfdiffusion_metrics.json:
+    The transform intersects per_design_design_residues with
+    receptor_position_order:
 
         design_region_indices = [
             i for i, rn in enumerate(entry["receptor_position_order"])
             if rn in set(entry["per_design_design_residues"])
         ]
 
-    Returns indices (0-based) sorted ascending.  Raises ValueError
-    if either field is missing or empty.
+    Raises ValueError if either field is missing or empty.
     """
     design_residues = entry.get("per_design_design_residues")
     position_order = entry.get("receptor_position_order")
@@ -169,10 +166,9 @@ def derive_positional_indices(entry):
         i for i, rn in enumerate(position_order) if rn in design_set
     ]
 
-    # Sanity: every synthetic resnum in design_residues should be
-    # present in position_order.  If any are missing, the two lists
-    # are describing different atom walks and the derivation is
-    # suspect — fail loudly.
+    # Every synthetic resnum in design_residues must appear in
+    # position_order.  If any is missing, the two lists describe
+    # different atom walks, so the derivation cannot be trusted.
     found_resnums = {position_order[i] for i in indices}
     missing = design_set - found_resnums
     if missing:
@@ -188,20 +184,20 @@ def derive_positional_indices(entry):
 
 
 def cross_check_with_plan(plan_path, design_indices_0based):
-    """Cross-check the derived design region against the
-    `true_interface_idx` field in `plan.json`.  Reports whether every
-    residue in true_interface_idx is inside the derived design region
-    (which it MUST be on a receptor-resurfacing design — the true
-    interface is a subset of the design region by construction).
+    """Compare the derived design region against `true_interface_idx`
+    in `plan.json`.
 
-    Prints a warning if the true interface is not a subset, which
-    would indicate either a coordinate-system mismatch (bug in this
-    script) or a genuinely non-receptor-resurfacing design where the
-    true interface extends outside the de novo block (legal but
-    unusual — worth surfacing to the user).
+    On a receptor-resurfacing design every residue in
+    true_interface_idx must sit inside the design region, because the
+    true interface is a subset of it by construction.  A failure has
+    one of two causes.  Either this script has a coordinate-system
+    mismatch, or the design is not receptor-resurfacing and its true
+    interface runs outside the de novo block.  The second case is
+    legal but unusual, so it is worth showing the user.
 
-    Returns True if the check passes, False otherwise.  Does not
-    raise — cross-check is advisory, not gating.
+    Returns True if the check passes and False if it does not.  It
+    never raises, because the cross-check is advisory and does not
+    gate the output.
     """
     plan_path = Path(plan_path)
     if not plan_path.exists():
@@ -243,9 +239,11 @@ def cross_check_with_plan(plan_path, design_indices_0based):
 
 
 def format_output(indices_1based, metrics_path, design_id, ranges):
-    """Build the output file contents.  `ranges=True` collapses
-    contiguous runs into ranges ("30-78"), False writes a plain
-    comma list."""
+    """Build the contents of the output file.
+
+    With `ranges=True` contiguous runs collapse into ranges such as
+    "30-78".  With False the body is a plain comma-separated list.
+    """
     header_lines = [
         f"# derived from {metrics_path}",
         f"# design: {design_id}",
@@ -258,7 +256,8 @@ def format_output(indices_1based, metrics_path, design_id, ranges):
     if not ranges:
         body = ",".join(str(p) for p in indices_1based)
     else:
-        # Collapse contiguous runs: [30,31,32,35,36,37] -> "30-32,35-37"
+        # Collapse contiguous runs, so [30,31,32,35,36,37] becomes
+        # "30-32,35-37".
         out_parts = []
         if indices_1based:
             start = indices_1based[0]
@@ -332,15 +331,16 @@ def main():
         return 2
 
     if not indices_0based:  # pragma: no cover - unreachable today
-        # derive_positional_indices raises on an empty design region, on an
-        # empty position order, and on any residue missing from that order,
-        # so an empty result would have raised already. Kept because those
-        # are invariants in another function rather than in this one.
+        # derive_positional_indices already raises on an empty design
+        # region, an empty position order, and any residue missing from
+        # that order, so an empty result cannot reach here.  The guard
+        # stays because those invariants live in that function, not
+        # this one.
         print("ERROR: derivation produced an empty index list",
               file=sys.stderr)
         return 2
 
-    # Print a summary
+    # Summarise what was derived, for the stderr log.
     indices_1based = [i + 1 for i in indices_0based]
     n = len(indices_1based)
     lo, hi = indices_1based[0], indices_1based[-1]
@@ -358,13 +358,13 @@ def main():
           f"{'contiguous' if contiguous else 'with gaps'})",
           file=sys.stderr)
 
-    # Cross-check if asked
+    # Run the optional cross-check.
     if args.cross_check_plan is not None:
         cross_check_with_plan(
             args.cross_check_plan, indices_0based
         )
 
-    # Write output
+    # Write the output file.
     text = format_output(
         indices_1based,
         args.metrics_json,

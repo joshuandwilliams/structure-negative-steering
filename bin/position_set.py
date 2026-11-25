@@ -2,18 +2,27 @@
 position_set.py
 ---------------
 PositionSet — an immutable set of receptor residue positions, tagged
-with the numbering frame the integers refer to.  Per Phase 4 spec §2.3.
+with the numbering frame the integers refer to.
 
-Three frames in use across the codebase:
+A "frame" is the numbering scheme the integers are counted in.  Three
+frames are in use across the codebase:
 - ``native``     : input PDB's residue numbers (may have gaps).
 - ``designed``   : RFDiffusion's 1-based contiguous renumbering.
 - ``prediction`` : Boltz / AF3's 1-based per-chain numbering.  For
-                    the receptor chain this matches the designed frame
-                    (the receptor PDB went straight into Boltz).
+                    the receptor chain this matches the designed frame,
+                    because the receptor PDB went straight into Boltz.
+
+**All three frames count from 1.**  A PositionSet never holds 0-based
+indices.  This matters because ``derive_true_interface.py`` writes
+0-based positional indices into the receptor chain, while
+``derive_design_region.py`` writes 1-based ones.  Any value crossing
+that boundary needs a +1 or -1 shift, and getting it wrong is the
+off-by-one risk that runs through everything downstream.  Convert to
+1-based before building a PositionSet.
 
 Cross-frame operations raise.  Conversion is explicit via
-``in_frame(target)`` and requires a `ContigSpec` reference (carried
-optionally on the PositionSet at construction).
+``in_frame(target)``.  It needs a `ContigSpec` reference, which the
+PositionSet may optionally carry from construction.
 
 Tier 1 type — depends on ContigSpec (Tier 0).
 """
@@ -30,21 +39,22 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from contig_spec import ContigSpec  # noqa: E402
 
-# Frames allowed in the codebase today.  Locked-down list rather than a
-# free-form string so typos at construction surface as a clear error
-# instead of silently disabling cross-frame checks downstream.
+# The frames allowed today.  This is a fixed list rather than a
+# free-form string so a typo at construction raises a clear error.
+# Otherwise it would silently switch off the cross-frame checks
+# downstream.
 _VALID_FRAMES = frozenset(("native", "designed", "prediction"))
 
 
 class FrameMismatchError(ValueError):
-    """Raised when set operations are attempted across different frames
-    (or different chains)."""
+    """Raised when a set operation mixes two different frames, or two
+    different chains."""
 
 
 class FrameConversionError(ValueError):
-    """Raised when in_frame() is asked to convert without the necessary
-    ContigSpec, or (with strict=True) when some positions cannot be
-    mapped to the target frame."""
+    """Raised when in_frame() is asked to convert without a ContigSpec.
+    Also raised, when strict=True, if some positions have no counterpart
+    in the target frame."""
 
 
 class PositionSet:
@@ -133,13 +143,13 @@ class PositionSet:
     ) -> "PositionSet":
         """Return a new PositionSet in the target frame.
 
-        Requires ``self.contig is not None`` (otherwise raises
-        FrameConversionError — there's no source of truth for how to
-        translate without the contig).
+        ``self.contig`` must not be None.  Without the contig there is
+        no source of truth for the translation, so the call raises
+        FrameConversionError.
 
-        Positions with no counterpart in the target frame (e.g. de novo
-        positions translating to native) are silently dropped by
-        default; pass ``strict=True`` to raise instead.
+        Some positions have no counterpart in the target frame.  A de
+        novo position has no native residue, for example.  These are
+        dropped by default.  Pass ``strict=True`` to raise instead.
         """
         if target_frame not in _VALID_FRAMES:
             raise ValueError(
@@ -185,7 +195,7 @@ class PositionSet:
         if src == "native" and dst == "designed":
             return self._contig.native_to_designed
         if src == "prediction" and dst == "designed":
-            # Identity for the receptor chain; documented as no-op
+            # Identity for the receptor chain, so effectively a no-op.
             return lambda p, c: self._contig.prediction_to_designed(p, c)
         if src == "designed" and dst == "prediction":
             return lambda p, c: p
@@ -212,8 +222,8 @@ class PositionSet:
         return sorted(self._positions)
 
     def __eq__(self, other: object) -> bool:
-        """Equal iff same positions, chain, and frame.  ContigSpec
-        reference is informational and does NOT affect equality."""
+        """Equal only if the positions, chain and frame all match.  The
+        ContigSpec reference is informational and is ignored here."""
         if not isinstance(other, PositionSet):
             return NotImplemented
         return (
@@ -241,7 +251,7 @@ class PositionSet:
 
     def to_chimerax_string(self) -> str:
         """Render as the ``/A:5,7,22`` ChimeraX selection format used
-        widely across the codebase.  Empty set → empty string."""
+        across the codebase.  An empty set gives an empty string."""
         if not self._positions:
             return ""
         joined = ",".join(str(p) for p in sorted(self._positions))
@@ -254,10 +264,11 @@ class PositionSet:
         frame: str,
         contig: Optional[ContigSpec] = None,
     ) -> "PositionSet":
-        """Parse a ChimeraX selection string.  Accepts empty string
-        (returns an empty PositionSet — chain defaults to 'A' in that
-        case; if you need a different chain for an empty set, construct
-        directly)."""
+        """Parse a ChimeraX selection string.
+
+        An empty string gives an empty PositionSet on chain 'A'.  For an
+        empty set on a different chain, build the PositionSet directly.
+        """
         s = s.strip()
         if not s:
             return cls(positions=[], chain="A", frame=frame, contig=contig)
@@ -284,10 +295,12 @@ class PositionSet:
         )
 
     def to_text_file(self, path: Path) -> None:
-        """Write integers, one per line, sorted.  Matches the format of
-        the existing ``*_design_region.txt`` / ``*_true_interface.txt``
-        files.  Chain and frame are NOT serialised — callers must
-        provide them at read time."""
+        """Write the integers sorted, one per line.  This matches the
+        ``*_design_region.txt`` and ``*_true_interface.txt`` files.
+
+        The chain and frame are not written to the file.  The caller
+        must supply both when reading it back.
+        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:

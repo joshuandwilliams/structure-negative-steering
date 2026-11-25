@@ -285,8 +285,9 @@ class TestOutcomeAndReason:
                    steered={"design_00": steered}, truth=MagicMock())
         assert run.outcome(THRESHOLDS) == "no_reversion"
         assert run.outcome_reason(THRESHOLDS) == (
-            "steering ran but no design triggered reversion under "
-            "the CL-3 majority rule")
+            "steering ran but no design had a majority of its "
+            "correctly-placed seeds contaminated, so no reversion "
+            "was triggered")
 
     def test_a_mixed_reversion_reports_its_verdict_counts(self, tmp_path):
         """One seed held its pose and one picked up new contamination. The

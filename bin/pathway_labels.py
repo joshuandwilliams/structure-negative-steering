@@ -84,10 +84,11 @@ def _locate_boltz_sidecar_pdb(prediction_pdb: Path) -> "Optional[Path]":
     # Its sidecar files live in `<experiment_root>/initial/...`,
     # not alongside prediction.pdb.
     #
-    # Multi-seed cold-start (notes12) writes additional PDBs as
-    # `<experiment_root>/initial_prediction_s<N>.pdb` (N=1, 2, ...)
-    # with sidecar files under `<experiment_root>/initial_s<N>/`.
-    # Route each to its own seed dir to avoid globbing siblings.
+    # A cold start that runs more than one seed writes an extra PDB
+    # per seed, as `<experiment_root>/initial_prediction_s<N>.pdb` for
+    # N = 1, 2 and so on.  Each one's sidecar files go under
+    # `<experiment_root>/initial_s<N>/`.  Route each PDB to its own
+    # seed directory, so the glob does not pick up its siblings.
     if prediction_pdb.name == "initial_prediction.pdb":
         experiment_root = prediction_pdb.parent
         initial_dir = experiment_root / "initial"

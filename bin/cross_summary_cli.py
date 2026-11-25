@@ -2,21 +2,19 @@
 """
 cross_summary_cli.py
 -------------------
-Phase 4 typed CLI entry point for cross-sequence summary emission.
+Typed CLI entry point for writing the cross-sequence summary.
 
-Drop-in replacement for cross_summary.py from the Nextflow
-process perspective: same CLI surface (--passing-summary-dir,
---published-runs-dir, --scored-metadata, --output), same CSV output.
+From the Nextflow process's point of view this is a drop-in
+replacement for cross_summary.py.  It takes the same flags, which are
+--passing-summary-dir, --published-runs-dir, --scored-metadata and
+--output, and it writes a byte-identical CSV.
 
-The implementation routes through ``design_cohort.DesignCohort.
-emit_cross_summary_from_dirs`` — the Phase 4 typed API — which in turn
-delegates to the long-standing ``cross_summary.aggregate``
-function for the column-level CSV construction.  The architectural
-benefit: the typed API exposes the cohort-CSV emission as a method
-on DesignCohort, so future refactors can reach in via the type
-hierarchy without touching the Nextflow process or this CLI surface.
-
-Bit-identical CSV output relative to cross_summary.py.
+The work goes through ``DesignCohort.emit_cross_summary_from_dirs`` in
+design_cohort.py, which hands the column-level CSV construction to
+``cross_summary.aggregate``.  Routing through the typed API means
+cohort-CSV emission is a method on DesignCohort.  Later refactors can
+therefore work through the type hierarchy without changing the
+Nextflow process or this CLI.
 """
 
 from __future__ import annotations
@@ -39,7 +37,12 @@ _SEQ_NAME_RE = re.compile(r"^[A-Za-z0-9_.+\-]+$")
 def _parse_passing_summary_arg(
     arg: str, seq_name_mode: str
 ) -> Tuple[str, Path]:
-    """Parse a --passing-summary argument into (seq_name, path)."""
+    """Parse one --passing-summary argument into (seq_name, path).
+
+    An argument of the form NAME=PATH gives that name directly.
+    Otherwise the name comes from the path, either its parent
+    directory or its grandparent, as `seq_name_mode` selects.
+    """
     if "=" in arg:
         name, path_str = arg.split("=", 1)
         return name, Path(path_str)
@@ -92,10 +95,10 @@ def main() -> int:
 
     explicit_pairs: List[Tuple[str, Path]] = []
     for raw in args.passing_summary:
-        # _parse_passing_summary_arg does a str.split and a Path(), neither of
-        # which raises ValueError for any string, so this handler cannot fire
-        # today. Kept because that function's contract is a parse, and a parse
-        # is the kind of thing that grows a validation step.
+        # _parse_passing_summary_arg only does a str.split and a
+        # Path(), and neither raises ValueError for any string, so this
+        # handler cannot fire today.  It stays because that function's
+        # job is parsing, and parsers tend to gain validation.
         try:
             explicit_pairs.append(
                 _parse_passing_summary_arg(raw, args.seq_name_mode)

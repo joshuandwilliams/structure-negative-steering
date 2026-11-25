@@ -11,11 +11,11 @@ It does the two things that need Python.
    file's own directory.
 2. Prepare the engine inputs with scripts/prepare_complex_inputs.py, into <cfg_dir>/inputs/.
 
-It then WRITES, but never runs, <cfg_dir>/run/launch.sh. That script invokes the
-engine orchestrator directly with every argument already resolved. Launching is
-the host's job, because the orchestrator does its own `singularity exec --nv`
-and singularity cannot be nested. launch.sh doubles as the record of exactly
-what was run.
+It then writes, but never runs, <cfg_dir>/run/launch.sh. That script calls the
+engine orchestrator directly, with every argument already resolved. Launching
+is the host's job, because the orchestrator does its own
+`singularity exec --nv` and singularity cannot be nested. launch.sh also serves
+as the record of exactly what was run.
 
 Usage, normally via negative_steering.slurm.sh but also runnable on a Mac with
 the [experiments] extras installed:
@@ -70,6 +70,7 @@ def _resolve(cfg_dir: Path, value: str) -> Path:
 
 
 def _build_prepare_cmd(cfg: Dict[str, Any], cfg_dir: Path, inputs_dir: Path) -> List[str]:
+    """Build the prepare_complex_inputs.py command for this config."""
     cmd = [
         sys.executable, str(PREPARE),
         "--complex", str(_resolve(cfg_dir, cfg["reference_pdb"])),
@@ -104,6 +105,11 @@ def _build_prepare_cmd(cfg: Dict[str, Any], cfg_dir: Path, inputs_dir: Path) -> 
 
 
 def _build_plan_extra_args(cfg: Dict[str, Any]) -> str:
+    """Build the --plan-extra-args string for the orchestrator.
+
+    Every default lives here, so the config file only has to name the keys it
+    wants to change.
+    """
     parts = [
         f"--mode {cfg.get('negsteer_mode', 'strong')}",
         f"--max-mutations {cfg.get('negsteer_max_mutations', 6)}",
@@ -128,7 +134,7 @@ def _build_plan_extra_args(cfg: Dict[str, Any]) -> str:
 
 def _build_run_cmd(cfg: Dict[str, Any], cfg_dir: Path, inputs_dir: Path,
                    run_dir: Path, boltz_container: str) -> List[str]:
-    """The orchestrator invocation, with every path already resolved."""
+    """Build the orchestrator command, with every path already resolved."""
     return [
         "bash", str(ORCHESTRATOR),
         "--seq-name", str(cfg.get("name", cfg_dir.name)),
@@ -153,6 +159,7 @@ def _build_run_cmd(cfg: Dict[str, Any], cfg_dir: Path, inputs_dir: Path,
 
 
 def _check_inputs_present(inputs_dir: Path) -> None:
+    """Raise SystemExit if prepare did not write every expected input file."""
     missing = [f for f in INPUT_FILES if not (inputs_dir / f).is_file()]
     if missing:
         raise SystemExit(
@@ -161,6 +168,7 @@ def _check_inputs_present(inputs_dir: Path) -> None:
 
 
 def _write_launch_script(run_dir: Path, run_cmd: List[str]) -> Path:
+    """Write run/launch.sh and return its path.  The script is not run."""
     run_dir.mkdir(parents=True, exist_ok=True)
     launch = run_dir / "launch.sh"
     launch.write_text(
