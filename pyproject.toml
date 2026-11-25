@@ -96,4 +96,4 @@ skip_covered = true
 # CLIs: nothing in main.nf, modules/, scripts/ or analysis/ invokes either, and
 # neither writes a committed figure. The run stages themselves are covered on
 # the laptop tier with the Boltz call stubbed, so they are no longer the gap.
-fail_under = 98.4
+fail_under = 98.6

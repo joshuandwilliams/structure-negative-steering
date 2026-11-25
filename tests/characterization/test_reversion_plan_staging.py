@@ -533,3 +533,21 @@ def test_a_failed_prediction_leaves_a_reason_on_disk(rev, tmp_path,
     note = Path(s.doc()["entries"][0]["rev_dir"]) / "predict_error.txt"
     assert "the GPU was not there" in note.read_text()
     assert not (note.parent / "prediction.pdb").exists()
+
+
+# ── the effector template ────────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_the_effector_template_is_forwarded_to_the_staged_yaml(rev, tmp_path):
+    """Every prediction in a run pins the effector's fold with the same
+    template CIF, so a reverted prediction made without it would be folding
+    the effector afresh and would not be comparable to its steered parent."""
+    cif = tmp_path / "effector_template.cif"
+    cif.write_text("data_eff\n#\n")
+    c = design(tmp_path, "d0", "MKWVTA", muts=((3, "A", "W"),), revert=(3,))
+    out = rev.write_reversion_plan(
+        tmp_path, [c], meta(effector_template_cif=str(cif)))
+    yaml_text = Path(json.loads(out.read_text())["entries"][0]["yaml"]
+                     ).read_text()
+    assert "template" in yaml_text.lower()
+    assert cif.name in yaml_text
