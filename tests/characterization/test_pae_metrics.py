@@ -225,7 +225,6 @@ def test_ipae_is_zero_without_two_chains_or_on_a_size_mismatch(cm):
 def test_the_pass_fraction_counts_pairs_below_the_cutoff(cm):
     """This says how much of the interface ipSAE was computed over. All
     below, none below, and a known half."""
-    import numpy as np
     assert cm.compute_pae_pass_frac(_blocked(10, 10, inter=1.0),
                                     [10, 10], 10.0) == 1.0
     assert cm.compute_pae_pass_frac(_blocked(10, 10, inter=50.0),
@@ -251,7 +250,6 @@ def test_actifptm_is_restricted_to_the_interacting_set(cm):
     """A matrix where only part of the interface is under the cutoff must
     score higher than the same matrix scored over everything, because the
     non-interacting residues are excluded rather than counted as bad."""
-    import numpy as np
     m = _blocked(20, 20, intra=0.5, inter=50.0)
     m[:5, 20:25] = 1.0                  # a small, good patch
     m[20:25, :5] = 1.0
