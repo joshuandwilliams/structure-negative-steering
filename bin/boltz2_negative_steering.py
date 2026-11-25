@@ -1,42 +1,30 @@
 #!/usr/bin/env python3
 """
-boltz2_negative_steering.py
----------------------------
 Trial negative-design steering for Boltz binding-mode prediction.
 
-Three subcommands so the workflow can be split across SLURM jobs:
+Three subcommands, so the workflow can be split across SLURM jobs:
 
-    plan         Run the initial Boltz prediction, compute RMSD vs the
-                 ground truth, and (if RMSD > threshold) identify wrong
-                 interface residues and write N steered receptor FASTAs
-                 + per-design YAML inputs.  Writes plan.json describing
-                 what was produced.  Run as a single GPU job.
+    plan         Initial prediction, receptor-aligned effector RMSD vs
+                 the ground truth, then N steered receptor FASTAs,
+                 per-design YAMLs and plan.json.  One GPU job.
+    predict-one  One steered design by index (0 .. N-1).  One array
+                 task, writing a results JSON.
+    collect      Rank the per-design JSONs by receptor-aligned effector
+                 RMSD into steered_results.csv and summary.txt.  One
+                 CPU job depending on the array.
 
-    predict-one  Predict one steered design by index (0 .. N-1).  Writes
-                 a per-design results JSON.  Run as one task of a SLURM
-                 array job.
-
-    collect      Read every per-design JSON, rank by receptor-aligned
-                 effector RMSD, write steered_results.csv + summary.txt.
-                 Run as a single CPU job that depends on the array.
-
-The receptor-aligned effector RMSD machinery is inlined at the top
-of this file (Kabsch superposition + Needleman-Wunsch sequence
-alignment).  The only project-level dependency is ``contig_utils``
-(for the canonical ``THREE_TO_ONE`` amino-acid map), so the script
-must be dropped alongside ``contig_utils.py`` in the same directory.
+The RMSD machinery (Kabsch plus Needleman-Wunsch) is inlined below, so
+the only project-level dependency is ``contig_utils`` for
+``THREE_TO_ONE``.  Keep this script beside it.
 
 Negative-steering rationale
 ---------------------------
 If Boltz places the effector on the wrong surface, every receptor Cα
-within --interface-cutoff Å of any effector Cα is taken to be part of
-the *spurious* interface.  Each is mutated to a randomly chosen
-residue from {W, Y, F, R, K, E, D, P} (bulky aromatics + strong
-charges + proline) other than the wild type.  Ten such variants are
-generated (each with its own random assignment) and re-predicted.
-The hypothesis is that knocking out the wrong interface forces Boltz
-to find the correct binding site, particularly when the correct one
-is not represented in the PDB training set.
+within --interface-cutoff Å of an effector Cα counts as *spurious*
+interface.  Each is mutated away from the wild type, and ten such
+variants are re-predicted.  The hypothesis is that knocking out the
+wrong interface forces Boltz to find the correct site, which should
+matter most when that site is absent from the PDB training set.
 """
 
 from __future__ import annotations
@@ -56,25 +44,18 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from contig_utils import THREE_TO_ONE
 
-# Module-level constants.  Also redefined as local variables inside
-# _cmd_aggregate_results for historical reasons; keep the two in sync.
+# cmd_collect redefines both as locals.  Keep the copies in sync.
 RECEPTOR_INTACT_CUTOFF = 5.0   # Å Cα RMSD vs ground truth
 EFFECTOR_INTACT_CUTOFF = 5.0   # Å Cα RMSD vs ground truth
 
-# Reuse the project's Kabsch + sequence-aligned RMSD machinery.  We
-# inline a minimal version here rather than importing from the
-# pipeline's bin/ so this script has zero project dependencies and
-# can be dropped anywhere on the cluster.  The behaviour matches the
-# whole-fit `effector_rmsd` produced by
-# boltz2_verify_binding.compute_binding_rmsds — i.e. sequence-aligned
-# Kabsch on receptor Cα pairs, then apply that transform rigidly to
-# the effector and compute the receptor-aligned effector RMSD.
+# Kabsch plus sequence-aligned RMSD, inlined rather than imported from
+# the pipeline's bin/ so this script can be dropped anywhere on the
+# cluster.  Behaviour matches the whole-fit `effector_rmsd` in
+# boltz2_verify_binding.
 from collections import defaultdict  # noqa: E402
 
-# BioPython is required for sequence-aligned residue pairing (matches
-# what the rest of the pipeline does).  Boltz1 / Boltz2 containers
-# include it; if Josh runs this script outside the container the
-# error message says exactly which container to use.
+# BioPython does the sequence-aligned residue pairing.  The Boltz1 and
+# Boltz2 containers include it.
 try:
     from Bio.Align import PairwiseAligner, substitution_matrices
 except ImportError as _e:
@@ -90,8 +71,8 @@ def _read_ca_seq_by_chain(pdb_path):
     """Return {chain_id: (coords (N,3), sequence_str)}.
 
     First altloc per (chain, resnum, icode) wins, in file order, so
-    seq_index in the returned arrays matches what the rest of the
-    pipeline uses.  Mirrors boltz2_verify_binding._read_ca_seq_by_chain.
+    seq_index matches the rest of the pipeline.  Mirrors
+    boltz2_verify_binding.
     """
     coords_by_chain = defaultdict(list)
     seq_by_chain = defaultdict(list)
@@ -147,9 +128,9 @@ def _get_pairwise_aligner():
 
 
 def _seqalign_pair_indices(seq_pred, seq_ref):
-    """Return (pred_idx, ref_idx) — parallel index lists giving the
-    positions that align without a gap on either side.  Empty lists
-    if either input is empty or alignment fails."""
+    """Return (pred_idx, ref_idx), parallel lists of the positions
+    that align without a gap.  Empty if either input is empty or
+    alignment fails."""
     if not seq_pred or not seq_ref:
         return [], []
     try:
@@ -173,7 +154,7 @@ def _seqalign_pair_indices(seq_pred, seq_ref):
 
 def _kabsch_align(P, Q):
     """Kabsch superposition of P onto Q.  Returns (rmsd, R, t, n)
-    such that P_aligned = (R @ P.T).T + t."""
+    with P_aligned = (R @ P.T).T + t."""
     n = min(len(P), len(Q))
     if n == 0:
         return float("nan"), np.eye(3), np.zeros(3), 0
@@ -196,22 +177,18 @@ def _kabsch_align(P, Q):
 def compute_binding_rmsds(pred_pdb, design_pdb,
                           rec_chain="A", eff_chain="B",
                           des_rec_chain=None, des_eff_chain=None):
-    """Whole-fit receptor-aligned effector RMSD only — the gating
-    metric for this experiment.
+    """Whole-fit receptor-aligned effector RMSD, the gating metric for
+    this experiment.
 
     Receptor and effector chains are paired independently by global
-    Needleman-Wunsch sequence alignment with matchmaker defaults.
-    Receptor pairs drive a Kabsch fit; that transform is applied
-    rigidly to all aligned effector pairs and the RMSD reported is
-    the receptor-aligned effector Cα RMSD.
+    Needleman-Wunsch alignment with matchmaker defaults.  The receptor
+    pairs drive a Kabsch fit, that transform is applied rigidly to the
+    aligned effector pairs, and the reported number is the
+    receptor-aligned effector Cα RMSD.
 
-    Returns dict with keys
-        - receptor_aligned_effector_rmsd
-        - independent_receptor_rmsd
-        - independent_effector_rmsd
-    (float, or None on failure).  Matches the whole-fit value produced
-    by boltz2_verify_binding.compute_binding_rmsds but with renamed keys
-    so the metrics are self-explanatory downstream.
+    Returns receptor_aligned_effector_rmsd, independent_receptor_rmsd
+    and independent_effector_rmsd (float, or None on failure), the
+    whole-fit values from boltz2_verify_binding under clearer names.
     """
     if des_rec_chain is None:
         des_rec_chain = rec_chain
@@ -264,10 +241,6 @@ def compute_binding_rmsds(pred_pdb, design_pdb,
     pred_eff = pred_eff_coords[eff_pred_idx]
     des_eff  = des_eff_coords[eff_des_idx]
 
-    # Whole-fit receptor Kabsch, then apply rigidly to effector pairs.
-    # independent_receptor_rmsd reports the receptor's own fold quality;
-    # the transformed-effector RMSD is receptor_aligned_effector_rmsd,
-    # the gating "is the binding mode right" metric.
     rmsd_rec, R, t, _ = _kabsch_align(pred_rec, des_rec)
     if rmsd_rec == rmsd_rec:  # not NaN
         result["independent_receptor_rmsd"] = round(rmsd_rec, 3)
@@ -277,13 +250,10 @@ def compute_binding_rmsds(pred_pdb, design_pdb,
         )
         result["receptor_aligned_effector_rmsd"] = round(rmsd_eff, 3)
 
-    # Independent effector Kabsch — fit the effector to itself with no
-    # receptor involved.  This catches the case where the effector's
-    # own fold has been deformed by Boltz (e.g. because the predicted
-    # interface is sterically forcing it into a weird shape).  Used
-    # alongside independent_receptor_rmsd to diagnose "the proteins
-    # themselves are wrong" vs "they're fine but in the wrong relative
-    # orientation" failure modes.
+    # Fitting the effector to itself, with no receptor involved,
+    # catches Boltz deforming its fold.  Read alongside
+    # independent_receptor_rmsd to tell "the proteins are wrong" apart
+    # from "they are fine but wrongly oriented".
     rmsd_eff_ind, _, _, _ = _kabsch_align(pred_eff, des_eff)
     if rmsd_eff_ind == rmsd_eff_ind:
         result["independent_effector_rmsd"] = round(rmsd_eff_ind, 3)
@@ -291,13 +261,11 @@ def compute_binding_rmsds(pred_pdb, design_pdb,
     return result
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Sequence extraction from PDB (reusing project's extract_sequences.py)
-# ───────────────────────────────────────────────────────────────────────
+# ── Sequence extraction from PDB (from extract_sequences.py) ───────
 
 
 def extract_sequences_gemmi(path):
-    """Extract sequences using gemmi (preferred — handles PDB and mmCIF)."""
+    """Preferred reader, since gemmi handles PDB and mmCIF."""
     import gemmi
     st = gemmi.read_structure(path)
     st.setup_entities()
@@ -357,7 +325,7 @@ def extract_sequences_biopython(path):
 
 
 def extract_sequences(path) -> List[Dict[str, any]]:
-    """Extract chain sequences from PDB. Try gemmi first, fall back to BioPython."""
+    """Chain sequences from a PDB, via gemmi, else BioPython."""
     try:
         chains = extract_sequences_gemmi(path)
         if chains:
@@ -380,7 +348,7 @@ def extract_sequences(path) -> List[Dict[str, any]]:
 
 
 def get_chain_sequence(pdb_path: Path, chain_id: str) -> str:
-    """Extract sequence for a specific chain from a PDB file."""
+    """One chain's sequence from a PDB file."""
     chains = extract_sequences(str(pdb_path))
     chain_map = {c["id"]: c["sequence"] for c in chains}
 
@@ -394,44 +362,30 @@ def get_chain_sequence(pdb_path: Path, chain_id: str) -> str:
     return chain_map[chain_id]
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Negative-steering modes
-# ───────────────────────────────────────────────────────────────────────
-# Four sub-experiments to compare:
+# ── Negative-steering modes ────────────────────────────────────────
+# Four sub-experiments to compare.
 #
-# strong  — Bulky aromatics + strong charges + proline.  Aggressive
-#           but routinely deforms the receptor; included as the
-#           original method baseline.
-#
-# mild    — Charge/H-bond disruption only (D/E/K/R).  Same volume
-#           envelope as the typical wild-type residue, no aromatic
-#           steric insults, no backbone kinks.  Aim is to break the
-#           electrostatic and H-bond network at the wrong interface
-#           without misfolding the receptor.
-#
-# conservative — Volume-preserving chemistry flips.  Each wt residue
-#           has exactly one designated mutant, chosen to swap polar
-#           ↔ non-polar or +ve ↔ -ve charge while keeping the side
-#           chain volume close.  Deterministic per residue, so the
-#           only diversity across designs comes from candidate-pool
-#           sampling — running this mode with pool == max_mutations
-#           gives N identical designs (warned about in cmd_plan).
-#
-# alanine — Classical alanine scanning: every selected residue → A
-#           (or → S if it's already A).  Minimal volume, no charge,
-#           no aromatics.  The standard mutagenesis interpretation
-#           tool — best at telling you which contacts are load-bearing
+# strong  — Bulky aromatics, strong charges and proline.  Aggressive,
+#           and it routinely deforms the receptor.  The original
+#           method's baseline.
+# mild    — Charge and H-bond disruption only (D/E/K/R), in a
+#           wild-type volume envelope, so it breaks the interface
+#           network without misfolding the receptor.
+# conservative — Volume-preserving chemistry flips, one mutant per
+#           wild-type residue (table below).  Deterministic, so with
+#           pool == max_mutations it gives N identical designs.
+# alanine — Classical alanine scanning, every selected residue to A,
+#           or to S when already A.  Finds the load-bearing contacts
 #           without disturbing the fold.
 STEERING_SETS = {
     "strong": list("WYFRKEDP"),
     "mild":   list("DEKR"),
 }
 
-# Conservative substitution table.  Volume-matched chemistry flip
-# for every standard amino acid.  Used by mode == "conservative".
-# Sources of inspiration: classic Dayhoff substitution patterns,
-# alanine-scanning best practice.  The goal at every entry is
-# "smallest geometric change that flips the biochemistry".
+# One volume-matched chemistry flip per standard amino acid, from
+# classic Dayhoff substitution patterns and alanine-scanning practice.
+# Every entry aims for the smallest geometric change that flips the
+# biochemistry.
 CONSERVATIVE_SUBSTITUTIONS = {
     "A": "S",  # tiny hydrophobic → tiny polar
     "V": "T",  # branched β hydrophobic → branched β polar
@@ -455,23 +409,19 @@ CONSERVATIVE_SUBSTITUTIONS = {
     "P": "A",  # break the kink
 }
 
-# Boltz prediction chain IDs are always A/B regardless of what the
-# ground truth happens to use.  This decouples the YAML we hand to
-# Boltz from the user-supplied truth chain IDs and means we don't
-# have to trust Boltz to preserve arbitrary single-letter labels in
-# the output PDB.  The translation only happens when we call back
-# into compute_binding_rmsds (which already supports cross-mapping
-# via des_rec_chain / des_eff_chain).
+# Boltz prediction chain IDs are always A/B, whatever the ground truth
+# uses, so the YAML stays independent of the truth chain IDs and we
+# never rely on Boltz to preserve arbitrary labels.  The translation
+# happens only in the compute_binding_rmsds call, which cross-maps via
+# des_rec_chain / des_eff_chain.
 PRED_REC_CHAIN = "A"
 PRED_EFF_CHAIN = "B"
 
 
-# ───────────────────────────────────────────────────────────────────────
-# I/O helpers
-# ───────────────────────────────────────────────────────────────────────
+# ── I/O helpers ────────────────────────────────────────────────────
 def write_single_seq_a3m(out_path: Path, header: str, seq: str) -> None:
-    """Single-sequence A3M — Boltz still expects the file to exist when
-    an `msa:` field is given in the YAML."""
+    """Single-sequence A3M.  Boltz expects the file to exist whenever
+    the YAML gives an `msa:` field."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         f.write(f">{header}\n{seq}\n")
@@ -483,52 +433,35 @@ def extract_effector_template_cif(
     pred_eff_chain: str,
     out_path: Path,
 ) -> Path:
-    """Extract just the effector chain from the ground-truth complex
-    and write it as a single-chain mmCIF, relabelled to the prediction
-    chain ID.
+    """Extract the effector chain from the ground-truth complex as a
+    single-chain mmCIF, relabelled to the prediction chain ID.
 
-    The effector tends to be predicted poorly when handed to Boltz
-    sequence-only — it's frequently the smaller / less-conserved /
-    less-PDB-represented partner.  Since the effector is *fixed* in
-    this experiment (we never mutate it, only the receptor), pinning
-    its fold via a structural template is fair game and shouldn't
-    bias which surface Boltz picks for the receptor.
+    Boltz predicts the effector poorly from sequence alone.  Only the
+    receptor is ever mutated here, so the template pins the effector's
+    fold without biasing which surface Boltz picks for the receptor.
 
-    Why mmCIF and not PDB: Boltz1/2 and AF3 both expect mmCIF
-    templates.  Boltz uses chain label_asym_id to match against the
-    YAML's template_id field; AF3 reads label_seq_id, _entity_poly
-    and _entity_poly_seq for residue numbering and template indexing.
-    We relabel the chain to pred_eff_chain so the template/YAML
-    mapping is unambiguous regardless of what the ground truth
-    happens to call its effector.
+    mmCIF because Boltz1/2 and AF3 both expect mmCIF templates.  Boltz
+    matches chain label_asym_id against the YAML's template_id field,
+    and relabelling to pred_eff_chain makes that unambiguous whatever
+    the ground truth calls its effector.
 
-    Implementation notes
-    --------------------
-    The CIF must satisfy AF3's strict mmCIF parser, which requires
-    THREE pieces of polymer-sequence metadata that gemmi will not
-    populate from a PDB input on its own:
+    AF3 needs three fields for residue numbering and template
+    indexing, and gemmi will not populate them from a PDB input:
 
       - _entity_poly.pdbx_seq_one_letter_code  (the chain sequence)
       - _entity_poly_seq                       (one row per residue)
       - _atom_site.label_seq_id                (integer per atom)
 
-    setup_entities() is sufficient to identify a chain as a polymer
-    of polypeptide(L) type, but it does NOT populate Entity.full_sequence
-    or Residue.label_seq when reading from PDB (PDB format does not
-    carry these fields).  Without them the CIF writer emits '.' /
-    '?' placeholders and AF3 fails with
+    setup_entities() identifies the chain as a polypeptide(L) polymer,
+    but from PDB it leaves Entity.full_sequence and Residue.label_seq
+    unset, because PDB format carries neither.  The CIF writer then
+    emits '.' and '?' placeholders and AF3 fails with
         ValueError: invalid literal for int() with base 10: '.'
-    deep inside its template featuriser.
 
-    The fix below:
-      1. Reads the source structure and prunes every chain except the
-         effector (preserves gemmi's internal entity bookkeeping).
-      2. Renames the surviving chain to pred_eff_chain.
-      3. Calls setup_entities() to build the polymer Entity object.
-      4. Explicitly populates Entity.full_sequence and Residue.label_seq.
-      5. Validates the written CIF carries all three required fields
-         before returning — raising rather than shipping a malformed
-         file that breaks downstream after a 30-minute GPU job.
+    So the code prunes every chain but the effector, preserving gemmi's
+    entity bookkeeping, renames the survivor, calls setup_entities(),
+    sets those two fields by hand and validates all three in the
+    written CIF.
     """
     import gemmi
     st = gemmi.read_structure(str(ground_truth_pdb))
@@ -540,22 +473,17 @@ def extract_effector_template_cif(
             f"{ground_truth_pdb}; chains present: {sorted(chain_names)}"
         )
 
-    # Prune every chain except the effector, in every model
     for model in st:
         for cname in [c.name for c in model if c.name != truth_eff_chain]:
             model.remove_chain(cname)
 
-    # Strip waters from the surviving effector chain.  Crystallographic
-    # waters share the chain ID with the protein in many PDBs (e.g.
-    # AF3-output complexes carry chain B = effector + waters).  AF3's
-    # mmCIF parser tolerates label_seq_id='.' for HETATM rows in
-    # principle, but mixing polymer + non-polymer rows in a single
-    # entity confuses the template featuriser.  And we don't want
-    # crystal waters in the template anyway — the template's job is to
-    # lock the effector fold, not to model bound solvent.
+    # Many PDBs give crystallographic waters the protein's chain ID,
+    # for example AF3-output complexes where chain B holds effector
+    # plus waters.  AF3 tolerates label_seq_id='.' on HETATM rows, but
+    # mixing polymer and non-polymer rows in one entity confuses its
+    # template featuriser.
     st.remove_waters()
 
-    # Rename surviving chain to the prediction chain ID
     if pred_eff_chain != truth_eff_chain:
         for model in st:
             for chain in model:
@@ -564,14 +492,8 @@ def extract_effector_template_cif(
 
     st.name = ground_truth_pdb.stem + "_effector_template"
 
-    # setup_entities() builds the polymer Entity but does not
-    # populate the polymer-sequence metadata (PDB has no such field).
     st.setup_entities()
 
-    # Populate the two fields the CIF writer needs:
-    #   Entity.full_sequence  → drives _entity_poly_seq + the
-    #                            one-letter code in _entity_poly
-    #   Residue.label_seq     → drives _atom_site.label_seq_id
     for model in st:
         for chain in model:
             polymer = chain.get_polymer()
@@ -586,25 +508,18 @@ def extract_effector_template_cif(
             for i, r in enumerate(polymer, start=1):
                 r.label_seq = i
 
-    # AF3's templates.py:get_polymer_features requires the template
-    # structure to carry a release date — it raises
-    # `ValueError: The structure must have a release date.` otherwise.
-    # AF3 reads the date from `_pdbx_audit_revision_history.revision_date`
-    # (see alphafold3/structure/mmcif.py:get_release_date — it returns
-    # the minimum of all values under that key).  Real PDB-derived
-    # mmCIFs always carry this; synthetic CIFs from coordinate-only
-    # PDBs do not.
+    # AF3's templates.py:get_polymer_features raises
+    # `ValueError: The structure must have a release date.` without
+    # one.  It reads the minimum of all values under
+    # `_pdbx_audit_revision_history.revision_date` (see
+    # alphafold3/structure/mmcif.py:get_release_date).  PDB-derived
+    # mmCIFs always carry it, coordinate-only PDBs do not.
     #
-    # The block must be part of the CIF document (so the parser sees
-    # it as a known column), not appended after the document is
-    # written — gemmi's writer ends each block formally and a raw
-    # text append lands outside the parser's view.  Use init_mmcif_loop
-    # to add a proper loop_ inside the document.
-    #
-    # The actual date value is irrelevant for our use case — AF3 isn't
-    # date-filtering (only one template, always used).  Use a fixed
-    # historic date.  Also set deposition date via st.info as a
-    # bonus / belt-and-braces field.
+    # init_mmcif_loop puts the loop_ inside the CIF document, where it
+    # has to be.  Raw text appended after the document is written lands
+    # outside the parser's view, because gemmi's writer closes each
+    # block.  The date value does not matter, because AF3 is not
+    # date-filtering here (one template, always used).
     st.info["_pdbx_database_status.recvd_initial_deposition_date"] = "2024-01-01"
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -621,9 +536,8 @@ def extract_effector_template_cif(
     loop.add_row(["1", "'Structure model'", "1", "0", "2024-01-01"])
     doc.write_file(str(out_path))
 
-    # Strict validation — fail at <100 ms here rather than 30 min
-    # into an AF3 GPU job.  Catches any future gemmi behaviour change
-    # that silently regresses any of the required fields.
+    # Validating here costs under 100 ms instead of 30 minutes into an
+    # AF3 GPU job.
     text = out_path.read_text()
 
     if "_entity_poly_seq.entity_id" not in text:
@@ -640,11 +554,10 @@ def extract_effector_template_cif(
             f"`ValueError: The structure must have a release date.`"
         )
 
-    # Parser-level check: AF3 looks the field up via its mmCIF parser,
-    # not via raw text search.  Re-parse the file with gemmi (same
-    # parser family AF3 uses) and confirm the field is discoverable
-    # under its full key.  Catches the case where the field is in the
-    # file but lands outside the data block the parser reads.
+    # AF3 looks the field up through its mmCIF parser, not by searching
+    # raw text, so re-parse with gemmi and confirm it is findable under
+    # its full key.  This catches a field outside the data block the
+    # parser reads.
     try:
         check_doc = gemmi.cif.read(str(out_path))
         check_block = check_doc[0]
@@ -710,21 +623,14 @@ def write_boltz_yaml(
 ) -> Path:
     """Minimal Boltz2 YAML: two protein chains, single-seq A3Ms.
 
-    If `effector_template_cif` is given, the effector chain gets a
-    structural template from that CIF, with `force: true` and a tight
-    `threshold` so the effector fold is locked rather than treated as
-    a soft suggestion.  The template is NOT applied to the receptor —
-    we want Boltz to pick a binding site for the receptor unaided,
-    just with a well-folded effector to bind to.
+    With `effector_template_cif`, the effector chain gets a structural
+    template from that CIF, with `force: true` and a tight `threshold`
+    so the fold is locked rather than a soft suggestion.  It is never
+    applied to the receptor.  The syntax matches boltz2_prepare.py,
+    with chain_id and template_id as bare strings, not lists.
 
-    The template syntax matches what boltz2_prepare.py in the rest of
-    the pipeline writes: nested inside the protein chain definition,
-    with chain_id and template_id as bare strings (NOT bracketed
-    lists), and the force/threshold pair gating the steering.
-
-    If `constraints_block` is given (pre-rendered YAML lines, see
-    ``build_benchmark_style_constraints_block``), it is appended as a
-    top-level ``constraints:`` key.
+    `constraints_block` is appended as a top-level ``constraints:``
+    key, pre-rendered by build_benchmark_style_constraints_block.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -747,9 +653,8 @@ def write_boltz_yaml(
     ]
 
     if effector_template_cif is not None:
-        # Templates block is nested INSIDE the effector chain
-        # definition (under "  - protein:"), not at the YAML root.
-        # Indent matches the chain's id/sequence/msa fields.
+        # This block nests INSIDE the effector chain definition,
+        # under "  - protein:", not at the YAML root.
         yaml_lines.extend([
             "      templates:",
             f"        - cif: {effector_template_cif.resolve()}",
@@ -760,8 +665,8 @@ def write_boltz_yaml(
         ])
 
     if constraints_block:
-        # Top-level key, sibling of "sequences:" — matches how the
-        # benchmarking repo appends constraints.yaml to its input.yaml.
+        # Top-level key, sibling of "sequences:", as the benchmarking
+        # repo appends constraints.yaml to input.yaml.
         yaml_lines.append("constraints:")
         yaml_lines.extend(constraints_block)
 
@@ -771,9 +676,7 @@ def write_boltz_yaml(
     return yaml_path
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Boltz invocation
-# ───────────────────────────────────────────────────────────────────────
+# ── Boltz invocation ───────────────────────────────────────────────
 def run_boltz(
     yaml_path: Path,
     out_dir: Path,
@@ -783,19 +686,16 @@ def run_boltz(
     seed: int,
     no_kernels: bool,
 ) -> Path:
-    """Run Boltz on a single YAML and return the path to the predicted
-    PDB.
+    """Run Boltz on a single YAML and return the predicted PDB path.
 
-    Invokes Boltz with no --model flag, which selects the container's
-    default — Boltz2 in the benchmark image, matching the rest of the
-    pipeline.  --use_potentials is on so the effector template's
-    `force: true` is actually enforced.
+    No --model flag, so Boltz uses the container's default, Boltz2 in
+    the benchmark image.  --use_potentials is on so the effector
+    template's `force: true` is enforced.
 
-    If we're already inside a Singularity container (detected via
-    SINGULARITY_NAME / SINGULARITY_CONTAINER), call boltz directly —
-    nested singularity exec calls are not supported.  Otherwise wrap
-    the call in singularity exec --nv ... to match the rest of the
-    pipeline.
+    Inside a Singularity container, detected via SINGULARITY_NAME or
+    SINGULARITY_CONTAINER, boltz is called directly, because nested
+    singularity exec calls are not supported.  Otherwise the call is
+    wrapped in singularity exec --nv.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -841,19 +741,13 @@ def run_boltz(
             f"Boltz prediction failed for {yaml_path} (exit {res.returncode})"
         )
 
-    # Boltz's output layout has changed across versions: it has been
-    # <out_dir>/predictions/<yaml_stem>/, <out_dir>/boltz_results_<stem>/,
-    # and various nested arrangements.  Rather than tracking all of them
-    # we just recursively glob the entire out_dir for *.pdb — we created
-    # this directory and it was empty before the run, so anything in it
-    # came from Boltz.  Filter out the input YAML's stem if Boltz happens
-    # to copy it back as a PDB (it doesn't, but be defensive).
+    # Boltz's output layout has changed across versions, so glob
+    # out_dir recursively rather than tracking layouts.  We created it
+    # empty, so anything in it came from Boltz.
     all_pdbs = sorted(out_dir.rglob("*.pdb"))
-    # Drop any PDB whose path includes "msa" (defensive: some versions
-    # of Boltz cache reference structures under msa/ subdirs).
+    # Some Boltz versions cache reference structures under msa/.
     pdbs = [p for p in all_pdbs if "msa" not in p.parts]
     if not pdbs:
-        # Print Boltz's stdout/stderr and the file tree to help diagnose.
         sys.stderr.write("─── Boltz stdout ───\n")
         sys.stderr.write(res.stdout)
         sys.stderr.write("─── Boltz stderr ───\n")
@@ -865,7 +759,6 @@ def run_boltz(
             f"No PDB output found anywhere under {out_dir} after Boltz "
             f"reported success."
         )
-    # Prefer model_0 / rank_0 if present.
     pdbs.sort(key=lambda p: (
         "model_0" not in p.name and "rank_0" not in p.name,
         p.name,
@@ -873,9 +766,7 @@ def run_boltz(
     return pdbs[0]
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Interface residue identification
-# ───────────────────────────────────────────────────────────────────────
+# ── Interface residue identification ───────────────────────────────
 @dataclass
 class CAEntry:
     chain: str
@@ -887,19 +778,17 @@ class CAEntry:
 
 
 def read_ca_atoms(pdb_path: Path) -> List[CAEntry]:
-    """Single-pass Cα reader.  First altloc per residue wins; seq_index
-    is per-chain file order, which matches what Boltz emits.
+    """Single-pass Cα reader.  The first altloc per residue wins, and
+    seq_index is per-chain file order, matching what Boltz emits.
 
-    See also ``rfdiffusion_filter.read_ca_atoms`` — same name, different
-    shape: that one returns plain coord dicts and a chain= filter.  This
-    one is the structurally-correct reader for arbitrary PDBs (altlocs,
-    insertion codes).
+    The dedup key includes the insertion code (PDB column 26), because
+    residues 100, 100A and 100B are distinct and each needs its own
+    seq_index.  wwPDB structures use insertion codes routinely, in
+    antibody loops and kinase activation segments.
 
-    Insertion codes (PDB column 26) are part of the residue identity:
-    residues 100, 100A, 100B are three distinct residues and must each
-    get their own seq_index.  Reference PDBs from the wwPDB routinely
-    use insertion codes (antibody loops, kinase activation segments),
-    so the dedup key includes them.
+    ``rfdiffusion_filter.read_ca_atoms``, in another repository, shares
+    the name but returns plain coordinate dicts and takes a chain=
+    filter.  This one handles altlocs and insertion codes.
     """
     entries: List[CAEntry] = []
     seen = set()
@@ -939,32 +828,32 @@ def read_ca_atoms(pdb_path: Path) -> List[CAEntry]:
 
 
 def _read_ca_seq_from_chain(pdb_path: Path, chain_id: str) -> str:
-    """Read just the receptor's Cα one-letter sequence in file order, for
-    use as the safety check that ground-truth, wild-type prediction, and
-    steered prediction are all describing residues at the same indices."""
+    """Read the receptor's Cα one-letter sequence in file order.  A
+    safety check that ground truth, wild-type prediction and steered
+    prediction agree residue for residue."""
     return "".join(a.one for a in read_ca_atoms(pdb_path) if a.chain == chain_id)
 
 
 @dataclass
 class ResidueAtoms:
-    """All heavy atoms for one residue, plus enough metadata to map back
-    into the per-chain seq_index space used by everything else."""
+    """One residue's heavy atoms, plus the metadata to map back into
+    the per-chain seq_index space everything else uses."""
     chain: str
     seq_index: int            # 0-based position within its chain
-    resnum: int               # PDB residue number (for human-readable output)
-    resname: str              # three-letter
-    one: str                  # one-letter
-    atoms: Dict[str, np.ndarray]   # name -> xyz, e.g. {"CA": ..., "CB": ...}
+    resnum: int               # PDB residue number, for readable output
+    resname: str
+    one: str
+    atoms: Dict[str, np.ndarray]   # atom name -> xyz
 
 
 def read_residue_heavy_atoms(pdb_path: Path) -> List[ResidueAtoms]:
-    """Read every residue with all its heavy (non-H) atoms.  Per-chain
-    file order matches read_ca_atoms exactly, so seq_index values are
-    interchangeable between the two readers — find_contact_residues_heavy
-    can return seq_indices that line up directly with the protected-set
-    indices computed via the Cα reader.
+    """Read every residue with all its heavy (non-hydrogen) atoms.
 
-    Skips altloc B/C/... (keeps only blank or "A").  Skips hydrogens.
+    Per-chain file order matches read_ca_atoms, so seq_index values
+    are interchangeable between the two readers.  That is what lets
+    find_contact_residues_heavy return seq_indices lining up with the
+    protected-set indices from the Cα reader.  Keeps only altloc blank
+    or "A".
     """
     by_key: Dict[Tuple[str, int, str], ResidueAtoms] = {}
     chain_counters: Dict[str, int] = {}
@@ -976,9 +865,7 @@ def read_residue_heavy_atoms(pdb_path: Path) -> List[ResidueAtoms]:
                 continue
             name = line[12:16].strip()
             element = line[76:78].strip().upper() if len(line) >= 78 else ""
-            # Drop hydrogens.  Use the element column when present;
-            # otherwise fall back to the leading character of the
-            # atom name (PDB convention: H atoms start with H).
+            # Drop hydrogens, by element column or atom-name prefix.
             if element == "H":
                 continue
             if not element and (name.startswith("H") or
@@ -1029,31 +916,29 @@ def find_contact_residues_heavy(
 ) -> List[Tuple[int, float]]:
     """Closest-heavy-atom contact detection.
 
-    See also ``compute_metrics.find_contact_residues_heavy`` — a second
-    implementation with an identical signature, used by
-    ``derive_input_design_region.py``.  Both now do icode-aware
-    bucketing and produce the same (per-chain 0-based positional
-    index, distance) pairs; this copy additionally sorts by distance
-    ascending and uses ``read_residue_heavy_atoms`` (which atom-keys
-    each residue, useful for the per-residue weighting calls
-    downstream of contamination detection).  Future refactor: collapse
-    both behind a shared pdb_atom_io helper.
+    Returns (receptor_seq_index, min_distance) for every receptor
+    residue whose closest heavy atom is within `cutoff` Å of any
+    effector heavy atom, sorted ascending, so callers can take the top
+    N strongest contacts.
 
-    Returns a list of (receptor_seq_index, min_distance) for every
-    receptor residue whose closest heavy atom is within `cutoff` Å of
-    any effector heavy atom.  Sorted by distance ascending so callers
-    can take the top N to get the strongest contacts first.
-
-    Cα-Cα distance miscounts long-side-chain pairs (a Trp-Trp π-stack
-    can have its Cαs 11 Å apart while the rings are touching), so the
-    contact metric is min over all heavy atoms.  4.5 Å is the literature
-    standard for "in contact".
+    Cα-Cα distance miscounts long-side-chain pairs.  A Trp-Trp π-stack
+    can have its Cαs 11 Å apart while the rings touch, so the metric
+    is the minimum over heavy atoms.  4.5 Å is the literature standard
+    for "in contact".
 
     `expected_rec_seq` is checked against the receptor Cα sequence in
-    the file (same safety net as find_interface_residues used) so any
-    drift between ground-truth, wild-type prediction, and steered
-    prediction is caught at the source rather than producing wrong
-    indices that look fine.
+    the file, so drift between ground truth, wild-type prediction and
+    steered prediction is caught at source rather than silently giving
+    wrong indices.
+
+    ``compute_metrics.find_contact_residues_heavy``, used by
+    ``scripts/prepare_complex_inputs.py``, is a second implementation
+    with the same signature, the same icode-aware bucketing and the
+    same (per-chain 0-based index, distance) pairs.  This copy also
+    sorts by distance and uses ``read_residue_heavy_atoms``, whose
+    per-atom-name keying the per-residue weighting downstream of
+    contamination detection needs.  A future refactor should collapse
+    both behind one shared pdb_atom_io helper.
     """
     residues = read_residue_heavy_atoms(pdb_path)
     rec_residues = [r for r in residues if r.chain == rec_chain]
@@ -1075,8 +960,6 @@ def find_contact_residues_heavy(
                 "detection and protected-residue exclusion. Aborting."
             )
 
-    # Stack all effector heavy atoms into one (M, 3) array for vectorised
-    # distance computation per receptor residue.
     eff_xyz = np.vstack([
         np.stack(list(r.atoms.values())) for r in eff_residues
     ])
@@ -1097,16 +980,14 @@ def find_contact_residues_heavy(
     return contacts
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Benchmark-style Boltz-2 constraints (pocket + dense contact)
-# ───────────────────────────────────────────────────────────────────────
+# ── Benchmark-style Boltz-2 constraints (pocket + dense contact) ───
 # Ported from structure-prediction-benchmarking's BOLTZ2_CONSTRAINED
-# process (modules/boltz2.nf + bin/extract_constraints_boltz2.py):
-# Cα-Cα pocket + contact restraints derived once from the ground-truth
-# complex, steering every Boltz-2 prediction toward the true binding
-# pose. The thresholds below are the benchmark's own fixed defaults —
-# kept fixed here too, rather than exposed as knobs, so "benchmark-
-# style steering" means the same thing in both repos.
+# process (modules/boltz2.nf and bin/extract_constraints_boltz2.py).
+# Cα-Cα pocket and contact restraints, derived once from the
+# ground-truth complex, that steer every prediction toward the true
+# binding pose.  The benchmark's own defaults, left fixed rather than
+# made knobs, so "benchmark-style steering" means one thing in both
+# repositories.
 _BOLTZ_CONSTRAINT_CONTACT_CUTOFF = 10.0
 _BOLTZ_CONSTRAINT_CONTACT_MAX = 50
 _BOLTZ_CONSTRAINT_CONTACT_TOLERANCE = 0.0
@@ -1117,9 +998,8 @@ _BOLTZ_CONSTRAINT_POCKET_MAX_DISTANCE = 8.0
 def _ca_token_map(atoms: List[CAEntry]) -> Dict[int, np.ndarray]:
     """{1-based Boltz token index: Cα xyz} for one chain's CAEntry list.
 
-    seq_index is 0-based per-chain file order (see read_ca_atoms);
-    Boltz numbers a chain's tokens 1..N in that same file order, so
-    the token index is seq_index + 1.
+    Boltz numbers a chain's tokens 1..N in the same per-chain file
+    order read_ca_atoms uses, so the token index is seq_index + 1.
     """
     return {a.seq_index + 1: a.xyz for a in atoms}
 
@@ -1186,15 +1066,15 @@ def build_benchmark_style_constraints_block(
     pred_rec_chain: str,
     pred_eff_chain: str,
 ) -> List[str]:
-    """Pocket + contact constraint lines for write_boltz_yaml's
-    `constraints_block`, derived once from the ground-truth complex —
-    same geometry and thresholds as the benchmarking repo's
+    """Pocket and contact constraint lines for write_boltz_yaml's
+    `constraints_block`, derived once from the ground-truth complex.
+    Same geometry and thresholds as the benchmarking repository's
     BOLTZ2_CONSTRAINED process.
 
-    Geometry (which residues/pairs) comes from the ground truth's own
-    chain IDs; the emitted labels use the PREDICTION chain IDs
-    (PRED_REC_CHAIN/PRED_EFF_CHAIN) since that's what the constraints
-    must reference inside the Boltz input.yaml they're appended to.
+    Which residues and pairs are chosen comes from the ground truth's
+    own chain IDs.  The emitted labels use the PREDICTION chain IDs,
+    because that is what the constraints must reference inside the
+    Boltz input.yaml they are appended to.
     """
     atoms = read_ca_atoms(ground_truth)
     rec_atoms = [a for a in atoms if a.chain == truth_rec_chain]
@@ -1241,19 +1121,16 @@ def _load_true_interface_indices(
 ) -> "Optional[List[int]]":
     """Parse pre-computed true-interface seq_idx values from either a
     comma-separated CLI string or a file.  Returns a sorted list of
-    unique 0-based indices, or None if neither source was provided.
+    unique 0-based indices, or None if neither source was given.
 
-    The two sources are mutually exclusive.  The file format is
-    permissive: lines starting with '#' are comments, and the
-    remaining tokens can be separated by commas, whitespace, or
+    The two sources are mutually exclusive.  In the file, '#' starts a
+    comment and the tokens may be separated by commas, whitespace or
     newlines interchangeably.
 
-    Every parsed index is validated against `receptor_length`; any
-    out-of-range value causes an immediate ValueError at plan time,
-    which is the only place we still know the receptor length
-    authoritatively.  This is deliberately strict — a single
-    off-by-one here would silently poison the protected set for the
-    rest of the run.
+    Every index is validated against `receptor_length` and raises at
+    plan time, the last stage that knows that length authoritatively.
+    One off-by-one would silently poison the protected set for the rest
+    of the run.
     """
     if indices_arg is None and indices_file is None:
         return None
@@ -1314,19 +1191,16 @@ def _load_design_region_indices(
     receptor_length: int,
 ) -> List[int]:
     """Parse the RFDiffusion design region from --design-region-indices-file.
-    Returns a sorted list of 0-based indices, or [] if no file was
-    supplied.
+    Returns a sorted list of 0-based indices, or [] without a file.
 
-    Supports three input forms, interchangeable within a single file:
-      - comma / whitespace / newline separated 1-based positions
+    Three input forms are interchangeable within one file:
+      - comma, whitespace or newline separated 1-based positions
       - range syntax like "33-46,74-79"
       - ChimeraX prefix like "/A:5,26,44,46" (the "/A:" is stripped)
-    Lines starting with '#' are comments; inline '#' comments also
-    trim the rest of the line.
+    '#' starts a comment.
 
-    Every parsed position is validated against `receptor_length`;
-    out-of-range values raise at plan time so a bad indices file
-    can't silently poison the protected set downstream.
+    Positions are validated against `receptor_length`, so a bad file
+    cannot silently poison the protected set downstream.
     """
     if indices_file is None:
         return []
@@ -1392,40 +1266,32 @@ def _second_shell_fallback(
     min_pool_size: int = 3,
 ) -> List[int]:
     """Build a second-shell candidate pool when the naive
-    "wrong-interface minus true-site" pool is empty.
+    "wrong interface minus protected set" pool is empty.
 
-    Strategy: for each receptor residue that is NOT in the wrong
-    interface itself and NOT in the true site, compute the minimum
-    distance from its Cα to any heavy atom of the predicted effector.
-    Keep residues whose minimum distance is at most `radius` (default
-    6 Å — close enough that a bulky side chain mutation can plausibly
-    reach the effector) and that pass the surface-exposure test.  Sort
-    by distance ascending and take the top `pool_size`.
+    `true_set` is a historical name. The only caller passes the full
+    protected set, which is the true interface union the design region,
+    so no design-region residue can leak into the pool.
 
-    If fewer than `min_pool_size` (default 3) residues survive, return
-    an empty list — better to cleanly skip_steering with a clear plan
-    reason than to fill the pool with distant residues that cannot
-    plausibly affect the effector.
+    Candidates are the receptor residues in neither the wrong interface
+    nor that excluded set, whose Cα is within `radius` of an effector
+    heavy atom (default 6 Å, close enough that a bulky side-chain
+    mutation can plausibly reach it) and which pass the
+    surface-exposure test.  The nearest `pool_size` are kept.  Fewer
+    than `min_pool_size` survivors (default 3) returns an empty list,
+    because a clean skip_steering beats a pool padded with residues
+    too far away to affect the effector.
 
-    Rationale: the original fallback ranked candidates by distance to
-    the wrong-interface residues themselves, which could pick up
-    residues that were near the wrong interface in receptor space but
-    nowhere near the effector — "miles away" from any side chain that
-    could actually perturb binding.  This version grounds the metric
-    in the effector geometry directly: a residue is a candidate only
-    if its Cα is close enough that mutating it to a bulky or charged
-    side chain could plausibly influence effector contacts.  On
-    complexes where the wrong and true interfaces overlap heavily
-    (e.g. 7B1I), this usually yields a very small pool (2-4 residues),
-    which is honest — the fallback can't always find enough candidates
-    to run, and in that case the cold-start should be what's scored.
+    Ranking is on effector distance, not on distance to the
+    wrong-interface residues as an earlier version did.  That could
+    pick residues near the wrong interface in receptor space but
+    nowhere near the effector, where no side chain could perturb
+    binding.  Where the wrong and true interfaces overlap heavily, as
+    in 7B1I, this gives only 2-4 residues, so the cold-start
+    prediction is what gets scored.
     """
     rec_by_idx = {r.seq_index: r for r in pred_rec_residues}
     wrong_set = set(predicted_wrong_idx)
 
-    # Collect ALL heavy atoms of the predicted effector, so each
-    # candidate receptor residue can be scored by "minimum distance
-    # from its Cα to any effector heavy atom".
     effector_coords: List[np.ndarray] = []
     for r in pred_eff_residues:
         for _, coord in r.atoms.items():
@@ -1434,7 +1300,6 @@ def _second_shell_fallback(
         return []
     effector_stack = np.stack(effector_coords, axis=0)  # (N, 3)
 
-    # Score each receptor residue by distance to the effector.
     min_dist_to_effector: Dict[int, float] = {}
     for r in pred_rec_residues:
         if r.seq_index in wrong_set:
@@ -1450,8 +1315,6 @@ def _second_shell_fallback(
         if best <= radius:
             min_dist_to_effector[r.seq_index] = best
 
-    # Apply the surface-exposure test (reuse the cache where
-    # possible; compute fresh where not).
     candidates: List[Tuple[float, int]] = []
     for seq_idx, dist in min_dist_to_effector.items():
         if seq_idx in surface_flags_cache:
@@ -1481,23 +1344,20 @@ def _write_initial_only_csv(
     initial_ind_rec: float,
     initial_ind_eff: float,
 ) -> None:
-    """Write a `steered_results.csv` with only the cold-start baseline row.
+    """Write a `steered_results.csv` holding only the cold-start
+    baseline row.
 
-    Used at every skip_steering return site so that downstream tools
-    (aggregate, compute-final-metrics, compare_versions) always find a
-    CSV with at least one row per experiment workdir — the cold-start
-    prediction — rather than an empty file that silently produces
-    zero rows in the comparison table.
+    Called at every skip_steering return site, so negsteer_aggregate's
+    aggregate and compute-final-metrics subcommands always find at
+    least one row per experiment workdir.  An empty file would give
+    zero rows in the comparison table with no error.
 
-    Interface-analysis fields (wrong_jaccard, n_shared_wrong,
-    true_jaccard, n_shared_true, n_design_interface_residues) are
-    included when the plan has `true_interface_idx` and
-    `initial_wrong_interface_idx`, and left blank otherwise.  The
-    interface-idx persistence has been moved to run BEFORE the
-    empty-pool skip, so the 7B1I-style case (empty candidate pool
-    after analysis) retains full metrics.  The `--skip-steering`
-    diagnostic case (line 1283) doesn't run interface analysis at
-    all, so those fields will be blank.
+    The interface-analysis fields need `true_interface_idx` and
+    `initial_wrong_interface_idx` in the plan.  cmd_plan persists both
+    BEFORE the empty-pool skip, so the 7B1I-style case, where analysis
+    runs but the pool comes out empty, keeps its metrics.  The
+    `--skip-steering` branch returns before any analysis, so there they
+    stay blank.
     """
     initial_pdb = workdir / "initial_prediction.pdb"
     initial_intact = 1 if (
@@ -1508,13 +1368,12 @@ def _write_initial_only_csv(
 
     true_idx = plan.get("true_interface_idx") or []
 
-    # Get initial_wrong_interface_idx from plan if available, else
-    # detect it from the initial prediction PDB.  The plan dict only
-    # has it when the function ran past the wrong-interface detection
-    # block (line 2200+).  Early-exit paths (--skip-steering at the
-    # very top) never populate it, so without this fallback, jaccard
-    # stays blank even when both PDBs and the truth interface are
-    # available — which is what was happening to d0_s2.
+    # Take initial_wrong_interface_idx from the plan when it is there,
+    # otherwise detect it from the initial prediction PDB.  The plan
+    # carries it only when cmd_plan reached wrong-interface detection,
+    # so early exits such as --skip-steering never populate it, and
+    # without this fallback the jaccard columns stayed blank even with
+    # both PDBs available.  That happened to d0_s2.
     initial_wrong_idx = plan.get("initial_wrong_interface_idx")
     if initial_wrong_idx is None and true_idx and initial_pdb.exists():
         try:
@@ -1536,15 +1395,13 @@ def _write_initial_only_csv(
     elif initial_wrong_idx is None:
         initial_wrong_idx = []
 
-    # Truth interface availability is the prerequisite for all jaccard
-    # math here.  When initial_wrong_idx is empty (the prediction had
-    # no detected receptor-side contacts in the design region) the
-    # jaccard is 0, NOT undefined — the helper returns 0/|true| = 0
-    # for that case.  The previous gate (and initial_wrong_idx) treated
-    # empty-wrong as "couldn't compute" and emitted blanks, which
-    # propagates as missing true_jaccard everywhere downstream
-    # (cross_summary rep_true_jaccard_median, composite
-    # score, plots).  See docs note "P0 jaccard-empty-wrong fix".
+    # A known truth interface is the prerequisite for every jaccard
+    # below.  An empty initial_wrong_idx gives jaccard 0, not
+    # undefined, since the helper returns 0 / |true|.  The old gate,
+    # `if true_idx and initial_wrong_idx`, read that as "could not
+    # compute" and wrote blanks, surfacing as a missing true_jaccard in
+    # cross_summary's rep_true_jaccard_median, in the composite score
+    # and in the plots.
     if true_idx:
         n_iface = len(initial_wrong_idx)
         n_shared_true = len(set(initial_wrong_idx) & set(true_idx))
@@ -1553,11 +1410,8 @@ def _write_initial_only_csv(
         n_shared_true_str: object = n_shared_true
         n_iface_val: object = n_iface
         true_j: object = initial_true_jaccard
-        # wrong_jaccard for the cold-start prediction against itself:
-        # if the prediction had any contacts (initial_wrong_idx
-        # non-empty) the wrong-vs-self jaccard is 1.0 trivially; if
-        # there were no contacts it's NaN (both sets empty for that
-        # comparison).
+        # The cold-start prediction against itself is trivially 1.0
+        # with any contacts, and NaN with none.
         wrong_j_val: object = (1.0 if initial_wrong_idx
                                 else float("nan"))
     else:
@@ -1614,49 +1468,27 @@ def _write_initial_multiseed_csv(
 ) -> None:
     """Write steered_results.csv with one row per cold-start seed.
 
-    Used when plan() decides to skip steering because a majority of
-    cold-start seeds were already clean (notes12 / patch b).  Each
-    row carries:
-      - design = "initial_s<seed_offset>"   (seed-distinguishing name)
-      - sequence_group = 0                  (all share one group → the
-                                             aggregator collapses them
-                                             into a single multi-seed
-                                             group with N=num_seeds)
-      - seed_index = seed_offset            (matches the steered design
-                                             convention used elsewhere)
-      - status = "initial"
-      - 0 mutations / 0 mutated contacts (true by construction:
-        we predicted the wild-type receptor sequence)
-      - true_jaccard / n_shared_true / n_design_interface_residues
-        populated when plan has true_interface_idx (same logic as
-        _write_initial_only_csv).
+    Called when cmd_plan skips steering because every cold-start seed
+    was already clean, so the wild type is a confirmed binder with
+    nothing to steer away from.  sequence_group is 0 on every row, so
+    the aggregator collapses the seeds into one multi-seed group with
+    N = num_seeds, and seed_index is seed_offset as for steered
+    designs.  The 0 mutations and 0 mutated contacts are true by
+    construction, so negsteer_aggregate._per_seed_verdict_breakdown
+    calls these rows clean_steered.  No reversion runs, so
+    _classify_outcome returns ("no_reversion", ...) and cross_summary
+    puts the row in tier A.
 
-    The downstream aggregator groups by sequence_group, so all N
-    rows here become one group.  Each row has 0 mutated contacts
-    → _per_seed_verdict_breakdown classifies them as clean_steered
-    (patch a).  No reversion runs (no contamination to revert) →
-    _classify_outcome returns ("no_reversion", ...) →
-    cross_summary places the row in tier A.
-
-    Per-seed interface metrics (P0 fix, follow-up to jaccard-empty-
-    wrong fix):  jaccard / n_shared_true / n_design_interface_residues
-    are computed PER SEED from each seed's actual prediction PDB,
-    not from the planning-phase wild-type prediction.  The previous
-    behaviour computed the metrics once outside the loop using
-    plan["initial_wrong_interface_idx"] (the wild-type prediction)
-    and then assigned the same value to every cold-start seed —
-    which was wrong for two reasons:
-      (a) different seeds give different predictions and therefore
-          different interfaces;
-      (b) when plan["initial_wrong_interface_idx"] was empty the
-          old code wrote blank metrics for every seed even when the
-          actual cold-start predictions had perfectly detectable
-          interfaces (this is what made d0_s2 lose its true_jaccard
-          despite having three valid prediction PDBs).
-    The fix: detect each seed's interface from its own prediction
-    PDB using find_contact_residues_heavy (same code path as the
-    main steered pipeline) and compute jaccard per-seed.  Failures
-    (e.g. PDB unreadable) fall back to blank for that seed only.
+    The interface metrics are computed PER SEED, by
+    find_contact_residues_heavy on each seed's own prediction PDB,
+    under the same true_interface_idx rule as _write_initial_only_csv.
+    The earlier code took them once from
+    plan["initial_wrong_interface_idx"] for every seed, which was
+    wrong twice over.  Different seeds give different interfaces, and
+    an empty plan value blanked every seed even where the predictions
+    had detectable ones.  That is what made d0_s2 lose its
+    true_jaccard despite three valid PDBs.  An unreadable PDB blanks
+    that one seed only.
     """
     true_idx = plan.get("true_interface_idx") or []
     pred_rec_chain = plan.get("pred_receptor_chain") or "A"
@@ -1677,10 +1509,8 @@ def _write_initial_multiseed_csv(
         seed_offset = s["seed_offset"]
         seed_pdb_path = s.get("pdb_path", "")
 
-        # Per-seed interface detection.  When the seed's PDB is
-        # missing (e.g. the run failed and we recorded NaN metrics)
-        # OR true_idx is empty (truth interface unknown), all
-        # interface fields stay blank for this seed.
+        # Interface fields stay blank when a seed's PDB is missing or
+        # the truth interface is unknown.
         n_iface_val: object = ""
         n_shared_true_str: object = ""
         true_j: object = ""
@@ -1697,19 +1527,13 @@ def _write_initial_multiseed_csv(
                 n_iface_val = len(seed_wrong_idx)
                 n_shared_true_str = len(set(seed_wrong_idx) & set(true_idx))
                 true_j = jaccard(seed_wrong_idx, true_idx)
-                # wrong_jaccard for a cold-start seed compared to its
-                # own predicted interface is trivially 1.0 when the
-                # interface is non-empty (the seed prediction is
-                # being compared to itself).  When empty, NaN is
-                # the honest answer (no interface to self-compare).
+                # Trivially 1.0 with any contacts, NaN with none.
                 wrong_j_val = (1.0 if seed_wrong_idx
                                else float("nan"))
             except Exception as e:
-                # Soft failure: this seed loses its interface metrics
-                # but RA/RMSD/intact fields still write.  Tolerate
-                # because find_contact_residues_heavy can raise on
-                # malformed PDBs and we don't want to abort the whole
-                # cohort row over one seed.
+                # Soft failure.  This seed keeps its RMSD and intact
+                # fields, since one malformed PDB should not abort the
+                # whole cohort row.
                 print(f"    WARN: per-seed interface detection failed "
                       f"for seed {seed_offset} "
                       f"({Path(seed_pdb_path).name}): {e}")
@@ -1757,7 +1581,7 @@ def _write_initial_multiseed_csv(
         for row in rows:
             w.writerow(row)
     print(f"Wrote {csv_path} ({len(rows)} cold-start seed rows, "
-          f"skip_steering=majority_clean)")
+          f"skip_steering=all_seeds_clean)")
 
 
 def is_surface_exposed(
@@ -1767,25 +1591,16 @@ def is_surface_exposed(
 ) -> bool:
     """Cβ-vector test for surface exposure.
 
-    Geometry:
-      - v_side = unit vector from Cα to Cβ (the direction the side
-        chain leaves the backbone)
-      - v_core = unit vector from Cα to the centroid of all OTHER
-        receptor Cαs within `neighbour_radius` Å (the direction
-        "into the local core")
-      - return True iff v_side . v_core < 0  (side chain points away
-        from the core, i.e. outward)
+    True iff the Cα→Cβ direction points away from the centroid of all
+    OTHER receptor Cαs within `neighbour_radius` Å, meaning the side
+    chain leaves the local core.  Glycine has no Cβ and counts as not
+    surface-exposed.  We do not want to mutate glycine anyway, since it
+    is structural.
 
-    Glycine has no Cβ and is treated as not surface-exposed (we don't
-    want to mutate Gly anyway — it's structural).
-
-    This is a heuristic, not a real SASA, but it's cheap and
-    composable: a residue is selected for mutation only if its side
-    chain is pointing outward at the predicted partner, which is
-    exactly the geometry we want to disrupt.  It will get confused at
-    deep concave pockets where "outward" still means "into another
-    receptor surface", so it's only applied to mutation candidates,
-    never to the protected-set definition.
+    A cheap heuristic, not a real solvent-accessible surface area.  It
+    gets confused in deep concave pockets, where "outward" can mean
+    "into another receptor surface", so it is applied to mutation
+    candidates only, never to the protected-set definition.
     """
     if "CA" not in residue.atoms or "CB" not in residue.atoms:
         return False
@@ -1809,7 +1624,7 @@ def is_surface_exposed(
             neighbour_cas.append(other.atoms["CA"])
 
     if not neighbour_cas:
-        # Isolated residue → effectively surface-exposed by default.
+        # An isolated residue counts as surface-exposed by default.
         return True
 
     centroid = np.mean(np.stack(neighbour_cas), axis=0)
@@ -1823,18 +1638,16 @@ def is_surface_exposed(
 
 
 def jaccard(a: List[int], b: List[int]) -> float:
-    """Jaccard overlap between two index sets.  1.0 means identical
-    interface, 0.0 means no shared receptor residues.  Returns NaN if
-    both sets are empty (no interface to compare)."""
+    """Jaccard overlap between two index sets.  1.0 is an identical
+    interface and 0.0 shares no receptor residues.  Two empty sets give
+    NaN, since there is no interface to compare."""
     sa, sb = set(a), set(b)
     if not sa and not sb:
         return float("nan")
     return len(sa & sb) / len(sa | sb)
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Receptor-aligned effector RMSD + receptor RMSD
-# ───────────────────────────────────────────────────────────────────────
+# ── Receptor-aligned effector RMSD + receptor RMSD ─────────────────
 def binding_rmsds(
     pred_pdb: Path,
     truth_pdb: Path,
@@ -1846,20 +1659,17 @@ def binding_rmsds(
     """Return
     (receptor_aligned_effector_rmsd, independent_receptor_rmsd, independent_effector_rmsd).
 
-    - receptor_aligned_effector_rmsd: effector Cα RMSD after rigidly
-      applying the receptor's Kabsch transform — the gating "is the
-      binding mode right" metric.
-    - independent_receptor_rmsd: receptor's own fold quality
-      (whole-fit Cα RMSD on receptor pairs).  Catches receptor
-      collapse from heavy mutation.
-    - independent_effector_rmsd: effector's own fold quality
-      (whole-fit Cα RMSD on effector pairs only, no receptor
-      involved).  Catches cases where Boltz has deformed the effector
-      itself.
+    - receptor_aligned_effector_rmsd is the effector Cα RMSD after the
+      receptor's Kabsch transform is applied rigidly.  This is the
+      gating metric, the one that answers "is the binding mode right".
+      5.0 Å is the cutoff.
+    - independent_receptor_rmsd is the receptor's own fold quality,
+      catching collapse caused by heavy mutation.
+    - independent_effector_rmsd is the effector's own fold quality,
+      with no receptor involved, catching Boltz deforming it.
 
-    The prediction and ground truth may use different chain IDs (e.g.
-    Boltz emits A/B but the reference uses A/C), so callers pass
-    both pairs explicitly.
+    Boltz emits A/B while the reference might use A/C, so callers pass
+    both chain-ID pairs explicitly.
     """
     result = compute_binding_rmsds(
         str(pred_pdb), str(truth_pdb),
@@ -1876,33 +1686,30 @@ def binding_rmsds(
     )
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Negative steering (mutation design)
-# ───────────────────────────────────────────────────────────────────────
+# ── Negative steering (mutation design) ────────────────────────────
 def pick_mutant_residue(
     wt: str,
     mode: str,
     rng: random.Random,
 ) -> str:
-    """Choose the mutant amino acid for a given wild-type residue under
-    a given steering mode.
+    """Choose the mutant amino acid for a wild-type residue under a
+    steering mode.
 
-    - strong / mild: random pick from the corresponding STEERING_SETS
-      pool, never returning the wt.
-    - conservative: deterministic lookup in CONSERVATIVE_SUBSTITUTIONS;
-      if the lookup somehow returns the wt (shouldn't happen for any
-      table entry), fall back to alanine.
-    - alanine: always A, unless wt is already A in which case S
-      (the closest "different but innocuous" residue).
+    - strong and mild pick at random from the matching STEERING_SETS
+      pool, never the wild type.
+    - conservative looks up CONSERVATIVE_SUBSTITUTIONS, falling back
+      to alanine if that returns the wild type, which no entry should.
+    - alanine returns A, except for a wild-type A, which returns S,
+      the closest innocuous alternative.
     """
     if mode in ("strong", "mild"):
         pool = STEERING_SETS[mode]
         options = [r for r in pool if r != wt]
-        if not options:
-            # wt covers the entire pool — only happens for mild on a
-            # wt that's already D/E/K/R.  Fall back to "any of the
-            # other three" by reusing the pool minus wt is empty, so
-            # use the strong pool minus wt as a backstop.
+        if not options:  # pragma: no cover - no pool is a single residue
+            # A backstop that cannot fire with the current pools. "mild"
+            # is DEKR and "strong" is WYFRKEDP, so removing one wild type
+            # always leaves at least three choices. It would only fire if
+            # a pool were narrowed to the wild type alone.
             options = [r for r in STEERING_SETS["strong"] if r != wt]
         return rng.choice(options)
 
@@ -1927,16 +1734,15 @@ def make_steered_sequence(
 ) -> Tuple[str, List[Tuple[int, str, str]]]:
     """Build one steered receptor sequence.
 
-    Sampling strategy: from `candidate_pool` (already filtered by
-    cmd_plan to be surface-exposed, non-overlapping with the true
-    site, and ordered by closest contact distance), sample
-    min(max_mutations, len(pool)) positions WITHOUT replacement.  Each
-    sampled position is mutated according to `mode`.
+    cmd_plan has already filtered `candidate_pool` to surface-exposed
+    positions outside the protected set.  We sample
+    min(max_mutations, len(pool)) of them WITHOUT replacement, then
+    mutate each according to `mode`.
 
-    If pool == max_mutations, every design hits the same positions —
-    only the residue identities differ (random modes only).  If pool
-    > max_mutations, the positions themselves vary across designs,
-    enabling single-site / few-site sampling experiments.
+    With pool == max_mutations every design hits the same positions and
+    only the residue identities differ, and only in the random modes.
+    With pool > max_mutations the positions vary too, which is what
+    makes single-site and few-site sampling experiments possible.
 
     Returns (mutated_sequence, [(1-based_pos, wt, mut), ...]).
     """
@@ -1953,15 +1759,13 @@ def make_steered_sequence(
         wt = seq_list[i]
         mut = pick_mutant_residue(wt, mode, rng)
         if mut == wt:
-            continue   # defensive: should not happen, but never silently mutate to self
+            continue   # Defensive. Should not happen. Never self-mutate.
         seq_list[i] = mut
         mutations.append((i + 1, wt, mut))  # 1-based for output
     return "".join(seq_list), mutations
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Subcommand: plan
-# ───────────────────────────────────────────────────────────────────────
+# ── Subcommand: plan ───────────────────────────────────────────────
 def cmd_plan(args: argparse.Namespace) -> int:
     workdir: Path = args.workdir
     workdir.mkdir(parents=True, exist_ok=True)
@@ -1972,7 +1776,6 @@ def cmd_plan(args: argparse.Namespace) -> int:
     print(f"  truth effector chain: {args.effector_chain}")
     print(f"  prediction chains:    {PRED_REC_CHAIN} (rec) / {PRED_EFF_CHAIN} (eff)")
 
-    # Extract sequences from the ground truth PDB
     try:
         rec_seq_truth = get_chain_sequence(args.ground_truth, args.receptor_chain)
         eff_seq_truth = get_chain_sequence(args.ground_truth, args.effector_chain)
@@ -1982,13 +1785,12 @@ def cmd_plan(args: argparse.Namespace) -> int:
         print(f"ERROR: Failed to extract sequences from {args.ground_truth}: {e}")
         return 1
 
-    # Optional sequence overrides — feed Boltz a different sequence
-    # while keeping the ground-truth-anchored RMSD/contact machinery.
-    # The override must be the same length as the truth sequence
-    # because every downstream index (true-site set, candidate pool,
-    # surface flags) is positional.  RMSD vs ground truth still works
-    # because compute_binding_rmsds uses Needleman-Wunsch — it
-    # tolerates point-substitution mismatches naturally.
+    # Optional sequence overrides feed Boltz a different sequence while
+    # the RMSD and contact machinery stays anchored to the ground
+    # truth.  The override must match the truth length, because every
+    # downstream index is positional, covering the true-site set, the
+    # candidate pool and the surface flags.  RMSD still works, because
+    # compute_binding_rmsds aligns with Needleman-Wunsch.
     def _load_seq_override(path, ref_seq, label):
         if path is None:
             return ref_seq
@@ -2022,14 +1824,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
     if len(rec_seq) < 20 or len(eff_seq) < 20:
         print("  WARNING: short sequence(s) — double-check chain IDs.")
 
-    # Extract the effector chain from the ground-truth complex and
-    # write it as a single-chain mmCIF.  This file is used as a
-    # structural template for the effector in EVERY Boltz prediction
-    # (initial + steered designs) so the effector folds correctly.
-    # The effector is fixed throughout the experiment — only the
-    # receptor sequence ever changes — so pinning the effector fold
-    # via a template is fair: it can't bias which surface Boltz
-    # picks for the receptor.
+    # The ground truth's effector chain templates the effector in
+    # EVERY prediction here, initial and steered alike.  Only the
+    # receptor sequence ever changes.  See
+    # extract_effector_template_cif.
     eff_template_path = workdir / "effector_template.cif"
     if args.effector_template:
         try:
@@ -2047,12 +1845,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
         eff_template_path = None
         print("  Effector template DISABLED (--no-effector-template)")
 
-    # Benchmark-style pocket + contact constraints (--boltz-constraints).
-    # Computed once here from the ground truth and reused verbatim for
-    # EVERY Boltz-2 prediction in this run (initial, cold-start extra
-    # seeds, every steered design) — and persisted to plan.json so later
-    # cycles (cmd_iterate_plan) and reversion validation inherit the
-    # same block instead of recomputing it.
+    # Benchmark-style constraints (--boltz-constraints), computed once
+    # from the ground truth and reused verbatim for EVERY prediction in
+    # this run, the initial one, the extra cold-start seeds and every
+    # steered design.
     constraints_block: Optional[List[str]] = None
     if args.boltz_constraints:
         try:
@@ -2064,8 +1860,6 @@ def cmd_plan(args: argparse.Namespace) -> int:
             print(f"ERROR: Benchmark-style Boltz constraints failed: {e}")
             return 1
 
-    # Write initial wild-type YAML using the canonical A/B prediction
-    # chains (NOT the user's truth chain IDs).
     init_dir = workdir / "initial"
     yaml_path = write_boltz_yaml(
         init_dir / "input",
@@ -2076,7 +1870,6 @@ def cmd_plan(args: argparse.Namespace) -> int:
     )
     print(f"  Wrote wild-type YAML: {yaml_path}")
 
-    # Run initial Boltz prediction
     print("  Running initial Boltz...")
     try:
         pred_pdb = run_boltz(
@@ -2098,22 +1891,16 @@ def cmd_plan(args: argparse.Namespace) -> int:
         print(f"ERROR: Initial prediction failed: {e}")
         return 1
 
-    # ── Multi-seed cold-start (notes12 / patch b) ────────────────────
-    # The single Boltz prediction above is seed 0.  When --num-seeds > 1
-    # we run num_seeds-1 additional cold-start predictions of the SAME
-    # wild-type receptor sequence, so that downstream aggregation has
-    # the same multi-seed signal for cold-start binders that it does
-    # for steered designs.  Without this, a sequence whose initial
-    # prediction happens to hit the right pose would be aggregated as
-    # a singleton — and singletons are filtered out by extract_passing.
+    # ── Multi-seed cold-start ────────────────────────────────────────
+    # The prediction above is seed 0.  With --num-seeds above 1, run
+    # num_seeds-1 further cold-start predictions of the SAME wild-type
+    # sequence.  Without them, a sequence whose initial prediction hits
+    # the right pose aggregates as a singleton, and extract_passing.py
+    # filters singletons out.
     #
-    # Aborting steering: if MAJORITY of cold-start seeds satisfy
-    # ra_eff <= rmsd_threshold AND have intact receptor+effector,
-    # the sequence is a confirmed cold-start binder and we skip
-    # negative steering.  Otherwise we proceed normally — the
-    # cold-start seeds are still recorded but steering goes ahead.
-    # Skip the --skip-steering branch (handled below) — that path
-    # explicitly asks for the diagnostic single prediction.
+    # The extra seeds also decide whether steering runs at all, by the
+    # policy below.  --skip-steering is excluded, because that path
+    # asks for one diagnostic prediction only.
     cold_start_seeds = [{
         "seed_offset": 0,
         "boltz_seed": args.seed,
@@ -2135,9 +1922,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
                 effector_template_cif=eff_template_path,
                 constraints_block=constraints_block,
             )
-            # boltz_seed = args.seed + extra_idx; matches the offset
-            # convention used downstream for steered designs (which
-            # use args.seed + design_idx + 1).
+            # boltz_seed = args.seed + extra_idx.  This matches the
+            # offset convention used downstream for steered designs,
+            # which use args.seed + design_idx + 1.
             extra_boltz_seed = args.seed + extra_idx
             try:
                 extra_pdb = run_boltz(
@@ -2151,9 +1938,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
                     PRED_REC_CHAIN, PRED_EFF_CHAIN,
                     args.receptor_chain, args.effector_chain,
                 )
-                # Copy into a sibling of initial_prediction.pdb so
-                # downstream tools can find each cold-start seed PDB
-                # by a predictable name.
+                # A sibling of initial_prediction.pdb, so downstream
+                # tools find each cold-start seed PDB by a predictable
+                # name.
                 kept_pdb = workdir / f"initial_prediction_s{extra_idx}.pdb"
                 shutil.copy2(extra_pdb, kept_pdb)
                 cold_start_seeds.append({
@@ -2167,9 +1954,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
                 print(f"    seed {extra_idx}: ra_eff={ra2:.3f} Å  "
                       f"ind_rec={rec2:.3f} Å  ind_eff={eff2:.3f} Å")
             except Exception as e:
-                # Tolerate per-seed failure rather than aborting the
-                # whole sequence — record an entry with NaN metrics
-                # so the aggregator sees N seeds total.
+                # Tolerate a per-seed failure rather than abort.  The
+                # NaN entry keeps the aggregator seeing N seeds.
                 print(f"    seed {extra_idx}: FAILED ({e})")
                 cold_start_seeds.append({
                     "seed_offset": extra_idx,
@@ -2180,9 +1966,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
                     "pdb_path": "",
                 })
 
-    # Decide all-clean: a seed is "clean" if its ra_eff <= threshold
-    # AND its receptor + effector are intact (matches the per-seed
-    # clean_steered logic in negsteer_aggregate._per_seed_verdict_breakdown).
+    # Clean means receptor-aligned effector RMSD at or below the
+    # threshold AND both chains intact, the per-seed clean_steered rule
+    # in negsteer_aggregate._per_seed_verdict_breakdown.
     n_clean = 0
     for s in cold_start_seeds:
         ra = s["ra_eff"]
@@ -2194,27 +1980,19 @@ def cmd_plan(args: argparse.Namespace) -> int:
                 and eff <= EFFECTOR_INTACT_CUTOFF):
             n_clean += 1
     n_total_cold = len(cold_start_seeds)
-    # All-clean policy (notes12 / chat decision): only skip steering
-    # when EVERY cold-start seed passes.  If any seed fails, run the
-    # full negative-steering pipeline — the cold-start results are
-    # then a screening artefact, not part of the candidate set.
+    # All-clean policy.  Steering is skipped only when EVERY cold-start
+    # seed passes, confirming the wild type as a cold-start binder.
+    # One failing seed runs the full pipeline, and the cold-start
+    # results are then screening artefacts, not candidates.  This is
+    # stricter than a majority rule.
     cold_start_all_clean = (n_clean == n_total_cold and n_total_cold > 0)
 
-    # ── TRUE binding-site detection (moved BEFORE early-exit paths) ───
-    # Done up-front so plan["true_interface_idx"] is populated even
-    # when --skip-steering or cold_start_all_clean triggers an early
-    # return.  Without this, the cold-start CSV writer's per-seed
-    # jaccard fix has nothing to compute against (true_idx empty)
-    # and metrics stay blank — exactly what was happening to d0_s2
-    # in the cohort: cold_start_all_clean fired, the function exited
-    # at line 2083 (in the unpatched layout) before reaching the
-    # truth-interface block, plan["true_interface_idx"] was never
-    # set, the per-seed loop's `if true_idx and ...` gate failed,
-    # and all 3 cold-start seeds shipped with blank metrics.
-    #
-    # Truth detection is independent of the prediction (it only reads
-    # the ground-truth PDB), so doing it up-front is correct
-    # regardless of which branch the code takes next.
+    # ── TRUE binding-site detection, before every early exit ─────────
+    # Run up-front so plan["true_interface_idx"] is populated even when
+    # --skip-steering or cold_start_all_clean returns early.  Otherwise
+    # the cold-start CSV writers have no truth set for per-seed jaccard
+    # and the metrics come out blank, as happened to d0_s2 when
+    # detection sat after the early exits.
     true_interface_source = "heavy_atom_contact"
     precomputed_true_idx = _load_true_interface_indices(
         args.true_interface_indices,
@@ -2243,9 +2021,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
     true_idx = sorted(i for i, _ in true_contacts)
     print(f"  {len(true_idx)} receptor residues at the TRUE interface")
 
-    # Create plan metadata.  We store BOTH the prediction chain IDs
-    # (always A/B) and the ground-truth chain IDs (whatever the user
-    # supplied) so the array stage knows how to call the RMSD function.
+    # Store BOTH the A/B prediction chain IDs and the user's
+    # ground-truth ones, so the array stage can call the RMSD
+    # function.
     plan = {
         "ground_truth": str(args.ground_truth.resolve()),
         "truth_receptor_chain": args.receptor_chain,
@@ -2263,9 +2041,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         "mode": args.mode,
         "effector_template_cif":
             str(eff_template_path.resolve()) if eff_template_path else None,
-        # Persisted so cmd_iterate_plan (later cycles) and the
-        # reversion-validation pass reuse the SAME constraint block
-        # rather than recomputing it — see build_benchmark_style_constraints_block.
+        # Reused by reversion.py rather than recomputed.
         "boltz_constraints_block": constraints_block,
         "n_designs": args.n_designs,
         "num_seeds": args.num_seeds,
@@ -2279,25 +2055,18 @@ def cmd_plan(args: argparse.Namespace) -> int:
         "effector_fasta_override":
             str(args.effector_fasta.resolve()) if args.effector_fasta else None,
         "designs": [],
-        # Truth-interface info — populated up-front so early-exit
-        # paths (--skip-steering, cold_start_all_clean) can still
-        # write per-seed jaccard metrics from each cold-start
-        # prediction's interface against this truth set.
         "true_interface_idx": true_idx,
         "true_interface_source": true_interface_source,
-        # Multi-seed cold-start metadata (notes12 / patch b).  Records
-        # all num_seeds initial predictions.  When cold_start_all_clean
-        # is true the plan stage skips steering entirely and these rows
-        # are written to steered_results.csv (one per seed) as the
-        # final candidate set for this sequence.  Otherwise steering
-        # runs as usual and these are screening-only artefacts.
+        # One entry per initial prediction.  When cold_start_all_clean
+        # these become steered_results.csv, this sequence's final
+        # candidate set.  Otherwise they are screening-only.
         "cold_start_seeds": cold_start_seeds,
         "cold_start_n_clean": n_clean,
         "cold_start_all_clean": cold_start_all_clean,
     }
 
-    # --skip-steering early return — used by sequence-walk diagnostics
-    # that just want the cold-start prediction and the three RMSDs.
+    # --skip-steering early return, for sequence-walk diagnostics that
+    # want only the cold-start prediction and its three RMSDs.
     if args.skip_steering:
         print("  --skip-steering set — not generating steered designs.")
         plan["skip_steering"] = True
@@ -2310,12 +2079,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         )
         return 0
 
-    # Check if steering is needed.  Decision is multi-seed:
-    # only if EVERY cold-start seed is clean (ra_eff <= threshold
-    # AND receptor + effector intact) do we skip negative steering.
-    # If any seed fails, steering runs as normal and the cold-start
-    # rows are NOT included in the candidate set — they were just
-    # a screening step.
+    # Apply the all-clean policy decided above.
     if cold_start_all_clean:
         print(f"  Cold-start all-clean ({n_clean}/{n_total_cold} seeds "
               f"with ra_eff ≤ {args.rmsd_threshold} Å and intact) — "
@@ -2332,25 +2096,17 @@ def cmd_plan(args: argparse.Namespace) -> int:
               f"running negative steering "
               f"(cold-start rows will NOT be in the candidate set).")
 
-    # ── Identify the TRUE binding site on the ground truth ──────────
-    # Heavy-atom contact at <= contact_cutoff Å.  These are the
-    # receptor residues we MUST NOT mutate, because the whole point
-    # of the experiment is to encourage Boltz to find this surface
-    # — destroying it would defeat the purpose.
+    # ── The TRUE binding site on the ground truth ───────────────────
+    # true_idx, true_contacts and true_interface_source were computed
+    # before the early exits.  They hold the receptor residues in
+    # heavy-atom contact with the effector at or below contact_cutoff
+    # Å, and MUST NOT be mutated, since the point of the experiment is
+    # to push Boltz toward that surface.
     #
-    # Index alignment: the receptor sequence we extracted from the
-    # truth (via gemmi.get_polymer) was written verbatim into the
-    # Boltz YAML, so the truth Cα sequence and the prediction Cα
-    # sequence MUST be identical, residue-for-residue, in file order.
-    # find_contact_residues_heavy asserts that explicitly with
-    # expected_rec_seq=rec_seq and bombs out if they ever diverge.
-    #
-    # NOTE: true_idx, true_contacts, true_interface_source were
-    # already computed earlier (before the early-exit branches) so
-    # plan["true_interface_idx"] is populated even on skip-steering
-    # paths.  Reuse those values here rather than detecting again.
-    # See the comment block at "TRUE binding-site detection (moved
-    # BEFORE early-exit paths)".
+    # Index alignment: gemmi.get_polymer's receptor sequence went
+    # verbatim into the Boltz YAML, so the truth and prediction Cα
+    # sequences must match in file order.  find_contact_residues_heavy
+    # checks that through expected_rec_seq.
 
     # ── Identify the WRONG (predicted) binding site ─────────────────
     print("  Identifying WRONG (predicted) interface residues...")
@@ -2368,10 +2124,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
     print(f"  {len(predicted_wrong_idx)} receptor residues at the wrong interface")
 
     # ── Surface-pointing test on every wrong-interface residue ──────
-    # Loaded from the prediction PDB so the Cβ direction reflects
-    # what Boltz actually built (not the ground truth's geometry,
-    # which would be misleading since we're trying to disrupt the
-    # WRONG complex's interactions).
+    # Read from the prediction PDB, so the Cβ direction reflects what
+    # Boltz built.  The ground truth's geometry would mislead, since
+    # the goal is to disrupt the WRONG complex.
     pred_residues = read_residue_heavy_atoms(pred_pdb)
     pred_rec_residues = [r for r in pred_residues if r.chain == PRED_REC_CHAIN]
     pred_eff_residues = [r for r in pred_residues if r.chain == PRED_EFF_CHAIN]
@@ -2385,25 +2140,15 @@ def cmd_plan(args: argparse.Namespace) -> int:
         surface_flags[i] = is_surface_exposed(r, pred_rec_residues)
 
     # ── Build the candidate pool ────────────────────────────────────
-    # Order: start from the wrong-interface residues sorted by
-    # closest contact distance ascending (strongest contacts first),
-    # drop any that are in the protected set (P0.1 default: true
-    # interface ∪ RFDiffusion design region), drop any that fail the
-    # surface test, take the top --candidate-pool-size as the POOL.
-    # Each design will then sample --max-mutations positions from
-    # this pool (sampling without replacement, per design).
-    #
-    # If pool == max_mutations, every design hits the same positions
-    # — only the random residue identities differ (in modes that have
-    # randomness).  If pool > max_mutations, the positions themselves
-    # vary across designs, which lets us run single-site / few-site
-    # sampling experiments by setting e.g. pool=10, max_mutations=2.
+    # Start from the wrong-interface residues, nearest contact first.
+    # Drop any in the protected set or failing the surface test, then
+    # take the top --candidate-pool-size.  See make_steered_sequence
+    # for what the pool-to-max_mutations ratio controls.
 
-    # ── Load the RFDiffusion design region (P0.1 input) ─────────────
-    # Parsed here — before candidate filtering — so that the
-    # design_region_union protected set can use it.  Previously this
-    # happened after candidate-pool construction and was not used at
-    # all in mutation selection.
+    # ── Load the RFDiffusion design region ──────────────────────────
+    # Parsed before candidate filtering, so the design_region_union
+    # protected set can use it.  An earlier version parsed it after the
+    # pool was built, too late to matter.
     drif = getattr(args, "design_region_indices_file", None)
     drif_path = Path(drif) if drif is not None else None
     try:
@@ -2418,22 +2163,18 @@ def cmd_plan(args: argparse.Namespace) -> int:
               f"(0-based) loaded from {drif_path.name}")
     plan["design_region_idx"] = design_region_idx
 
-    # ── Build the protected set (P0.1) ──────────────────────────────
-    # The "protected set" is the set of receptor positions that are
-    # excluded from the steering candidate pool.  A steering mutation
-    # on a protected position would either (a) sit where the effector
-    # is supposed to bind (true interface — contaminates the rescue
-    # pose) or (b) sit inside the RFDiffusion design region, where
-    # the final scored prediction is most likely to end up making
-    # contact.  Both cases produce contaminated predictions.
+    # ── Build the protected set ─────────────────────────────────────
+    # The receptor positions excluded from the candidate pool.  A
+    # steering mutation here lands either on the true interface, where
+    # the effector is supposed to bind, or inside the RFDiffusion
+    # design region, the likeliest place for the final scored
+    # prediction to make contact.  Either way it contaminates the
+    # rescue by construction, so the rescued pose can no longer be
+    # attributed to the design.
     #
-    # Sources:
-    #   true_interface        — legacy: true interface residues only
-    #   design_region_union   — true interface ∪ RFDiffusion design
-    #                           region (default).  Reduces
-    #                           contamination without a radius-based
-    #                           expansion that could gut the pool on
-    #                           small receptors.
+    # --protected-set-source picks between the true interface alone and
+    # its union with the design region, the default.  Neither expands
+    # by Cα radius, because that would gut the pool on small receptors.
     protected_source = getattr(args, "protected_set_source",
                                "design_region_union")
     true_set = set(true_idx)
@@ -2466,34 +2207,20 @@ def cmd_plan(args: argparse.Namespace) -> int:
         candidates.append((dist, seq_idx))
     candidates.sort()  # by distance ascending
 
-    # Protection is strict.  If the candidate pool is smaller than
-    # --max-mutations we cap the per-design mutation count to the
-    # pool size downstream (via max_mutations_effective) rather than
-    # loosening the protected set.  Relaxing protection to reach the
-    # requested mutation count puts steering mutations inside the
-    # design region itself, which is the region being validated —
-    # that contaminates the rescue pose by construction and
-    # invalidates the experiment.  Better to run with fewer mutations
-    # than to run with contaminated ones.  If the pool is genuinely
-    # empty the existing second-shell fallback handles it cleanly.
+    # Protection is strict.  A pool smaller than --max-mutations caps
+    # the per-design count rather than loosening protection.
 
     # ── Overlap detection ───────────────────────────────────────────
-    # Measure how much the predicted wrong interface overlaps the true
-    # interface, as a fraction of the wrong interface.  If the two
-    # interfaces overlap substantially (>50%), the complex is in the
-    # pathological "almost already correct" regime — the standard
-    # filter will remove most candidates because they're protected,
-    # and whatever candidates survive will be near-duplicates of the
-    # second-shell fallback.  In this regime we also halve the user's
-    # max_mutations: aggressive mutation counts are marginal when the
-    # cold-start is already close, and second-shell mutations are by
-    # definition less targeted than direct contacts.
+    # How much of the predicted wrong interface overlaps the true
+    # interface, as a fraction of the wrong interface.  Above 50% the
+    # complex is in the pathological "almost already correct" regime,
+    # where the filter removes most candidates as protected and the
+    # survivors near-duplicate the second-shell fallback.
     #
-    # interfaces_overlap stays defined against true_set specifically
-    # so the pathology-detection threshold is stable across protected-
-    # set-source choices; we also report n_overlap_protected as an
-    # auxiliary figure when the protected set extends past the true
-    # interface (P0.1).
+    # interfaces_overlap is defined against true_set, not the protected
+    # set, so the threshold does not shift with --protected-set-source.
+    # n_overlap_protected is reported separately when the protected set
+    # reaches past the true interface.
     n_wrong = len(predicted_wrong_idx)
     n_overlap_true = sum(1 for i in predicted_wrong_idx if i in true_set)
     n_overlap_protected = sum(
@@ -2510,8 +2237,11 @@ def cmd_plan(args: argparse.Namespace) -> int:
     print(f"    ={len(candidates):>3d} candidates remain")
     print(f"  Wrong/true interface overlap: {interfaces_overlap:.1%}")
 
-    # Halve max_mutations when interfaces overlap significantly.
-    # Rounded UP so we never ask for zero mutations (min of 1).
+    # Halve max_mutations in that regime.  An aggressive count buys
+    # little when the cold-start is already close, and the second-shell
+    # mutations it would spend itself on are less targeted than direct
+    # contacts.  The halving rounds UP, with a floor of 1, so we never
+    # ask for zero mutations.
     max_mutations_effective = args.max_mutations
     max_mutations_reduced_from: "Optional[int]" = None
     max_mutations_reduced_to: "Optional[int]" = None
@@ -2526,19 +2256,18 @@ def cmd_plan(args: argparse.Namespace) -> int:
                   f"from {args.max_mutations} to {max_mutations_effective} "
                   f"(gentler nudge for near-correct cold-start)")
 
-    # Cap max_mutations_effective at the candidate pool size: we
-    # cannot sample more unique positions than the pool contains.
-    # This replaces the previous true_interface_fallback, which
-    # contaminated the design region by loosening protection.
-    # Capping instead preserves strict protection and the second-shell
-    # fallback still handles the genuinely-empty-pool case.
+    # Cap at the candidate pool size, because no design can sample
+    # more unique positions than the pool holds.  The cap replaces an
+    # earlier true_interface_fallback, which loosened protection and so
+    # contaminated the design region.  Capping keeps protection strict,
+    # and the second-shell fallback still covers an empty pool.
     if len(candidates) < max_mutations_effective:
         prev = max_mutations_effective
         max_mutations_effective = max(1, len(candidates))
         if max_mutations_effective < prev:
-            # Only overwrite the "reduced_from/to/reason" if the pool
-            # cap is stricter than the overlap halving.  Otherwise keep
-            # the earlier value for audit continuity.
+            # Overwrite reduced_from/to/reason only when the pool cap
+            # is stricter than the overlap halving, so the audit trail
+            # stays continuous.
             if (max_mutations_reduced_from is None
                     or max_mutations_effective < max_mutations_reduced_to):
                 max_mutations_reduced_from = args.max_mutations
@@ -2551,25 +2280,20 @@ def cmd_plan(args: argparse.Namespace) -> int:
                   f"{max_mutations_effective}.  Strict protection "
                   f"preserved — design region remains unmutated.")
 
-    # Pool size is at least max_mutations_effective so every design
-    # can draw enough positions to hit max_mutations_effective.
+    # --candidate-pool-size is a floor, not a ceiling.  Every design
+    # has to draw max_mutations_effective distinct positions, which a
+    # smaller pool could not supply, so the pool is raised to that
+    # count whenever the requested size falls below it.
     pool_size = max(args.candidate_pool_size, max_mutations_effective)
     candidate_pool = sorted(seq_idx for _, seq_idx in candidates[:pool_size])
 
     # ── Second-shell fallback ────────────────────────────────────────
-    # If the standard candidate pool is empty but there ARE wrong-
-    # interface residues, the pathological case is that every direct
-    # candidate got filtered by the `in protected_set` exclusion —
-    # either because the wrong interface overlaps the true interface
-    # (legacy 7B1I case) or because it sits entirely inside the
-    # design region (P0.1 case under design_region_union).  In either
-    # case, fall back to a second-shell pool: receptor residues whose
-    # Cα is within 6 Å of the predicted effector (heavy atom-level),
-    # excluding the wrong interface itself and the protected set.
-    # Ranked by distance to the effector ascending, top N taken.
-    # Requires >= 3 candidates or returns empty (better to
-    # skip_steering cleanly than to run with a pool that can't
-    # plausibly affect effector binding).
+    # An empty pool alongside a non-empty wrong interface means the
+    # protected-set exclusion removed every direct candidate.  That
+    # happens when the wrong interface overlaps the true one, as in
+    # 7B1I, or sits entirely inside the design region under
+    # design_region_union.  See _second_shell_fallback for the geometry
+    # and the 3-candidate minimum.
     second_shell_used = False
     second_shell_pool_size = 0
     if (not candidate_pool) and predicted_wrong_idx:
@@ -2598,13 +2322,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
             pred_rec_residues=pred_rec_residues,
             pred_eff_residues=pred_eff_residues,
             predicted_wrong_idx=predicted_wrong_idx,
-            true_set=protected_set,  # P0.1: pass the FULL protected set
-            #                        # (= true ∪ design region by default),
-            #                        # so design-region residues do not
-            #                        # leak into the second-shell pool.
-            #                        # The helper's parameter name is
-            #                        # historical; semantically it is the
-            #                        # exclusion set.
+            true_set=protected_set,  # historical name, see the docstring
             surface_flags_cache=surface_flags,
             radius=6.0,
             pool_size=pool_size,
@@ -2624,14 +2342,11 @@ def cmd_plan(args: argparse.Namespace) -> int:
     print(f"  Per-design mutations: {max_mutations_effective} sampled from the pool")
     print(f"  Steering mode: {args.mode}")
 
-    # Propagate the effective max_mutations back into the args object
-    # so the design-generation loop downstream (which reads args.max_mutations)
-    # uses the reduced value when overlap triggers the halving.
+    # The design loop below reads args.max_mutations, so pushing the
+    # effective value back is what makes a halving or a cap take
+    # effect.
     args.max_mutations = max_mutations_effective
 
-    # Sanity check: conservative mode is deterministic per residue,
-    # so if every design draws the same positions it will produce
-    # n_designs identical sequences.  Warn the user explicitly.
     if (args.mode == "conservative"
             and len(candidate_pool) <= args.max_mutations
             and args.n_designs > 1):
@@ -2639,43 +2354,32 @@ def cmd_plan(args: argparse.Namespace) -> int:
               "will produce N IDENTICAL designs.  Increase "
               "--candidate-pool-size for diversity.")
 
-    # Persist all the sets and fallback metadata so predict-one can
-    # compute Jaccard overlap against the original wrong interface,
-    # and so post-hoc analysis can see exactly which residues were
-    # selected and why.  This is done BEFORE the empty-pool skip so
-    # that _write_initial_only_csv has access to the interface
-    # analysis results even on skip runs.
+    # predict-one needs these for Jaccard overlap against the original
+    # wrong interface, and post-hoc analysis to see what was selected.
+    # This runs BEFORE the empty-pool skip, so _write_initial_only_csv
+    # still sees the analysis.
     plan["true_interface_idx"] = true_idx
     plan["true_interface_source"] = true_interface_source
     plan["initial_wrong_interface_idx"] = predicted_wrong_idx
     plan["candidate_pool"] = candidate_pool
 
-    # design_region_idx is already populated on `plan` at the top of
-    # candidate-pool construction (needed there for P0.1's
-    # design_region_union protected set).  No re-parsing here.
+    # design_region_idx was written onto `plan` above.  No re-parsing.
 
-    # ── v8 Level 1 contamination-check fix: effector interface residues ──
-    # Compute the set of effector residues that sit at the functional
-    # binding interface in the RFDiffusion ground truth.  An effector
-    # residue is "at the interface" when its Cα is within 8 Å (matching
-    # the RFDiffusion filter's Cα-distance convention) of any receptor
-    # residue in true_interface_idx.
+    # ── Effector interface residue mask ─────────────────────────────
+    # An effector residue counts as interface when its Cα is within
+    # 8 Å of any receptor residue in true_interface_idx, matching the
+    # RFDiffusion filter's Cα-distance convention.  The contamination
+    # check then restricts contact detection to these residues' heavy
+    # atoms, so a floppy effector loop brushing a non-binding receptor
+    # face no longer counts.
     #
-    # The contamination check on both steered and reverted predictions
-    # restricts contact detection to ALL heavy atoms of these effector
-    # residues, so that off-interface contacts (e.g. a floppy effector
-    # loop brushing against a non-binding receptor face after the
-    # effector rotates a few degrees) do not count as contamination.
+    # The filter has to be residue-level, because the RFDiffusion
+    # ground truth is Cα-only.  An atom-level mask from it would hold
+    # Cα atoms alone, and a 5 Å heavy-to-heavy contact between two Cα
+    # atoms almost never registers in a prediction with side chains.
     #
-    # Residue-level (not atom-level) filtering is REQUIRED because the
-    # RFDiffusion ground truth is Cα-only; an atom-level mask built
-    # from a Cα-only PDB would only capture Cα atoms, and 5 Å heavy-to-
-    # heavy contacts between Cα atoms almost never register in a
-    # prediction with full side chains.
-    #
-    # Serialised to plan.json as a sorted list of effector resseq ints
-    # under 'effector_interface_residues'.  An empty list means no
-    # filter — contact detection falls back to unrestricted behaviour.
+    # An empty 'effector_interface_residues' in plan.json means no
+    # filter, so contact detection is unrestricted.
     try:
         from compute_metrics import compute_effector_interface_residues
         true_idx_1b = [i + 1 for i in true_idx]  # 0-based -> 1-based
@@ -2689,10 +2393,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
         eff_iface_residues_list = sorted(int(r) for r in eff_iface_residues)
         plan["effector_interface_residues"] = eff_iface_residues_list
         plan["effector_interface_atom_cutoff_angstroms"] = 8.0
-        # Back-compat alias; older code paths still look for the atom key.
-        # The value is a simplified list of [resseq, "any"] pairs whose
-        # atom_name is ignored by the v8 residue-collapse logic in
-        # compute_interface_contacts.
+        # Back-compatibility alias for code paths that look for the
+        # atom key.  compute_interface_contacts ignores atom_name when
+        # it collapses the pairs to a residue set.
         plan["effector_interface_atoms"] = [
             [r, "any"] for r in eff_iface_residues_list
         ]
@@ -2714,32 +2417,26 @@ def cmd_plan(args: argparse.Namespace) -> int:
         plan["max_mutations_reduced_from"] = max_mutations_reduced_from
         plan["max_mutations_reduced_to"] = max_mutations_reduced_to
         plan["max_mutations_reduced_reason"] = max_mutations_reduced_reason
-        # Preserve the user's requested value under a separate key for
-        # audit trail, then overwrite the canonical max_mutations with
-        # the effective value so downstream readers (the iterate
-        # script's cycle-1+ budget, the summary printer) see what was
-        # actually used.
+        # max_mutations_requested is the audit trail of what was asked
+        # for.  max_mutations is overwritten with the effective value,
+        # so downstream readers see the count actually used.
         plan["max_mutations_requested"] = max_mutations_reduced_from
         plan["max_mutations"] = max_mutations_effective
     plan["max_mutations_effective"] = max_mutations_effective
 
     # ── Pathological case: switch to sampling mode ──────────────────
-    # When the wrong and true interfaces overlap so completely that
-    # (a) the naive candidate pool is empty AND (b) the second-shell
-    # fallback produced fewer than 3 candidates, there is no physical
-    # room to steer by mutation.  Everything that contacts the
-    # effector is also on the true site, and everything within
-    # mutation range of the effector is either protected or not
-    # surface-exposed.  7B1I is the canonical example.
+    # An empty naive pool plus a second-shell fallback under 3
+    # candidates means there is no physical room to steer by mutation.
+    # Everything touching the effector is also on the true site, and
+    # everything within mutation range is protected or buried.  7B1I is
+    # the canonical example.
     #
-    # In this regime we switch to SAMPLING MODE: instead of mutating
-    # the sequence, we re-predict the same wild-type sequence N times
-    # with different seeds.  Boltz's diffusion sampling is
-    # stochastic, so 50 re-predictions will produce 50 slightly
-    # different poses.  Some fraction may land closer to the true
-    # binding site than the single cold-start prediction did.
-    # This is useful when the cold-start is already close (7B1I's
-    # ra_eff = 5.469 Å is just above the production threshold).
+    # Sampling mode replaces mutation with repetition.  The same
+    # wild-type sequence is re-predicted N times under different seeds.
+    # Boltz's diffusion sampling is stochastic, so 50 re-predictions
+    # give 50 slightly different poses, some possibly closer to the
+    # true site.  This pays off when the cold-start is already close.
+    # 7B1I's 5.469 Å sits just above the 5.0 Å production threshold.
     sampling_mode = (
         (not candidate_pool)
         and bool(predicted_wrong_idx)
@@ -2758,14 +2455,11 @@ def cmd_plan(args: argparse.Namespace) -> int:
         plan["skip_steering"] = True
         plan["skip_reason"] = skip_reason
         (workdir / "plan.json").write_text(json.dumps(plan, indent=2))
-        # Use the single-row CSV here.  This path fires when steering
-        # failed to find any valid mutation candidates — by definition
-        # the cold-start was NOT all-clean (otherwise we would have
-        # returned early above).  So cold-start rows from this path
-        # must NOT be promoted into the candidate set; the singleton
-        # row written here lands as a "singleton" verdict and gets
-        # filtered out by extract_passing.py — exactly the behaviour
-        # we want for failed-steering sequences.
+        # Single-row CSV here.  This path fires when steering found no
+        # valid candidates, so the cold-start was not all-clean, or the
+        # function would have returned earlier.  Its cold-start rows
+        # must NOT be promoted, and the single row lands as a
+        # "singleton" that extract_passing.py filters out.
         _write_initial_only_csv(
             workdir, plan,
             initial_ra_eff=initial_ra_eff,
@@ -2792,22 +2486,21 @@ def cmd_plan(args: argparse.Namespace) -> int:
             f"second-shell fallback produced < 3 candidates; "
             f"re-sampling cold-start with {args.n_designs} seeds"
         )
-        # No skip_steering — we DO want predict-one to run.  Leave
-        # candidate_pool empty (so the sampling_mode design loop below
-        # knows to skip make_steered_sequence).
+        # skip_steering is deliberately not set, because predict-one
+        # DOES need to run.  The empty candidate_pool is how the design
+        # loop below knows to skip make_steered_sequence.
 
-    # The interface/true_log files only make sense when we have a real
-    # candidate pool.  In sampling mode both are vacuous (empty pool,
-    # no protected residues distinct from the wrong interface), so we
-    # skip writing them and note the reason in the log instead.
+    # Both interface log files are vacuous in sampling mode, where the
+    # pool is empty and no protected residue is distinct from the wrong
+    # interface.
     if not sampling_mode:
         interface_log = workdir / "wrong_interface_residues.txt"
         with open(interface_log, "w") as f:
             f.write("# 1-based receptor residue, wt one-letter, "
                     "min_heavy_dist_to_eff (Å), in_true_site, "
                     "in_protected_set, surface_exposed, in_pool\n")
-            # Sort by distance ascending so the table reads top-down as
-            # "strongest contacts first".
+            # Sorted by distance ascending, so the table reads
+            # top-down with the strongest contacts first.
             pool_set = set(candidate_pool)
             for seq_idx, dist in wrong_contacts:
                 in_true = 1 if seq_idx in true_set else 0
@@ -2834,21 +2527,19 @@ def cmd_plan(args: argparse.Namespace) -> int:
     num_seeds = args.num_seeds
     n_designs = args.n_designs
 
-    # ── Generate unique sequences with dedup ────────────────────────
-    # Each call to make_steered_sequence is a random draw; two draws
-    # can produce the same sequence.  Instead of wasting GPU slots on
-    # duplicates, we retry on collision and cap at n_designs unique
-    # sequences.  If the combinatorial space is smaller than n_designs,
-    # we warn and provide as many unique sequences as possible.
+    # ── Generate unique sequences, deduplicated ─────────────────────
+    # Each make_steered_sequence call is a random draw, so two draws
+    # can collide.  Rather than spend GPU slots on duplicates, retry
+    # and stop at n_designs uniques.  A combinatorial space smaller
+    # than n_designs warns and returns as many as exist.
     MAX_RETRIES = n_designs * 10  # generous budget to find uniques
 
     unique_sequences: List[Tuple[str, List[Tuple[int, str, str]]]] = []
     seen_seqs: set = set()
 
     if sampling_mode:
-        # All designs are the wild-type sequence — only one unique
-        # sequence, replicated n_designs × num_seeds times with
-        # different seeds.
+        # One unique sequence, replicated n_designs × num_seeds times
+        # under different seeds.
         unique_sequences.append((rec_seq, []))
         seen_seqs.add(rec_seq)
         if n_designs > 1:
@@ -2881,7 +2572,6 @@ def cmd_plan(args: argparse.Namespace) -> int:
     n_unique = len(unique_sequences)
     total_predictions = n_unique * num_seeds
     if sampling_mode:
-        # In sampling mode, n_designs design slots each get num_seeds
         total_predictions = n_designs * num_seeds
 
     plan["n_unique_sequences"] = n_unique
@@ -2893,9 +2583,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
     # ── Expand each unique sequence into num_seeds design entries ───
     design_idx = 0
     for seq_group, (mutated_seq, mutations) in enumerate(unique_sequences):
-        # In sampling mode, replicate the single sequence n_designs times
-        # (each with num_seeds seeds), matching the old behavior where
-        # n_designs controls how many "design slots" there are.
+        # In sampling mode the one sequence is replicated n_designs
+        # times, so n_designs keeps meaning "how many design slots".
         n_slots = n_designs if sampling_mode else 1
 
         for slot in range(n_slots):
@@ -2926,7 +2615,6 @@ def cmd_plan(args: argparse.Namespace) -> int:
                     constraints_block=constraints_block,
                 )
 
-                # Seed: base_seed + design_idx + 1 (unique per prediction)
                 boltz_seed = args.seed + design_idx + 1
 
                 plan["designs"].append({
@@ -2952,9 +2640,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Subcommand: predict-one
-# ───────────────────────────────────────────────────────────────────────
+# ── Subcommand: predict-one ────────────────────────────────────────
 def cmd_predict_one(args: argparse.Namespace) -> int:
     workdir: Path = args.workdir
     plan = json.loads((workdir / "plan.json").read_text())
@@ -2974,12 +2660,12 @@ def cmd_predict_one(args: argparse.Namespace) -> int:
     d = Path(design["dir"])
     yaml_path = Path(design["yaml"])
 
-    # ── Resume ──────────────────────────────────────────────────────────────
-    # Large standalone-benchmark complexes can outrun the SLURM walltime; on
-    # resubmit the plan stage re-derives the SAME (seeded-rng) designs, so a
-    # design already predicted on disk can be reused instead of re-run. Guard
-    # against any drift by confirming the on-disk prediction's receptor sequence
-    # matches THIS design's current sequence; on any mismatch/error, recompute.
+    # ── Resume ──────────────────────────────────────────────────────
+    # Large standalone-benchmark complexes can outrun the SLURM
+    # walltime.  On resubmit the plan stage re-derives the SAME
+    # designs, because its RNG is seeded, so one already on disk can be
+    # reused.  Guard against drift by confirming its receptor sequence
+    # matches this design's.
     _existing_pred = d / "prediction.pdb"
     if (d / "result.json").exists() and _existing_pred.exists():
         try:
@@ -2999,9 +2685,8 @@ def cmd_predict_one(args: argparse.Namespace) -> int:
             yaml_path, d,
             plan["boltz_container"],
             plan["recycling_steps"], plan["diffusion_samples"],
-            # Use pre-computed seed if available (new plan.json schema);
-            # fall back to the old formula for backward compatibility
-            # with plan.json files written before the num_seeds feature.
+            # The fallback formula keeps plan.json files written
+            # before the num_seeds feature working.
             design.get("boltz_seed", int(plan["seed"]) + idx + 1),
             plan["no_kernels"],
         )
@@ -3012,14 +2697,11 @@ def cmd_predict_one(args: argparse.Namespace) -> int:
         )
         shutil.copy2(pred_pdb, d / "prediction.pdb")
 
-        # Same-site check: detect this design's interface residues
-        # and compute Jaccard overlap against (a) the original (wild
-        # type) wrong interface and (b) the true binding site, both
-        # from plan.json.  Uses the SAME heavy-atom contact definition
-        # as the plan stage so the Jaccards are directly comparable.
-        # We pass the mutated receptor sequence as expected_rec_seq
-        # because the design's receptor differs from the wild type at
-        # the steered positions.
+        # Same-site check against the wild-type wrong interface and
+        # the true binding site, both from plan.json, under the plan
+        # stage's contact definition, so the Jaccards are directly
+        # comparable.  expected_rec_seq is the mutated sequence, since
+        # this receptor differs from the wild type.
         try:
             mutated_seq = (d / "receptor.fasta").read_text().splitlines()[-1].strip()
             steered_contacts = find_contact_residues_heavy(
@@ -3078,7 +2760,7 @@ def cmd_predict_one(args: argparse.Namespace) -> int:
             "status": f"failed: {e}",
         }
 
-    # NaN is not valid JSON; serialise to null on the way out.
+    # NaN is not valid JSON, so serialise it to null on the way out.
     out = {k: (None if isinstance(v, float) and np.isnan(v) else v)
            for k, v in result.items()}
     (d / "result.json").write_text(json.dumps(out, indent=2))
@@ -3094,18 +2776,16 @@ def cmd_predict_one(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "ok" else 1
 
 
-# ───────────────────────────────────────────────────────────────────────
-# Subcommand: collect
-# ───────────────────────────────────────────────────────────────────────
+# ── Subcommand: collect ────────────────────────────────────────────
 def cmd_collect(args: argparse.Namespace) -> int:
     workdir: Path = args.workdir
     plan_path = workdir / "plan.json"
 
     if not plan_path.exists():
-        # The plan stage crashed before writing plan.json (or wasn't
-        # run at all).  Don't blow up — collect runs on `afterany` so
-        # it can fire even when the upstream chain has been cancelled.
-        # Write a one-line marker so the user knows where to look.
+        # The plan stage crashed before writing plan.json, or never
+        # ran.  collect runs on `afterany`, so it fires even when the
+        # upstream chain was cancelled.  Write a marker rather than
+        # raising.
         msg = (
             f"ERROR: {plan_path} does not exist.\n"
             f"  The plan stage failed or never ran.  Check:\n"
@@ -3172,13 +2852,11 @@ def cmd_collect(args: argparse.Namespace) -> int:
             "seed_index": seed_index,
         })
 
-    # A "trustworthy" design has both proteins folded.  Without this
-    # filter, the best-by-receptor_aligned_effector_rmsd row may have
-    # a wrecked receptor — in which case the binding-mode RMSD is
-    # measuring where Boltz put a *misfolded* receptor and is
-    # biologically meaningless.  Threshold values picked to be
-    # generous (allow some local jitter / loop movement) but tight
-    # enough to flag real deformation.
+    # A trustworthy design has both proteins folded.  Without this
+    # filter the best row by receptor-aligned effector RMSD could have
+    # a wrecked receptor, making the metric meaningless.  The
+    # thresholds allow jitter and loop movement while flagging real
+    # deformation.
     RECEPTOR_INTACT_CUTOFF = 5.0   # Å Cα RMSD vs ground truth
     EFFECTOR_INTACT_CUTOFF = 5.0   # Å Cα RMSD vs ground truth
 
@@ -3192,8 +2870,8 @@ def cmd_collect(args: argparse.Namespace) -> int:
     for r in rows:
         r["receptor_intact"] = 1 if is_intact(r) else 0
 
-    # Annotate each row with its improvement vs the wild-type
-    # prediction.  Positive = binding mode moved closer to truth.
+    # A positive delta means the binding mode moved closer to the
+    # truth than the wild-type prediction.
     initial_ra_eff = float(plan["initial_receptor_aligned_effector_rmsd"])
     initial_ind_rec = float(plan.get("initial_independent_receptor_rmsd", float("nan")))
     initial_ind_eff = float(plan.get("initial_independent_effector_rmsd", float("nan")))
@@ -3205,13 +2883,11 @@ def cmd_collect(args: argparse.Namespace) -> int:
                 initial_ra_eff - r["receptor_aligned_effector_rmsd"]
             )
 
-    # Row ordering: intact designs first, then deformed designs.
-    # Both blocks are sorted ascending by receptor_aligned_effector_rmsd
-    # (the binding-mode metric).  In the deformed block this number is
-    # biologically meaningless because the receptor isn't a receptor
-    # any more — but you asked for it ranked the same way for visual
-    # consistency, and `receptor_intact == 0` makes the discard
-    # explicit anyway.
+    # Intact designs first, then deformed ones, both ascending by
+    # receptor_aligned_effector_rmsd.  In the deformed block that
+    # number means nothing biologically, and is ranked the same way
+    # only for visual consistency.  `receptor_intact == 0` marks the
+    # discard.
     def _sort_key(r, key):
         v = r[key]
         return (np.isnan(v), v)
@@ -3222,14 +2898,11 @@ def cmd_collect(args: argparse.Namespace) -> int:
     deformed_rows.sort(key=lambda r: _sort_key(r, "receptor_aligned_effector_rmsd"))
     rows = intact_rows + deformed_rows
 
-    # Build a row for the wild-type prediction (no mutations, no
-    # steering — the baseline against which everything else is
-    # compared).  Lives at rank 0 in the CSV so it sits visually
-    # above the steered designs without participating in the rank
-    # numbering.  Jaccards are computed against the same data the
-    # plan stage already stored: wrong_jaccard is 1.0 by definition
-    # (it IS the wrong site), and true_jaccard is the overlap of
-    # the wrong site with the true site.
+    # The wild-type prediction is the baseline, at rank 0, so it sits
+    # above the steered designs without joining their numbering.
+    # wrong_jaccard is 1.0 by definition, since this row IS the wrong
+    # site, and true_jaccard is that site's overlap with the true
+    # site.
     initial_wrong_idx = plan.get("initial_wrong_interface_idx", [])
     true_idx = plan.get("true_interface_idx", [])
     initial_n_iface = len(initial_wrong_idx)
@@ -3297,7 +2970,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
         for sg in sorted(groups.keys()):
             members = groups[sg]
             n_seeds_ok = len(members)
-            # Use first member for non-varying fields
+            # The first member supplies the fields that do not vary.
             first = members[0]
             agg = {
                 "sequence_group": sg,
@@ -3337,7 +3010,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
             print(f"Wrote {agg_csv_path} ({len(agg_rows)} sequence groups)")
 
     def format_best(label, row):
-        """One block of "best <label>" lines for the summary."""
+        """Return one block of "best <label>" lines for the summary."""
         if row is None or np.isnan(row["receptor_aligned_effector_rmsd"]):
             return f"{label}: no successful designs\n"
         delta = row["delta_receptor_aligned_effector_rmsd"]
@@ -3358,9 +3031,9 @@ def cmd_collect(args: argparse.Namespace) -> int:
             f"({row['n_shared_true']} of {n_if} shared with true site)\n"
         )
 
-    # Best by receptor_aligned_effector_rmsd, no filter — any fold.
-    # After the intact-first sort, rows[0] is the top intact design
-    # if any exist, so we need to pick the overall best separately.
+    # Best by receptor_aligned_effector_rmsd with no filter, so any
+    # fold qualifies.  After the intact-first sort rows[0] is the top
+    # intact design, so the overall best is picked separately.
     non_nan = [r for r in rows
                if not np.isnan(r["receptor_aligned_effector_rmsd"])]
     best_overall = (
@@ -3368,9 +3041,8 @@ def cmd_collect(args: argparse.Namespace) -> int:
         if non_nan else None
     )
 
-    # Best among designs with intact proteins.  This is the
-    # biologically meaningful "best" — the binding-mode RMSD only
-    # reflects docking when both partners are actually folded.
+    # The biologically meaningful best, because the binding-mode RMSD
+    # only reflects docking when both partners are folded.
     best_intact = intact_rows[0] if intact_rows else None
     n_intact = len(intact_rows)
 
@@ -3416,9 +3088,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
     return 0
 
 
-# ───────────────────────────────────────────────────────────────────────
-# CLI
-# ───────────────────────────────────────────────────────────────────────
+# ── CLI ────────────────────────────────────────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -3464,16 +3134,18 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=["true_interface", "design_region_union"],
                     default="design_region_union",
                     help="Which positions are excluded from the steering "
-                         "candidate pool (P0.1). "
-                         "'true_interface' (legacy): exclude only the "
-                         "residues contacting the effector in the ground "
-                         "truth. 'design_region_union' (default): exclude "
-                         "the union of the true interface and the "
-                         "RFDiffusion design region — this reduces "
-                         "contamination without shrinking the candidate "
-                         "pool as aggressively as a Cα-radius expansion. "
-                         "Requires --design-region-indices-file; falls "
-                         "back to true_interface if absent.")
+                         "candidate pool.  'true_interface' excludes only "
+                         "the residues that contact the effector in the "
+                         "ground truth.  'design_region_union', the "
+                         "default, also excludes the RFDiffusion design "
+                         "region.  A steering mutation inside that region "
+                         "contaminates the rescue by construction, because "
+                         "the construct carries the designed sequence "
+                         "rather than the steered one.  The union keeps "
+                         "the candidate pool larger than a Ca-radius "
+                         "expansion around the interface would.  It needs "
+                         "--design-region-indices-file and falls back to "
+                         "true_interface without one.")
     pp.add_argument("--effector-template",
                     dest="effector_template", action="store_true", default=True,
                     help="Use the ground-truth effector chain as a "
@@ -3491,9 +3163,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "by structure-prediction-benchmarking's BOLTZ2_CONSTRAINED "
                          "(Cα pocket ≤8Å + up to 50 contact pairs ≤10Å, derived "
                          "once from the ground-truth complex) to EVERY Boltz-2 "
-                         "prediction in this run — initial, cold-start extra "
-                         "seeds, all steered designs, every later cycle, and "
-                         "reversion validation. Off by default.")
+                         "prediction in this run.  That is the initial "
+                         "prediction, the extra cold-start seeds, every "
+                         "steered design and the reversion pass.  Off by "
+                         "default.")
     pp.add_argument("--n-designs", type=int, default=10)
     pp.add_argument("--num-seeds", type=int, default=1,
                     help="Number of independent Boltz seeds per unique "
@@ -3510,16 +3183,12 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--seed", type=int, default=0)
     pp.add_argument("--no-kernels", action="store_true")
 
-    # Sequence override flags.  These let you decouple "the sequence
-    # Boltz folds" from "the sequence/structure used as the reference
-    # for contact filtering and RMSD ranking".  Use case: A→B sequence
-    # walk experiments where you want to feed Boltz a sequence that
-    # has been mutated a few residues toward another complex, but
-    # still rank against the original ground truth.
-    #
-    # Length must match the corresponding ground-truth chain — the
-    # contact-filter and RMSD machinery is index-based.  Point
-    # mutations only, no indels.
+    # These separate the sequence Boltz folds from the reference used
+    # for contact filtering and RMSD ranking.  The use case is an
+    # A-to-B sequence walk, where Boltz gets a sequence mutated toward
+    # another complex but the ranking still runs against the original
+    # ground truth.  The length must match, because that machinery is
+    # index-based.
     pp.add_argument("--receptor-fasta", type=Path, default=None,
                     help="Override the receptor sequence Boltz folds. "
                          "Ground truth still anchors the contact "
@@ -3532,12 +3201,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "Same semantics as --receptor-fasta. Length "
                          "must match the ground-truth effector chain.")
 
-    # Pre-computed true interface: bypass the heavy-atom contact
-    # detection on the ground truth, for use when the ground truth is
-    # a Cα-only structure (e.g. an RFDiffusion design) where heavy-atom
-    # contacts can't be computed.  The indices are 0-based seq_idx
-    # values into the receptor chain in file order, matching how
-    # find_contact_residues_heavy would have returned them.
+    # These bypass heavy-atom contact detection on the ground truth.
+    # Use them when the ground truth is Cα-only, such as an RFDiffusion
+    # design.  The indices are 0-based seq_idx values into the receptor
+    # chain in file order, as find_contact_residues_heavy would have
+    # returned.
     pp.add_argument("--true-interface-indices", type=str, default=None,
                     help="Comma-separated list of 0-based receptor "
                          "seq_idx values that make up the TRUE (protected) "
@@ -3554,14 +3222,12 @@ def build_parser() -> argparse.ArgumentParser:
                          "as --true-interface-indices. Lines starting "
                          "with '#' are ignored.")
 
-    # Design-region indices — the set of receptor positions that
-    # RFDiffusion built de novo / ProteinMPNN will design.  These are
-    # needed by the downstream reversion pass, which uses
-    # (design_region ∪ true_interface) as its "protected set": any
-    # steering mutation landing on a position the wet-lab construct
-    # will not carry as-is.  Produced by derive_design_region.py in
-    # 1-based sequence coordinates, converted to 0-based at load time
-    # to match the true_interface_idx convention inside plan.json.
+    # The receptor positions RFDiffusion built de novo and ProteinMPNN
+    # will design.  The reversion pass protects
+    # design_region ∪ true_interface, because the wet-lab construct
+    # will not carry them as-is, so a steering mutation landing there
+    # has to be reverted.  derive_design_region.py writes 1-based
+    # coordinates, converted to 0-based to match true_interface_idx.
     pp.add_argument("--design-region-indices-file", type=Path, default=None,
                     help="Path to a file containing 1-BASED receptor "
                          "positions that constitute the ProteinMPNN-"
@@ -3577,12 +3243,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "falls back to protecting only the true "
                          "interface.")
 
-    # Diagnostic mode: run the initial Boltz prediction, compute the
-    # three RMSDs, write plan.json, and stop.  No steering, no array
-    # job.  Useful when you want to characterize the cold-start pose
-    # of a sequence variant cheaply.  Equivalent to the existing
-    # early-return path for "initial RMSD ≤ threshold" but
-    # unconditional.
+    # Diagnostic mode.  Run the initial prediction, compute the three
+    # RMSDs, write plan.json and stop.  A cheap way to characterise a
+    # variant's cold-start pose.  Same as the all-clean early return,
+    # but unconditional.
     pp.add_argument("--skip-steering", action="store_true",
                     help="Run only the initial prediction; do not "
                          "generate or schedule any steered designs. "

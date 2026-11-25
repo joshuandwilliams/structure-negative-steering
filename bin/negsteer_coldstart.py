@@ -3,6 +3,13 @@
 Three stages, run in this order by bin/negative_steering_run_one.sh:
 kickoff-distances, kickoff-prefilter, kickoff-finalize. Split out of
 boltz2_iterate_steering.py, which no longer exists.
+
+Multi-cycle steering is gone, archived at
+archive/boltz2_iterate_steering_multicycle.py, so the pose-distance,
+novelty and maximin selection below picks parents for a cycle that no
+longer runs. The values are still computed because cmd_aggregate reads
+min_dist_to_upstream and selected_for_next_cycle out of passing.json
+into the results table.
 """
 
 from __future__ import annotations
@@ -19,22 +26,21 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))  # pragma: no cover - import order
 
-# Single source of truth for the reverted-confidence column set, defined in
-# reversion.py next to the per_seed_records dict it must stay in sync with.
+# The reverted-confidence column set lives in reversion.py, next to the
+# per_seed_records dict it must stay in sync with.
 from reversion import _REVERTED_CONFIDENCE_FIELDS  # noqa: E402
 
-# Receptor-fold "intact" threshold, with a literal fallback so this module stays
-# importable where the thresholds catalogue is absent.
+# Receptor-fold "intact" threshold.  The literal fallback keeps this module
+# importable without the thresholds catalogue.
 try:  # noqa: E402
     from pipeline_thresholds import PipelineInternalThresholds as _PIT
     _INTACT_THRESHOLD = _PIT.default().intact_threshold
 except Exception:
     _INTACT_THRESHOLD = 5.0
 
-# Lazy import of boltz2_negative_steering — it transitively imports
-# numpy and Bio.Align which are only present inside the singularity
-# container.  Phase-2 entry points (iterate-collect, kickoff,
-# aggregate) must NOT trigger this import.
+# boltz2_negative_steering pulls in numpy and Bio.Align, which exist only
+# inside the singularity container.  The host-side stages,
+# kickoff-prefilter and kickoff-finalize, must NOT trigger this import.
 _BNS_MODULE = None
 
 
@@ -54,12 +60,12 @@ def compute_pose_distance(candidate_pdb: Path, reference_pdb: Path,
                           pred_rec_chain: str, pred_eff_chain: str) -> float:
     """receptor_aligned_effector_rmsd between two predicted complexes
     that share both protein sequences and chain naming.  Aligns the
-    receptors via Kabsch then measures the effector displacement —
-    same machinery as binding_rmsds, just both arguments are
-    predictions instead of one being a ground truth.
+    receptors with Kabsch, then measures the effector displacement.
+    Same machinery as binding_rmsds, with both arguments predictions
+    rather than one being ground truth.
 
-    Container-only — calls into boltz2_negative_steering which needs
-    numpy and Bio.Align.
+    Container-only.  It needs numpy and Bio.Align through
+    boltz2_negative_steering.
     """
     bns = _lazy_bns()
     result = bns.compute_binding_rmsds(
@@ -72,17 +78,15 @@ def compute_pose_distance(candidate_pdb: Path, reference_pdb: Path,
 
 
 def maximin_select(candidates: List[Dict], k: int) -> List[Dict]:
-    """Select up to k candidates from `candidates` by max-min distance
-    to the upstream pose set.  Each candidate dict must have a key
-    'min_dist_to_upstream' (float).  Picks the k with the largest
-    such value, ties broken by lower ra_eff vs ground truth.
+    """Pick the k candidates with the largest 'min_dist_to_upstream',
+    a float key every candidate dict must carry, breaking ties by
+    lower ra_eff against ground truth.
 
-    For the tie-break, prefers `_active_ra_eff_for_selection` if
-    present (set by finalize on `pose_holds` rows so the selector
-    sees the reverted ra_eff), falling back to
-    `receptor_aligned_effector_rmsd_vs_truth` (the steered value).
-    Steered base columns are never overwritten — the dedicated
-    `_active_*` keys carry the post-reversion view used for selection.
+    The tie-break prefers `_active_ra_eff_for_selection`, set by
+    finalize, so a pose_holds row is judged on its reverted ra_eff.
+    Steered base columns are never overwritten, so that key is the
+    only post-reversion view here.  It falls back to
+    `receptor_aligned_effector_rmsd_vs_truth`.
     """
     def _ra_eff(c: Dict) -> float:
         v = c.get("_active_ra_eff_for_selection")
@@ -111,12 +115,12 @@ def append_cycle_statistics(experiment_root: Path,
                             n_selected: int,
                             min_dists: List[float],
                             ra_eff_vs_truth: List[float]):
-    """Append one row per (cycle, pathway) to cycle_statistics.csv.
-    The file is created on first write.
+    """Append one row per (cycle, pathway) to cycle_statistics.csv,
+    creating the file on first write.
 
-    Stats include the full list of min_dists and ra_eff_vs_truth as
-    semicolon-joined strings so downstream analysis can fit
-    distributions / draw bell curves without re-walking the tree.
+    min_dists and ra_eff_vs_truth go in whole, semicolon-joined, so
+    downstream analysis can fit distributions without re-walking the
+    tree.
     """
     stats_path = experiment_root / "cycle_statistics.csv"
     is_new = not stats_path.exists()
@@ -139,8 +143,7 @@ def append_cycle_statistics(experiment_root: Path,
 
 
 def _is_nan(x):
-    """Tiny helper that handles either numpy NaN or Python NaN
-    without forcing a numpy import on the caller."""
+    """True for a numpy or a Python NaN, without importing numpy."""
     try:
         return math.isnan(x)
     except TypeError:
@@ -148,11 +151,10 @@ def _is_nan(x):
 
 
 def _copy_reverted_confidence(dst: Dict, rev: Dict) -> None:
-    """Copy every reverted confidence metric from `rev` (a single
-    entry from reversion_results.json) into the candidate dict `dst`
-    that will be written into passing.json.  Missing keys are
-    skipped so the column stays blank on rows that don't have
-    that metric (e.g. chai predictions that don't emit actifptm)."""
+    """Copy every reverted confidence metric from `rev`, one entry of
+    reversion_results.json, into the passing.json candidate dict
+    `dst`.  Missing keys are skipped, so the column stays blank where
+    a row lacks that metric.  Chai predictions omit actifptm."""
     for k in _REVERTED_CONFIDENCE_FIELDS:
         v = rev.get(k)
         if v is not None:
@@ -160,14 +162,12 @@ def _copy_reverted_confidence(dst: Dict, rev: Dict) -> None:
 
 
 def cmd_kickoff_distances(args: argparse.Namespace) -> int:
-    """Phase 1 of kickoff — compute pose distances for every cycle-0
-    design vs the wild-type prediction.  Writes cycle_0/kickoff_distances.json.
+    """Phase 1 of kickoff.  Compute pose distances for every cycle-0
+    design against the wild-type prediction, then write
+    cycle_0/kickoff_distances.json.
 
-    Container-only — uses compute_pose_distance which needs numpy and
-    Bio.Align via boltz2_negative_steering.
-
-    Phase 2 (cmd_kickoff) reads kickoff_distances.json and runs the
-    filter/maximin/sbatch logic in pure stdlib outside the container.
+    Container-only, through compute_pose_distance.  The two host
+    stages that follow are pure stdlib.
     """
     experiment_root = args.experiment_root.resolve()
     cycle0_dir = experiment_root / "cycle_0"
@@ -228,9 +228,8 @@ def cmd_kickoff_distances(args: argparse.Namespace) -> int:
         candidates.append({
             "design": r["design"],
             "design_idx": design["index"],
-            # P0 audit (multi-seed): carry sequence_group + seed_index
-            # from the plan into the candidate dict so per-sequence
-            # aggregation downstream can group on them.
+            # Downstream per-sequence aggregation groups the seeds
+            # of one sequence by these.
             "sequence_group": design.get("sequence_group", ""),
             "seed_index": design.get("seed_index", ""),
             "pdb": str(candidate_pdb),
@@ -239,9 +238,8 @@ def cmd_kickoff_distances(args: argparse.Namespace) -> int:
             "independent_effector_rmsd": float(ind_eff),
             "dists_to_upstream": [dist_val],
             "min_dist_to_upstream": dist_val,
-            # Carry the full result.json through so the aggregator
-            # can surface every per-design metric in cycle_0/passing.json
-            # alongside the kickoff distance/selection info.
+            # The full result.json rides along so the aggregator can
+            # surface every per-design metric in cycle_0/passing.json.
             "result": r,
         })
 
@@ -259,10 +257,9 @@ def cmd_kickoff_distances(args: argparse.Namespace) -> int:
 # Subcommand: kickoff-prefilter  (host, cycle-0 phase 2a)
 # ───────────────────────────────────────────────────────────────────────
 #
-# Cycle-0 equivalent of iterate-collect-prefilter.  Reads
-# kickoff_distances.json, applies the intact filter, writes
-# cycle_0/prefilter.json.  Does not run novelty/maximin/resubmit —
-# those happen in kickoff-finalize after the reversion chain runs.
+# Reads kickoff_distances.json, applies the intact filter, and writes
+# cycle_0/prefilter.json.  Novelty and maximin wait for
+# kickoff-finalize, after the reversion chain runs.
 def cmd_kickoff_prefilter(args: argparse.Namespace) -> int:
     experiment_root = args.experiment_root.resolve()
     cycle0_dir = experiment_root / "cycle_0"
@@ -323,12 +320,12 @@ def cmd_kickoff_prefilter(args: argparse.Namespace) -> int:
 # Subcommand: kickoff-finalize  (host, cycle-0 phase 2c)
 # ───────────────────────────────────────────────────────────────────────
 #
-# Cycle-0 equivalent of iterate-collect-finalize.  Reads
-# cycle_0/prefilter.json + (optionally) cycle_0/reversion_results.json,
-# routes verdicts, re-applies structural filter on reverted designs,
-# merges pose_holds back into the intact list with their reverted
-# sequence rewritten in place, runs novelty/maximin, writes
-# cycle_0/passing.json, and submits cycle-1 chains.
+# Reads cycle_0/prefilter.json and, optionally,
+# cycle_0/reversion_results.json.  Routes verdicts, re-applies the
+# structural filter to reverted designs, rewrites a pose_holds
+# design's reverted sequence in place, selects, and writes
+# cycle_0/passing.json.  The last stage.  It no longer submits
+# cycle-1 chains.
 def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
     experiment_root = args.experiment_root.resolve()
     cycle0_dir = experiment_root / "cycle_0"
@@ -354,16 +351,15 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
     n_generated = int(prefilter.get("n_generated", 0))
     intact_candidates: List[Dict] = list(prefilter.get("intact_candidates", []))
 
-    # Load reversion results if any contaminated designs were processed
+    # Present only if contaminated designs were processed
     reversion_results: Dict[str, Dict] = {}
     reversion_results_path = cycle0_dir / "reversion_results.json"
     if reversion_results_path.exists():
         reversion_results = json.loads(reversion_results_path.read_text())
 
-    # Bug 1 guard: load contaminated.json so we can detect designs that
-    # were flagged contaminated by build-contaminated but never received
-    # a verdict.  Such designs MUST be dropped — silently keeping them
-    # would let unvalidated contaminated designs pass through.
+    # contaminated.json finds designs build-contaminated flagged but
+    # that never got a verdict.  Keeping one would let an unvalidated
+    # contaminated design through, so they MUST be dropped.
     contaminated_labels: set = set()
     contaminated_path = cycle0_dir / "contaminated.json"
     if contaminated_path.exists():
@@ -381,17 +377,16 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
               f"no verdict in reversion_results.json — will be dropped: "
               f"{sorted(missing_verdict_labels)}", file=sys.stderr)
 
-    # Route verdicts.  Cycle-0 labels are just the design name (e.g.
-    # "design_40") since there's no parent pathway.
+    # Cycle-0 labels are the design name, e.g. "design_40", because
+    # there is no parent pathway.
     pose_holds_count = 0
     pose_collapses_count = 0
     new_contamination_count = 0
     dropped_labels: List[str] = []
     reverted_labels: List[str] = []
-    # Designs that got dropped by verdict routing — surfaced into
-    # passing.json's all_candidates with a reversion_verdict marker
-    # so the aggregator CSV can render them.  They do NOT flow into
-    # novelty/maximin.
+    # Dropped by verdict routing.  They reach passing.json's
+    # all_candidates with a reversion_verdict marker so the aggregator
+    # CSV can render them, but never novelty or maximin.
     dropped_rows: List[Dict] = []
 
     def _label_for(c: Dict) -> str:
@@ -403,8 +398,7 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
         label = _label_for(c)
         rev = reversion_results.get(label)
         if rev is None:
-            # Bug 1 guard: if this label was flagged contaminated but
-            # has no verdict, drop it instead of silently keeping it.
+            # Flagged contaminated, with no verdict.
             if label in contaminated_labels:
                 missing_verdict_count += 1
                 dropped_labels.append(label)
@@ -413,8 +407,7 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
                 c_drop = dict(c)
                 c_drop["reversion_verdict"] = "missing_verdict"
                 c_drop["reversion_dropped"] = 1
-                # Steered metrics already in base columns of c_drop;
-                # no overlay required (and no reverted prediction exists).
+                # No overlay required.  No reverted prediction exists.
                 dropped_rows.append(c_drop)
                 continue
             kept.append(c)
@@ -461,12 +454,9 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
                 print(f"  WARN {label}: reverted FASTA not found",
                       file=sys.stderr)
 
-            # Build the kept candidate dict.  Critical invariant:
-            # the base columns hold the steered values; reverted
-            # values live only in dedicated reverted_* keys.  For
-            # selection, _active_ra_eff_for_selection carries the
-            # post-reversion ra_eff so maximin operates on the
-            # reverted pose.
+            # Base columns hold the steered values.  Reverted values
+            # live only in reverted_* keys, plus
+            # _active_ra_eff_for_selection for maximin.
             c2 = dict(c)
             ra = rev.get("reverted_ra_eff_vs_truth")
             if ra is not None:
@@ -502,9 +492,8 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
             c_drop = dict(c)
             c_drop["reversion_verdict"] = verdict
             c_drop["reversion_dropped"] = 1
-            # Steered metrics already in base columns of c_drop.
-            # Overlay reverted metrics so the CSV shows what the
-            # reverted prediction looked like.
+            # Overlay reverted metrics so the CSV shows the reverted
+            # prediction beside the steered base columns.
             if rev.get("reverted_ra_eff_vs_truth") is not None:
                 c_drop["reverted_ra_eff_vs_truth"] = float(rev["reverted_ra_eff_vs_truth"])
             if rev.get("reverted_independent_receptor_rmsd") is not None:
@@ -584,10 +573,8 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
     if n_selected == 0:
         print("  no qualifying designs at cycle 0 — nothing to iterate.")
         return 0
-    # Follow-up cycles were removed with the rest of the multi-cycle harness
-    # (see archive/boltz2_iterate_steering_multicycle.py). This stage finalises
-    # cycle 0 and stops. --max-cycles is retained because callers pass it, but
-    # any value now behaves as 0.
+    # Finalises cycle 0 and stops.  --max-cycles is kept because
+    # callers pass it, but any value now behaves as 0.
     if max_cycles >= 1:
         print(f"  max-cycles={max_cycles}: follow-up cycles are not implemented; "
               "finalising cycle 0 only.", file=sys.stderr)

@@ -1,11 +1,8 @@
-"""
-designed_sequence.py
---------------------
-DesignedSequence — one MPNN-designed sequence overlaid on one
+"""DesignedSequence — one MPNN-designed sequence overlaid on one
 DesignedBackbone.
 
-Per Phase 4 spec §2.7.  Tier 4 type — depends on DesignedBackbone
-(Tier 3) and PositionSet (Tier 1).
+Tier 4 type, depending on DesignedBackbone (Tier 3) and PositionSet
+(Tier 1).
 """
 
 from __future__ import annotations
@@ -27,9 +24,11 @@ from position_set import PositionSet  # noqa: E402
 class DesignedSequence:
     """One MPNN-designed sequence for one DesignedBackbone.
 
-    Carries the corrected receptor amino-acid string (native at fixed
-    positions, MPNN-designed at design positions), the MPNN-only and
-    native-only slices at the design positions, and the MPNN score.
+    `corrected_receptor` is the full receptor amino-acid string, native
+    at the fixed positions and MPNN-designed at the design positions.
+    `designed_residues` and `native_residues` are the two slices at the
+    design positions, directly comparable.  `mpnn_score` is MPNN's own
+    score.
     """
     backbone: DesignedBackbone
     sequence_id: str
@@ -53,10 +52,9 @@ class DesignedSequence:
             raise TypeError("designed_residues must be a string")
         if not isinstance(self.native_residues, str):
             raise TypeError("native_residues must be a string")
-        # Length sanity check: corrected_receptor should be at least
-        # as long as the contig's receptor length.  Doesn't have to
-        # match exactly because the corrected receptor may include
-        # trailing native residues outside the contig region.
+        # corrected_receptor must be at least as long as the contig's
+        # receptor, not exactly, since it can carry trailing native
+        # residues from outside the contig region.
         expected_min = self.backbone.receptor_length()
         if len(self.corrected_receptor) < expected_min:
             raise ValueError(
@@ -85,19 +83,17 @@ class DesignedSequence:
         return f">{self.sequence_id}\n{self.corrected_receptor}\n"
 
     def mutations_vs_native(self) -> List[Tuple[int, str, str]]:
-        """Return a list of (designed_position, native_aa, designed_aa)
-        for positions where the designed residue differs from the
-        native residue.
+        """Return (designed_position, native_aa, designed_aa) wherever
+        the designed residue differs from the native one.
 
-        Operates on the design-region slice only; positions outside
-        the design region are by construction equal to native.
-        Position numbers are in the `designed` frame (1-based along
-        the corrected receptor) of the de novo segment(s).
+        It looks at the design-region slice only, since positions
+        outside it equal native by construction.  The positions are in
+        the `designed` frame, counting from 1 along the corrected
+        receptor.
         """
         out: List[Tuple[int, str, str]] = []
         dr_positions = self.design_region().as_sorted_list()
-        # Walk the parallel slices.  Pipe-joined inputs are flattened
-        # to single strings for the per-position comparison.
+        # A pipe-joined input is flattened first.
         designed = self.designed_residues.replace("|", "")
         native = self.native_residues.replace("|", "")
         n = min(len(designed), len(native), len(dr_positions))
@@ -109,7 +105,8 @@ class DesignedSequence:
         return out
 
     def n_changes(self) -> int:
-        """Count of positions where designed differs from native."""
+        """Count positions where designed and native residues
+        differ."""
         return len(self.mutations_vs_native())
 
     def __repr__(self) -> str:

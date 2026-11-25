@@ -1,42 +1,39 @@
 #!/usr/bin/env python3
 """Generate the interface-ablation control configs from the benchmark specs.
 
-Two benchmark claims need two controls, so each arm gets its own. The restrained
-arm posed all eighteen targets correctly, but it hands the model the interface
-twice over, through the reference restraints and through the protected set. The
-unrestrained arm posed fifteen with negative steering alone, which forbids the
-competing surface without naming the right one. In both, the receptor's
-true-interface residues are permuted at fixed composition before the run while
-the reference PDB stays untouched, so the restraints, the protected set and the
-RMSD all still point at the solved pose. A pose that still lands inside the
-threshold is then a false positive by construction, and the two arms fail for
-different reasons if they fail.
+Two benchmark claims, so two controls. The restrained arm, which posed all
+eighteen targets correctly, hands the model the interface twice, via the
+reference restraints and the protected set. The unrestrained arm posed
+fifteen with negative steering alone, forbidding the competing surface
+without naming the right one.
 
-Each generated config is the tracked benchmark config for that arm with `name`
-and `reference_pdb` changed and `interface_ablation` added. Everything else is
-copied byte for byte, comments included, and the script refuses to write a config
-that differs anywhere else or whose constraints toggle disagrees with its arm.
-The smoke variants additionally turn down `negsteer_n_designs` and
-`negsteer_diffusion_samples`, which is the only reason they are fast and also the
-reason their numbers are not comparable with anything.
+Both arms permute the receptor's true-interface residues before the run, at
+fixed amino-acid composition. The reference PDB stays untouched, so the
+restraints, the protected set and the RMSD still point at the solved pose. A
+pose inside the threshold is a false positive by construction, and the arms
+fail differently.
 
-The tree it writes is experiments/interface-ablation/<variant>/<TARGET>/, entirely
-separate from experiments/benchmarking/, so no existing run can be overwritten.
-The reference PDB is not copied. Each config points back at the single tracked
-copy under data/reference_complexes/, the same one the benchmark configs use.
+Each generated config is the arm's tracked benchmark config with `name` and
+`reference_pdb` changed and `interface_ablation` added. All else is copied
+byte for byte, comments included, and the script refuses a config differing
+elsewhere or whose constraints toggle disagrees with its arm.
+Smoke variants also turn down `negsteer_n_designs` and
+`negsteer_diffusion_samples`, so they are fast and their numbers compare
+with nothing.
 
-Source configs come from the working tree when it has them and from git HEAD when
-it does not, so a dirty checkout cannot change what is generated.
+Output goes to experiments/interface-ablation/<variant>/<TARGET>/, apart
+from experiments/benchmarking/, so no existing run can be overwritten. No PDB
+is copied, each config pointing at the one tracked copy under
+data/reference_complexes/ the benchmark configs use. Source configs come from
+the working tree, else git HEAD, so a dirty checkout changes nothing.
 
-Alanine substitution is available in prepare_complex_inputs.py as
-`--ablate alanine`, and no variant here uses it. The permutation is the harder
-control, because it holds the receptor's amino-acid composition fixed and moves
-only the order.
+prepare_complex_inputs.py also offers `--ablate alanine`, which no variant
+uses. Permutation is the harder control, holding composition fixed and
+changing only the order.
 
 Usage:
-  python3 scripts/make_ablation_controls.py --dry-run
   python3 scripts/make_ablation_controls.py --variant smoke_scrambled_restrained
-  python3 scripts/make_ablation_controls.py            # every variant, all targets
+  python3 scripts/make_ablation_controls.py --dry-run  # every variant, writes nothing
 """
 
 from __future__ import annotations
@@ -50,16 +47,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEST = REPO_ROOT / "experiments" / "interface-ablation"
 
-# Which benchmark arm each control is the control FOR. The directory name is also
-# the authority on the constraints toggle, which is asserted rather than set.
+# Which arm each control belongs to. The directory name is the authority on
+# the constraints toggle, which this script asserts.
 ARM_SOURCE = {
     "restrained":   "experiments/benchmarking/constrained",
     "unrestrained": "experiments/benchmarking/unconstrained",
 }
 ARM_CONSTRAINTS = {"restrained": True, "unrestrained": False}
 
-# The two smallest complexes in the benchmark by total residue count, 158 for
-# 7QZD and 135 for 9IP6, so a smoke run pays the least per prediction.
+# The two smallest benchmark complexes, 158 residues for 7QZD and 135 for
+# 9IP6, so a smoke run pays least per prediction.
 SMOKE_TARGETS = ("7QZD", "9IP6")
 
 VARIANTS = {
@@ -114,7 +111,7 @@ interface_ablation: "{ablation}"
 
 
 def _display(path: Path) -> str:
-    """Repo-relative where that means something, absolute otherwise."""
+    """The path relative to the repo root, else absolute."""
     try:
         return str(path.relative_to(REPO_ROOT))
     except ValueError:
@@ -132,7 +129,8 @@ def _git_show(rev: str, *, binary: bool = False):
 
 
 def _source_text(arm: str, target: str) -> str:
-    """The tracked benchmark config for this arm, working tree or git HEAD."""
+    """The tracked benchmark config for this arm and target, from the
+    working tree or git."""
     rel = f"{ARM_SOURCE[arm]}/{target}/config.yml"
     path = REPO_ROOT / rel
     return path.read_text() if path.is_file() else _git_show(f"HEAD:{rel}")
@@ -145,13 +143,14 @@ def _source_pdb(target: str) -> bytes:
 
 
 def _targets(arm: str) -> list[str]:
-    """Every target this arm defines, working tree or git HEAD."""
+    """Every target this arm defines, from the working tree or git
+    HEAD."""
     rel = ARM_SOURCE[arm]
     live = sorted(p.parent.name for p in (REPO_ROOT / rel).glob("*/config.yml"))
     if live:
         return live
-    # `git show` on a tree prints a "tree <rev>" header, a blank line, then one
-    # entry per line with directories suffixed by "/". Only those are targets.
+    # `git show` on a tree prints a header, a blank line, then one entry per
+    # line, directories suffixed by "/". Only those are targets.
     listed = sorted(line.rstrip("/") for line
                     in _git_show(f"HEAD:{rel}").splitlines() if line.endswith("/"))
     if not listed:
@@ -160,7 +159,9 @@ def _targets(arm: str) -> list[str]:
 
 
 def transform(text: str, target: str, variant: str, spec: dict) -> str:
-    """Apply the edits, and prove nothing else moved."""
+    """Return the generated config text for one target, applying the allowed
+    edits then checking nothing else moved and each edit took.
+    """
     arm = spec["arm"]
     out = re.sub(r'^name:\s*"[^"]*"',
                  f'name: "{target}_{ABLATION}_{arm}"', text, count=1, flags=re.M)
@@ -175,10 +176,9 @@ def transform(text: str, target: str, variant: str, spec: dict) -> str:
         allowed += ["negsteer_n_designs:", "negsteer_diffusion_samples:"]
 
     changed = [(a, b) for a, b in zip(text.splitlines(), out.splitlines()) if a != b]
-    # Both of these are unreachable from the substitutions above, which only
-    # ever rewrite the value on a line whose key is in `allowed` and never
-    # change the line count. They are kept as the check on a future edit: add
-    # a substitution without adding its key to `allowed` and this fires.
+    # Neither check can fire from the substitutions above, which only rewrite
+    # `allowed` keys and never change the line count. They catch future
+    # ones.
     stray = [b for _, b in changed if not b.startswith(tuple(allowed))]
     if stray:  # pragma: no cover - guards a future edit
         raise SystemExit(f"ERROR: {variant}/{target} changed lines it should not:\n"
@@ -186,8 +186,8 @@ def transform(text: str, target: str, variant: str, spec: dict) -> str:
     if len(text.splitlines()) != len(out.splitlines()):  # pragma: no cover
         raise SystemExit(f"ERROR: {variant}/{target} line count changed.")
 
-    # The constraints toggle is NOT set here. It is whatever the source arm
-    # committed, and this asserts the source was the arm the variant claims.
+    # The constraints toggle is never set here, staying whatever the source
+    # arm committed. This asserts the source matched the claim.
     want = "true" if ARM_CONSTRAINTS[arm] else "false"
     checks = [
         (rf'^name: "{target}_{ABLATION}_{arm}"$', "name"),
@@ -241,9 +241,9 @@ def main(argv: list[str]) -> int:
                 dest.write_text(body)
             written += 1
 
-    # Nothing is copied. Both arms and every generated config resolve to the one
-    # tracked structure, so the arms cannot disagree about what truth is. Assert
-    # it is there rather than writing a second copy that could drift from it.
+    # Every generated config resolves to the one tracked structure, so the
+    # arms cannot disagree about truth. Assert it exists rather than copy
+    # it.
     for target in sorted(refs_needed):
         if not _source_pdb(target):
             raise SystemExit(f"ERROR: no reference PDB for {target} under "

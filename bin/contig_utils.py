@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
-"""
-contig_utils.py
----------------
-Shared contig parsing and resolution utilities for RFDiffusion scripts.
+"""Shared contig parsing and resolution helpers for RFDiffusion scripts.
 
-Provides functions to:
-  - Read chain residue ranges from PDB files
-  - Parse contig strings into typed segment descriptors
-  - Resolve bare chain refs and remap residue numbers to match PDB
-  - Identify design vs fixed regions
-  - Compute expected chain lengths
+``contig_spec.py`` documents the contig notation and is the other half
+of the pair that interprets it.  Most functions here are thin adapters
+over ``contig_spec.ContigSpec``.
 """
 
 import sys
 
-# Three-letter to one-letter amino acid map.  Covers the 20 standard
-# residues plus common non-standard / modified codes encountered in PDB
-# and mmCIF files (selenomethionine MSE, selenocysteine SEC, pyrrolysine
-# PYL, hydroxyproline HYP, phospho-Thr/Ser/Tyr TPO/SEP/PTR).  Unknown
-# residue codes should map to "X" by callers using `.get(code, "X")`.
+# Three-letter to one-letter amino acid map.  It covers the 20 standard
+# residues plus the modified codes in PDB and mmCIF files, meaning
+# selenomethionine MSE, selenocysteine SEC, pyrrolysine PYL,
+# hydroxyproline HYP and phospho-Thr/Ser/Tyr TPO/SEP/PTR.  Use
+# `.get(code, "X")` so an unknown code becomes "X".
 THREE_TO_ONE: dict[str, str] = {
     "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
     "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",
@@ -30,7 +24,8 @@ THREE_TO_ONE: dict[str, str] = {
 
 
 def get_chain_residue_range(pdb_path, chain_id):
-    """Return (min_resnum, max_resnum) for a chain, or (None, None) if absent."""
+    """Return (min_resnum, max_resnum) for a chain, or (None, None)
+    when it has no atoms in the PDB."""
     resnums = set()
     with open(pdb_path) as f:
         for line in f:
@@ -43,7 +38,7 @@ def get_chain_residue_range(pdb_path, chain_id):
 
 
 def get_chain_residues_sorted(pdb_path, chain_id):
-    """Return sorted list of unique residue numbers for a chain."""
+    """Return the chain's unique residue numbers, sorted."""
     resnums = set()
     with open(pdb_path) as f:
         for line in f:
@@ -57,22 +52,21 @@ def get_chain_residues_sorted(pdb_path, chain_id):
 
 def parse_block_segments(block, rec_chain=None, pdb_path=None):
     """
-    Parse a single contig block (e.g. "A1-390/20-40/A421-438") into a list
-    of typed segment descriptors:
+    Parse a single contig block (e.g. "A1-390/20-40/A421-438") into
+    typed segment descriptors:
         ("fixed", chain, start, end)
         ("denovo", "min-max")
         ("break",)
         ("passthrough", raw_string)
 
-    Thin adapter around :class:`contig_spec.ContigChain` (Phase 4).  All
-    RFDiffusion contig-grammar features — including the chain-break
-    marker (`0`) and bare-chain-letter passthrough — round-trip through
-    the typed form.  Optional ``pdb_path`` triggers post-parse
-    resolution of passthrough segments to fixed residue ranges (via
-    ``get_chain_residue_range``).
+    A thin adapter around :class:`contig_spec.ContigChain`, so the whole
+    grammar round-trips, including the `0` break marker and the bare
+    chain letter.  Pass ``pdb_path`` to resolve passthrough segments
+    into fixed ranges via ``get_chain_residue_range``.
 
-    Returns ``(descs, block_chain)`` to preserve the legacy CLI contract
-    used by ``resolve_contigs`` and ``remap_segments_to_pdb`` downstream.
+    Returns ``(descs, block_chain)``, the shape ``resolve_contigs`` and
+    ``remap_segments_to_pdb`` expect even though the typed form carries
+    the chain.
     """
     import sys as _sys
     from pathlib import Path as _Path
@@ -85,22 +79,20 @@ def parse_block_segments(block, rec_chain=None, pdb_path=None):
         PassthroughSegment,
     )
 
-    # ContigSpec.from_string parses multi-chain space-separated blocks.
-    # parse_block_segments operates on a single block, so wrap-and-pick.
+    # from_string handles several blocks, this takes one.
     try:
         spec = ContigSpec.from_string(block)
     except ValueError as e:
         raise ValueError(f"contig block {block!r} parse failed: {e}")
-    # No `if not spec.chains` guard: from_string raises on empty input and
-    # appends one ContigChain per whitespace-separated block, so a successful
-    # parse always carries at least one chain.
+    # No guard is needed, since from_string raises on empty input and
+    # adds one ContigChain per block.
     chain = spec.chains[0]
     block_chain = chain.chain_id
 
     descs = []
-    # Bare-chain blocks (e.g. `B` alone) parse into ContigChain with
-    # segments=(); legacy parse_block_segments emitted a single
-    # passthrough descriptor for these.  Preserve that behaviour.
+    # A bare-chain block such as `B` gives no segments.  The earlier
+    # hand-written parser emitted one passthrough descriptor, so keep
+    # that.
     if not chain.segments:
         if pdb_path:
             lo, hi = get_chain_residue_range(pdb_path, block_chain)
@@ -127,8 +119,11 @@ def parse_block_segments(block, rec_chain=None, pdb_path=None):
 
 def _resolve_denovo_lengths(seg_descs, pdb_total):
     """
-    For variable-length de novo segments, resolve actual lengths using the
-    total PDB residue count. Returns {seg_index: resolved_length}.
+    Work out concrete lengths for variable de novo segments from the
+    total PDB residue count.  Returns {seg_index: resolved_length}.
+
+    One variable segment absorbs the leftover residues.  With more than
+    one there is no unique answer, so each takes its minimum.
     """
     total_fixed = sum(d[3] - d[2] + 1 for d in seg_descs if d[0] == "fixed")
     denovo_known = 0
@@ -158,14 +153,13 @@ def _resolve_denovo_lengths(seg_descs, pdb_total):
 
 def remap_segments_to_pdb(seg_descs, block_chain, pdb_path):
     """
-    Check if fixed-segment residue references exist in the PDB.
-    If not, remap them by walking the PDB residues sequentially.
-    Returns the (possibly remapped) segment descriptors.
+    Check that the fixed segments' residue references exist in the PDB,
+    remapping them along the PDB residues in order if they do not.
 
-    Fails loudly if the block references a chain that has no atoms in
-    the PDB at all — silently passing through such a contig would let
-    RFDiffusion fail later with a confusing "(<chain>, 1) is not in pdb
-    file!" assertion error.
+    It fails loudly when the block names a chain with no atoms in the
+    PDB.  Passing such a contig through silently makes RFDiffusion fail
+    much later with the confusing assertion
+    "(<chain>, 1) is not in pdb file!".
     """
     if block_chain is None:
         return seg_descs
@@ -175,9 +169,6 @@ def remap_segments_to_pdb(seg_descs, block_chain, pdb_path):
     pdb_total = len(pdb_res_sorted)
 
     if pdb_total == 0:
-        # If this block has fixed segments referencing this chain, the
-        # contig is broken — RFDiffusion will fail downstream with a
-        # confusing assertion.  Surface a clear error here instead.
         has_fixed_segs = any(d[0] == "fixed" for d in seg_descs)
         if has_fixed_segs:
             referenced = ",".join(
@@ -192,7 +183,7 @@ def remap_segments_to_pdb(seg_descs, block_chain, pdb_path):
             )
         return seg_descs
 
-    # Check if remapping is needed
+    # Remap only if some referenced residue is missing from the PDB.
     needs_remap = any(
         r not in pdb_set
         for d in seg_descs if d[0] == "fixed"
@@ -228,7 +219,7 @@ def remap_segments_to_pdb(seg_descs, block_chain, pdb_path):
 
 
 def segments_to_string(seg_descs):
-    """Convert typed segment descriptors back to a contig string fragment."""
+    """Render typed segment descriptors back into one contig block."""
     parts = []
     for desc in seg_descs:
         if desc[0] == "break":
@@ -244,25 +235,21 @@ def segments_to_string(seg_descs):
 
 def resolve_contigs(raw_contigs, pdb_path):
     """
-    Convert user-friendly contig notation into RFDiffusion-compatible format.
+    Convert the user-friendly contig notation into the form RFDiffusion
+    accepts.  It handles bare chain letters, single-residue shorthands
+    and bare de novo numbers, and remaps fixed-segment residues onto the
+    PDB's own numbering.
 
-    Handles: bare chain letters, single-residue shorthands, bare de novo
-    numbers, and remaps fixed-segment residues to match actual PDB numbering.
-
-    Delegates per-block parsing to :func:`parse_block_segments`, which is
-    a thin adapter over :class:`contig_spec.ContigSpec`.  The only
-    non-delegated branch is the bare-chain shortcut — it goes through a
-    direct PDB lookup so that a chain not present in the PDB surfaces a
-    visible WARNING (the ContigSpec/passthrough path would silently emit
-    the bare letter back instead).
+    Per-block parsing goes to :func:`parse_block_segments`, except the
+    bare-chain shortcut, which does its own PDB lookup so a missing
+    chain prints a visible WARNING.  The passthrough path through
+    ContigSpec would just echo the bare letter back.
     """
     blocks = raw_contigs.replace(",", " ").replace(":", " ").split()
     out_blocks = []
 
     for block in blocks:
-        # Bare chain letter (e.g. "B") — direct PDB lookup so the
-        # missing-chain case surfaces a warning rather than passing
-        # through silently as a PassthroughSegment.
+        # Bare chain letter such as "B".
         if len(block) == 1 and block.isalpha():
             lo, hi = get_chain_residue_range(pdb_path, block)
             if lo is not None:
@@ -281,8 +268,8 @@ def resolve_contigs(raw_contigs, pdb_path):
 
 def get_expected_chain_lengths(contigs, rec_chain, eff_chain):
     """
-    Parse a resolved contig string and return expected (rec_len, eff_len).
-    De novo segments use the midpoint of min-max as expected length.
+    Parse a resolved contig string and return (rec_len, eff_len).  A de
+    novo segment contributes the midpoint of its min-max range.
     """
     blocks = contigs.split()
     rec_len = eff_len = 0
@@ -320,16 +307,13 @@ def get_expected_chain_lengths(contigs, rec_chain, eff_chain):
 
 def parse_design_region(contigs, rec_chain):
     """
-    Identify de novo (design) and fixed residue sets from the contig string.
-    De novo residues are those in gaps between consecutive fixed ranges.
-    Returns (design_residues, fixed_residues) as sets of native residue
-    numbers on the receptor chain.
+    Return (design_residues, fixed_residues) for the receptor chain,
+    both sets of native residue numbers.  The design residues are the
+    gaps between consecutive fixed ranges.
 
-    Thin adapter around :class:`contig_spec.ContigSpec`: parses the
-    contig once, looks up the receptor chain (case-insensitive), and
-    derives the design region as the gaps between consecutive fixed
-    segments in native numbering.  Returns empty sets if the contig
-    can't be parsed or the receptor chain isn't present.
+    A thin adapter around :class:`contig_spec.ContigSpec`, matching the
+    receptor chain case-insensitively.  Two empty sets come back if the
+    contig will not parse or the receptor chain is absent.
     """
     import sys as _sys
     from pathlib import Path as _Path

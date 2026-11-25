@@ -14,8 +14,8 @@ expected to read negsteer_result.json rather than glob for files.
 __version__ = "1.0.0"
 
 # The output contract, versioned separately from the package. A caller pins
-# this, not __version__: the package may change without the shape of the run
-# directory changing, and a caller only cares about the latter.
+# this rather than __version__. The package may change without the shape of
+# the run directory changing, and a caller only cares about the latter.
 #
 # 1  first published contract
 OUTPUT_CONTRACT_VERSION = 1

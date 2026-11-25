@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Sum the per-stage seconds a run recorded into run_one_runtime_sec.txt.
 
-The single SLURM job that used to run every stage in sequence wrote its own
+The single SLURM job that ran every stage in sequence wrote its own
 elapsed time. The stages are separate Nextflow tasks now, so each appends its
-seconds to <run>/.stage_times and this sums them. That is the same quantity the
-serial job measured, and it is what the compute-cost analysis reads.
+seconds to <run>/.stage_times and this sums them, the same quantity the serial
+job measured, which the compute-cost analysis reads.
 
-Wall-clock across the whole run is not the same number, because tasks overlap.
-Summing keeps the value comparable with the committed benchmark.
+Wall-clock across the run differs, because tasks overlap. Summing keeps
+the value comparable with the committed benchmark.
 """
 
 from __future__ import annotations
@@ -18,6 +18,11 @@ from pathlib import Path
 
 
 def total_seconds(stage_times: Path) -> int:
+    """Add up the seconds in a .stage_times file.
+
+    Each line is a stage name and its seconds, whitespace-separated.
+    Other lines are skipped.  Missing files give 0.
+    """
     if not stage_times.is_file():
         return 0
     total = 0
