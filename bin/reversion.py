@@ -1614,7 +1614,9 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
     for design_slot, evals in by_design.items():
         n_correctly_placed = len(evals)
         n_contaminated = sum(1 for e in evals if e["is_contaminated"])
-        if n_correctly_placed == 0:
+        if n_correctly_placed == 0:  # pragma: no cover - defaultdict key
+            # by_design is a defaultdict and every key is created by an
+            # append, so a group always has at least one evaluation.
             continue
         majority_threshold = math.ceil(n_correctly_placed / 2)
         if n_contaminated < majority_threshold:

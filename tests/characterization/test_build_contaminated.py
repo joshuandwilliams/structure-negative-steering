@@ -658,3 +658,78 @@ def test_the_mutated_positions_are_forwarded(rev, tmp_path):
     assert argv[argv.index("--contact-cutoff") + 1] == "5.0"
     assert argv[argv.index("--effector-atom-filter-json") + 1] == str(
         run.root / "plan.json")
+
+
+# ── failures inside the per-candidate loop ───────────────────────────────────
+#
+# Each of these drops one candidate and keeps going. The loop is the only
+# place a design's mutation history is read, so a design whose history cannot
+# be read has no mutated positions, and the contamination check then has
+# nothing to intersect the contact set against.
+
+@pytest.mark.logic
+def test_an_empty_mutations_file_is_a_warning_not_a_crash(rev, tmp_path,
+                                                           capsys):
+    """read_mutations_tsv_full skips the header with next(f), which raises
+    StopIteration on a file that exists and is empty. That is what a task
+    killed between creating the file and writing its header leaves behind.
+    Without the guard the whole stage would stop on one such design."""
+    run = Run(tmp_path / "wd").design("design_00", contacts="3").write()
+    (run.root / "design_00_s0" / "mutations.tsv").write_text("")
+    assert run.run(rev) == 0
+    assert "read_mutations_tsv_full failed" in capsys.readouterr().err
+    assert run.doc()["n_contaminated"] == 0
+
+
+@pytest.mark.logic
+def test_a_design_with_no_readable_history_is_treated_as_unmutated(rev,
+                                                                    tmp_path):
+    """Not as contaminated. An unreadable history means the positions are
+    unknown, and guessing them would revert residues the design may not
+    carry."""
+    run = Run(tmp_path / "wd").design("design_00", contacts="3").write()
+    (run.root / "design_00_s0" / "mutations.tsv").write_text("")
+    run.run(rev)
+    assert run.doc()["contaminated"] == []
+
+
+@pytest.mark.logic
+def test_a_metrics_call_that_hangs_drops_that_candidate(rev, tmp_path,
+                                                         capsys, monkeypatch):
+    """The call is capped at 600 seconds. One design that hangs must not
+    hold the stage past its own walltime, because the candidates after it
+    would then never be checked at all."""
+    import subprocess as sp
+
+    real = sp.run
+
+    def timing_out(cmd, *a, **kw):
+        if any("stub_cm" in str(c) for c in cmd):
+            raise sp.TimeoutExpired(cmd=cmd, timeout=600)
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(sp, "run", timing_out)
+    run = (Run(tmp_path / "wd")
+           .design("design_00", contacts="3")
+           .design("design_01", contacts="3")
+           .write())
+    assert run.run(rev) == 0
+    assert "timed out" in capsys.readouterr().err
+    assert run.doc()["n_contaminated"] == 0
+
+
+@pytest.mark.logic
+def test_a_scratch_directory_that_cannot_be_removed_is_left_alone(
+        rev, tmp_path, monkeypatch):
+    """Tidying up is not worth failing a stage that has already produced its
+    answer. contaminated.json is written before the cleanup."""
+    import shutil
+
+    def boom(*a, **kw):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(shutil, "rmtree", boom)
+    run = Run(tmp_path / "wd").design("design_00", contacts="3").write()
+    assert run.run(rev) == 0
+    assert run.doc()["n_contaminated"] == 1
+    assert (run.root / "contamination_scratch").is_dir()

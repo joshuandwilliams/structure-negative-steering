@@ -345,3 +345,20 @@ def test_the_cutoff_is_exclusive_at_the_threshold(rev, tmp_path):
     h.slot("d0", displace=5.0).write()
     h.run(rev, "--structural-ra-eff-cutoff", "5.0")
     assert h.verdicts()["d0"]["verdict"] == "pose_collapses"
+
+
+# ── resolving compute_metrics.py ─────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_the_metrics_script_defaults_to_this_script_s_sibling(rev, tmp_path):
+    """Nextflow invokes the stage by absolute path with no flags beyond the
+    workdir, so the default has to resolve without being told. The sibling
+    is where the container stages every bin/ script."""
+    h = Harvest(tmp_path / "wd", true_interface=range(0, 40))
+    h.slot("d0").write()
+    argv = ["harvest-reversions", "--workdir", str(h.root)]
+    args = rev.build_parser().parse_args(argv)
+    assert args.compute_metrics_script is None
+    assert rev.cmd_harvest_reversions(args) == 0
+    assert h.verdicts()["d0"]["verdict"] in ("pose_holds", "pose_collapses",
+                                             "new_contamination")

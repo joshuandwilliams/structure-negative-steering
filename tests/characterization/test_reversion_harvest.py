@@ -781,3 +781,29 @@ def _translate_chain(pdb: Path, chain: str, delta, *, every_other=False):
                         f"{xyz[2]:8.3f}" + line[54:])
         out.append(line)
     pdb.write_text("\n".join(out) + "\n")
+
+
+@pytest.mark.logic
+def test_an_unexpected_failure_against_the_parent_only_loses_the_drift(
+        rev, h, monkeypatch, capsys):
+    """The rescue question is asked against the ground truth, so a failure
+    comparing the reverted pose to its steered parent must not cost the
+    record. Only the drift goes unknown, written as null rather than as a
+    number, and the warning says which design it was."""
+    import boltz2_negative_steering as bns
+
+    real = bns.binding_rmsds
+
+    def fail_against_the_parent(**kw):
+        if kw["truth_pdb"] != h.truth:
+            raise RuntimeError("chain map was not resolvable")
+        return real(**kw)
+
+    monkeypatch.setattr(bns, "binding_rmsds", fail_against_the_parent)
+    rec = h.slot("d0").write().run(rev)["d0"]
+    assert rec["reverted_ra_eff_vs_steered"] is None
+    assert rec["reverted_ra_eff_vs_truth"] == pytest.approx(0.0, abs=1e-6)
+    assert rec["reverted_intact"] is True
+    err = capsys.readouterr().err
+    assert "binding_rmsds vs steered failed" in err
+    assert "chain map was not resolvable" in err
