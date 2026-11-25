@@ -1191,6 +1191,11 @@ def _aggregate_csv_fieldnames(rows: List[Dict]) -> List[str]:
     extra = sorted(k for k in all_keys
                    if k not in preferred and k != "parent_pathway")
     # parent_pathway: silently dropped (derivable from pathway)
+    # With no rows there are no keys to intersect against, so fall back to the
+    # full preferred order. A run where nothing passed is a result, and it has
+    # to leave a readable empty table rather than no file at all.
+    if not all_keys:
+        return list(preferred)
     return [k for k in preferred if k in all_keys] + extra
 
 
@@ -1541,6 +1546,13 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
             rows.append(row)
 
     out_csv = experiment_root / "all_results_multicycle.csv"
+    if not rows:
+        # The "Wrote" line below used to print for a zero-row run without any
+        # file being created, so anything reading the table afterwards got a
+        # FileNotFoundError having been told it was written. Write the header.
+        with open(out_csv, "w", newline="") as f:
+            csv.DictWriter(f, fieldnames=_aggregate_csv_fieldnames([]),
+                           extrasaction="ignore").writeheader()
     if rows:
         # ── Translate internal dict keys to the new clean CSV schema ──
         # Internal keys preserve historical names so upstream code keeps
