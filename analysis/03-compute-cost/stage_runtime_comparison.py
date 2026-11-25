@@ -50,6 +50,7 @@ Usage:
 
 import argparse
 import re
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -92,7 +93,12 @@ NEGSTEER_LABEL = "Boltz-2 + negative steering (steering sets = 20)"
 DOSE_SWEEP_DOSES = (3, 5, 10, 50)
 DOSE_SWEEP_LABEL = "Boltz-2 + negative steering, dose sweep (steering sets = {n})"
 CAMPAIGN_LABEL = "Boltz-2 + negative steering, AVR-PikF campaign (steering sets = 3)"
-CAMPAIGN_SURVIVORS_REL = ("experiments/campaigns/pikp1_avrpikf/analyses/survivor_metrics/"
+# That campaign's analyses were renumbered, and survivor_metrics/ became
+# _archive/superseded-survivor-metrics/ with this table moving to 06. Reading
+# the old path cost the 128 campaign rows silently, because a missing file
+# drops a cohort rather than failing, so the table still looked complete.
+CAMPAIGN_SURVIVORS_REL = ("experiments/campaigns/pikp1_avrpikf/analyses/"
+                          "06-confidence-and-biophysical-metrics/"
                           "data/crystal_full_test_contig_survivors.csv")
 CAMPAIGN_PER_SEED_REL = "analysis/05-campaign-confidence/campaign_data/campaign_per_seed.csv"
 CAMPAIGN_DIFFUSION_SAMPLES = 5   # negsteer_diffusion_samples in the run's params.yml
@@ -295,6 +301,8 @@ def main():
                     help="path to the structure-prediction-benchmarking checkout")
     ap.add_argument("--campaign-repo", type=Path, default=DEFAULT_CAMPAIGN_REPO,
                     help="path to the receptor-resurfacing-pipeline checkout")
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="write even if a cohort already in the output is missing here")
     ap.add_argument("--summary", type=Path,
                     default=HERE.parent / "01-pose-rescue" / "benchmark_summary.csv",
                     help="benchmark_summary.csv, read for the Tier-1 target list")
@@ -326,6 +334,27 @@ def main():
                           campaign_memory(HERE / CAMPAIGN_TRACE_MEMORY_REL))
            + bench_rows(args.bench_repo, targets))
     df = pd.DataFrame(rows)
+
+    # A cohort whose source tree is missing is skipped rather than fatal, so
+    # that one absent checkout does not block the rest. The danger is the next
+    # line: writing the short table over the committed one looks like a
+    # successful run and the skip message scrolls past. Compare against what is
+    # already committed and refuse to shrink it.
+    if args.out.is_file() and not args.allow_partial:
+        have = pd.read_csv(args.out).groupby(["model", "variant"]).size()
+        now = df.groupby(["model", "variant"]).size()
+        lost = [k for k in have.index if now.get(k, 0) < have[k]]
+        if lost:
+            print(f"ERROR: {args.out.name} already holds cohorts this run could "
+                  f"not rebuild, so writing would lose them:", file=sys.stderr)
+            for k in lost:
+                print(f"         {k[0]} / {k[1]}: {have[k]} rows -> "
+                      f"{now.get(k, 0)}", file=sys.stderr)
+            print("       Point --campaign-repo and --bench-repo at the "
+                  "checkouts that carry them,\n"
+                  "       or pass --allow-partial to overwrite anyway.",
+                  file=sys.stderr)
+            return 2
     df["sec_per_prediction"] = df["elapsed_min"] * 60.0 / df["n_predictions"]
     df = df.sort_values(["model", "variant", "target"]).reset_index(drop=True)
     df.to_csv(args.out, index=False)
@@ -341,7 +370,8 @@ def main():
                       median_peak_rss_gb=("peak_rss_gb", "median"))
                  .round(1).sort_values("median_min"))
     print(summary.to_string())
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
