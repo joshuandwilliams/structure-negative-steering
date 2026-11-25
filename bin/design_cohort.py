@@ -1,15 +1,12 @@
-"""
-design_cohort.py
-----------------
-DesignCohort — the set of all MPNN sequences in one pipeline run,
-each carrying its NegativeSteeringRun.
+"""DesignCohort — every MPNN sequence in one pipeline run, each
+carrying its NegativeSteeringRun.
 
-Tier 6 type, and the top of the hierarchy.  It depends on
-NegativeSteeringRun, PipelineInternalThresholds, and optionally on
-OrthogonalMetrics, which is attached separately.
+Tier 6 type, the top of the hierarchy, depending on
+NegativeSteeringRun, PipelineInternalThresholds and optionally
+OrthogonalMetrics, attached separately.
 
-It owns the tier breakdowns, the composite-score ranking across
-sequences, and the list of survivors eligible for the orthogonal stage.
+It owns the tier breakdowns, the composite-score ranking and the
+survivors eligible for the orthogonal stage.
 """
 
 from __future__ import annotations
@@ -31,11 +28,10 @@ from negative_steering_run import NegativeSteeringRun  # noqa: E402
 class DesignCohort:
     """All MPNN sequences from one pipeline run.
 
-    It holds NegativeSteeringRun instances, each identified by its
-    mpnn_sequence_id.  The constructor takes a list of runs directly.
-    The factory that walks a workdir is from_runs_directory below.  It
-    will take over from the parsers in cross_summary.py when those
-    callers migrate.
+    It holds NegativeSteeringRun instances keyed by mpnn_sequence_id.
+    The constructor takes a list of runs, and from_runs_directory walks
+    a workdir.  It will take over from cross_summary.py's parsers when
+    those callers migrate.
     """
     runs: Tuple[NegativeSteeringRun, ...]
 
@@ -70,28 +66,27 @@ class DesignCohort:
         return None
 
     def steered_runs(self) -> List[NegativeSteeringRun]:
-        """Return only the steered rows, leaving out the controls."""
+        """The steered rows only."""
         return [r for r in self.runs if r.row_type == "steered"]
 
     def control_runs(self) -> List[NegativeSteeringRun]:
-        """Return only the negative-control rows."""
+        """The control rows."""
         return [r for r in self.runs if r.row_type != "steered"]
 
     def by_tier(self, tier: str, thresholds) -> List[NegativeSteeringRun]:
-        """Return the steered runs at one tier, A, B, C or none."""
+        """The steered runs at one tier, A, B, C or none."""
         return [r for r in self.steered_runs() if r.tier(thresholds) == tier]
 
     def survivors(self, thresholds) -> List[NegativeSteeringRun]:
-        """Return the tier A, B and C steered rows.  This is the set
-        fed to the orthogonal stage."""
+        """The tier A, B and C steered rows, the set fed to the
+        orthogonal stage."""
         return [
             r for r in self.steered_runs()
             if r.tier(thresholds) in ("A", "B", "C")
         ]
 
     def tier_breakdown(self, thresholds) -> Dict[str, int]:
-        """Count the steered runs in each tier.  Controls are left
-        out."""
+        """Count the steered runs per tier, leaving out controls."""
         counts = Counter(
             r.tier(thresholds) for r in self.steered_runs()
         )
@@ -109,13 +104,13 @@ class DesignCohort:
     def ranked_by_composite(
         self, thresholds
     ) -> List[NegativeSteeringRun]:
-        """Sort the steered runs by tier first, then by composite
-        score descending.
+        """Sort the steered runs by tier, then composite score
+        descending.
 
-        The composite score here is just `n_pass / n_seeds_total`.
-        The richer composite, `true_jaccard - 0.05 * ra_eff`, needs
-        per-prediction metrics that this tier cannot reach, so it is
-        computed in `to_cross_summary_csv` instead.
+        The composite score here is `n_pass / n_seeds_total`.  The
+        richer `true_jaccard - 0.05 * ra_eff` needs per-prediction
+        metrics this tier cannot reach, so `to_cross_summary_csv`
+        computes it.
         """
         def key(r):
             tier = r.tier(thresholds)
@@ -137,18 +132,16 @@ class DesignCohort:
 
     @staticmethod
     def from_cross_summary_csv(path):
-        """Build a shallow typed view from a cross_sequence_summary.csv
-        that has already been written.
+        """Build a shallow typed view from a written
+        cross_sequence_summary.csv.
 
-        It returns a ``CrossSummarySnapshot``, not a full DesignCohort.
-        The CSV does not carry enough information to rebuild the
-        StageResult and prediction scaffolding a DesignCohort needs.
-
-        The snapshot still answers survivors, tier_breakdown and
-        ranked_by_composite.  It reads the per-row cross_tier and
-        cross_composite_score columns directly instead.
+        It returns a ``CrossSummarySnapshot``, not a full DesignCohort,
+        because the CSV cannot rebuild the StageResult and prediction
+        scaffolding.  The snapshot still answers survivors,
+        tier_breakdown and ranked_by_composite from the per-row
+        cross_tier and cross_composite_score columns.
         """
-        # Imported here so the module's dependencies stay lazy.
+        # Lazy, to keep module dependencies lazy.
         from cross_summary_model import CrossSummarySnapshot
         return CrossSummarySnapshot.from_csv(path)
 
@@ -161,12 +154,10 @@ class DesignCohort:
     ) -> int:
         """Write a cross_sequence_summary.csv for this cohort.
 
-        The work goes to ``cross_summary.aggregate``, so the column set
-        and the aggregation behaviour stay byte-for-byte identical to
-        the older untyped emitter.  Each run contributes its
-        ``workdir / 'passing_summary.csv'``.
-
-        Returns aggregate's return code, which is 0 on success.
+        ``cross_summary.aggregate`` does the work, so the columns and
+        aggregation stay byte-identical to the older untyped emitter.
+        Each run contributes its ``workdir / 'passing_summary.csv'``.
+        Returns aggregate's code, 0 on success.
         """
         from cross_summary import aggregate
         sequences = [
@@ -191,29 +182,20 @@ class DesignCohort:
         strict: bool = False,
         explicit_pairs=None,
     ) -> int:
-        """Walk one or more runs directories and write
-        cross_sequence_summary.csv.
+        """Walk runs directories and write cross_sequence_summary.csv.
 
-        This is the typed entry point for cohort CSV emission.
-        Building fully loaded NegativeSteeringRun objects would mean
-        parsing every seed's PDB and confidence file.  That cost is
-        only worth paying when downstream code uses the StageResult
-        chain.  CSV emission needs nothing more than the workdir and
-        mpnn_sequence_id pairs, so this method collects those and hands
-        them to ``cross_summary.aggregate``.  The column set therefore
-        stays byte-identical.
+        Fully loaded NegativeSteeringRun objects would parse every
+        seed's PDB and confidence file, only worth it when downstream
+        code uses the StageResult chain.  CSV emission needs only the
+        workdir and mpnn_sequence_id pairs, which this hands to
+        ``cross_summary.aggregate``.
 
-        Arguments
-        ---------
-        runs_dirs : iterable of Path-like
-            Each directory holds one subdirectory per MPNN sequence,
-            with that sequence's passing_summary.csv inside.  Repeats
-            are fine, because duplicates are dropped by sequence name.
-        explicit_pairs : optional list of (name, path) tuples
-            Direct file paths for named sequences.  This mirrors the
-            --passing-summary CLI flag.
+        Each `runs_dirs` directory holds one subdirectory per MPNN
+        sequence with its passing_summary.csv inside.  Repeats are
+        fine, duplicates dropping by name.  `explicit_pairs` is
+        (name, path) tuples mirroring the --passing-summary CLI flag.
         """
-        # The sequence-name pattern below matches the CLI's own.
+        # Matches the CLI's own sequence-name pattern.
         import re as _re
 
         from cross_summary import aggregate
@@ -263,22 +245,18 @@ class DesignCohort:
         truth_psp=None,
         contamination_positions=None,
     ) -> "DesignCohort":
-        """Walk a runs directory, which holds one subdirectory per
-        MPNN sequence, and build a DesignCohort of view-only
-        NegativeSteeringRun instances.
+        """Walk a runs directory and build a DesignCohort of view-only
+        NegativeSteeringRun instances, one per MPNN subdirectory.
 
-        The deep form of NegativeSteeringRun loads a
-        ProteinStructurePrediction for every prediction, which is
-        expensive. This factory produces shallow runs instead, by
-        delegating to ``NegativeSteeringRun.from_workdir``. That reads
-        each seed's Boltz output PDB and its confidence JSON off disk
-        and builds the minimum stage scaffolding the dataclass
-        invariants need. It reads no CSV.
+        The deep form loads a ProteinStructurePrediction per
+        prediction, which is expensive, so this factory produces
+        shallow runs through ``NegativeSteeringRun.from_workdir``.  That
+        reads each seed's Boltz PDB and confidence JSON and builds the
+        minimum scaffolding the dataclass invariants need, with no CSV.
 
-        A shallow run cannot be asked for verdicts.
+        A shallow run cannot be asked for verdicts, since
         ``per_seed_final_verdicts`` needs real StageResult and
-        prediction data, so hydrate the runs first. The from_workdir
-        docstring states that boundary.
+        prediction data.  Hydrate first.
         """
         runs_dir = Path(runs_dir)
         runs: List[NegativeSteeringRun] = []

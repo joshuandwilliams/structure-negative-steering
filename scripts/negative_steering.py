@@ -2,29 +2,22 @@
 """Run negative steering from a YAML config. The Python half of the runner.
 
 This runs INSIDE the Boltz container, which ships yaml, gemmi, biopython and
-numpy. The airgapped HPC has nothing installed on the host, so
-scripts/negative_steering.slurm.sh invokes this via `singularity exec`.
+numpy. The airgapped HPC has nothing on the host, so
+scripts/negative_steering.slurm.sh invokes it via `singularity exec`.
 
-It does the two things that need Python.
+It parses and validates the config, resolving every path relative to the
+config file's own directory, then prepares the engine inputs with
+scripts/prepare_complex_inputs.py into <cfg_dir>/inputs/.
 
-1. Parse and validate the config, resolving every path relative to the config
-   file's own directory.
-2. Prepare the engine inputs with scripts/prepare_complex_inputs.py, into <cfg_dir>/inputs/.
+It writes, but never runs, <cfg_dir>/run/launch.sh, which calls the engine
+orchestrator with every argument resolved. Launching is the host's job, since
+the orchestrator does its own `singularity exec --nv` and singularity cannot
+nest. launch.sh records what was run.
 
-It then writes, but never runs, <cfg_dir>/run/launch.sh. That script calls the
-engine orchestrator directly, with every argument already resolved. Launching
-is the host's job, because the orchestrator does its own
-`singularity exec --nv` and singularity cannot be nested. launch.sh also serves
-as the record of exactly what was run.
+Usage, normally via negative_steering.slurm.sh, but runnable on a Mac with the
+[experiments] extras:
 
-Usage, normally via negative_steering.slurm.sh but also runnable on a Mac with
-the [experiments] extras installed:
-
-  negative_steering.py CONFIG                       # prepare + write launch.sh
-  negative_steering.py CONFIG --prepare-only        # prepare only
-  negative_steering.py CONFIG --dry-run             # print commands, change nothing
-  negative_steering.py CONFIG --boltz-container IMG # container baked into launch.sh
-  negative_steering.py CONFIG --emit-json           # config as JSON, for main.nf
+  negative_steering.py CONFIG      # prepare + write launch.sh
 """
 
 from __future__ import annotations
@@ -107,8 +100,7 @@ def _build_prepare_cmd(cfg: Dict[str, Any], cfg_dir: Path, inputs_dir: Path) -> 
 def _build_plan_extra_args(cfg: Dict[str, Any]) -> str:
     """Build the --plan-extra-args string for the orchestrator.
 
-    Every default lives here, so the config file only has to name the keys it
-    wants to change.
+    Every default lives here, so a config file names only the keys it changes.
     """
     parts = [
         f"--mode {cfg.get('negsteer_mode', 'strong')}",
@@ -134,7 +126,7 @@ def _build_plan_extra_args(cfg: Dict[str, Any]) -> str:
 
 def _build_run_cmd(cfg: Dict[str, Any], cfg_dir: Path, inputs_dir: Path,
                    run_dir: Path, boltz_container: str) -> List[str]:
-    """Build the orchestrator command, with every path already resolved."""
+    """Build the orchestrator command, every path resolved."""
     return [
         "bash", str(ORCHESTRATOR),
         "--seq-name", str(cfg.get("name", cfg_dir.name)),
@@ -159,7 +151,7 @@ def _build_run_cmd(cfg: Dict[str, Any], cfg_dir: Path, inputs_dir: Path,
 
 
 def _check_inputs_present(inputs_dir: Path) -> None:
-    """Raise SystemExit if prepare did not write every expected input file."""
+    """Raise SystemExit if prepare missed any expected input file."""
     missing = [f for f in INPUT_FILES if not (inputs_dir / f).is_file()]
     if missing:
         raise SystemExit(
@@ -168,7 +160,7 @@ def _check_inputs_present(inputs_dir: Path) -> None:
 
 
 def _write_launch_script(run_dir: Path, run_cmd: List[str]) -> Path:
-    """Write run/launch.sh and return its path.  The script is not run."""
+    """Write run/launch.sh and return its path, without running it."""
     run_dir.mkdir(parents=True, exist_ok=True)
     launch = run_dir / "launch.sh"
     launch.write_text(
@@ -224,8 +216,8 @@ def main(argv: List[str]) -> int:
     boltz_container = args.boltz_container or cfg.get("boltz_container")
 
     if args.emit_json:
-        # The Nextflow workflow reads this instead of parsing YAML itself, so
-        # the config keys and their defaults are defined in exactly one place.
+        # The Nextflow workflow reads this rather than parsing YAML, so the
+        # config keys and defaults are defined in one place.
         print(json.dumps({
             "name": str(cfg.get("name", cfg_dir.name)),
             "config": str(cfg_path),

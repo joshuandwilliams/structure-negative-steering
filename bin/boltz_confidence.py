@@ -1,20 +1,15 @@
-"""
-boltz_confidence.py
--------------------
-BoltzConfidenceMetrics — a wrapper around one Boltz sample's
-confidence sidecar JSON, plus its pLDDT npz when that is available.
+"""BoltzConfidenceMetrics — one Boltz sample's confidence sidecar JSON,
+plus its pLDDT npz when available.
 
 Each Boltz sample produces one PDB and one confidence JSON, so this
-type pairs one-to-one with a `ProteinStructurePrediction`.  That type
-holds the structure, and this one holds everything else.
+pairs one-to-one with a `ProteinStructurePrediction`, which holds the
+structure while this holds the rest.
 
-This type covers the metrics read straight from the JSON, plus the mean
-pLDDT.  It does not cover the PAE-derived metrics `ipae`,
-`pae_pass_frac` or `ipsae*`.  Those need the per-chain lengths, which
-only the matching PDB can supply, and reading that would make this a
-Tier 2 type.  So `compute_metrics.py` keeps computing them for now.
-This class can take them over once it accepts a
-`ProteinStructurePrediction` argument.
+It covers the JSON metrics plus the mean pLDDT, not the PAE-derived
+`ipae`, `pae_pass_frac` or `ipsae*`.  Those need per-chain lengths only
+the matching PDB supplies, which would make this Tier 2, so
+`compute_metrics.py` keeps computing them until this class accepts a
+`ProteinStructurePrediction`.
 
 Tier 0 type — no upstream dependencies on other typed modules.
 """
@@ -29,14 +24,13 @@ from typing import Any, Dict, List, Optional
 class BoltzConfidenceMetrics:
     """One sample's confidence metrics from a Boltz prediction.
 
-    Build one with the path to a `confidence_<name>.json` file, and
-    optionally the matching `plddt_<name>.npz`.  The JSON is read on
-    first access and cached for the life of the instance.
+    Build one with a `confidence_<name>.json` path and optionally the
+    matching `plddt_<name>.npz`.  The JSON is read on first access and
+    cached.
 
-    Each property returns a float or None.  It returns None when the
-    sidecar was missing or unreadable, or when the JSON had no such
-    field.  Otherwise it returns the value rounded to 4 decimal places,
-    which matches what compute_metrics.py does.
+    Each property returns a float or None.  None means the sidecar was
+    missing or unreadable, or the field absent.  Otherwise the value is
+    rounded to 4 decimal places, matching compute_metrics.py.
     """
 
     def __init__(
@@ -75,9 +69,9 @@ class BoltzConfidenceMetrics:
 
     @property
     def iptm(self) -> Optional[float]:
-        """Return ipTM.  Boltz usually writes `iptm` directly.  Some
-        outputs carry only the protein-protein variant, so this falls
-        back to `protein_iptm`.  compute_metrics.py does the same."""
+        """Return ipTM.  Boltz usually writes `iptm`, but some outputs
+        carry only the protein-protein variant, so this falls back to
+        `protein_iptm` as compute_metrics.py does."""
         val = self._field_float("iptm")
         if val is not None:
             return val
@@ -93,8 +87,7 @@ class BoltzConfidenceMetrics:
 
     @property
     def complex_plddt(self) -> Optional[float]:
-        """Whole-complex pLDDT on a 0 to 1 scale, which is Boltz's
-        convention."""
+        """Whole-complex pLDDT on Boltz's 0 to 1 scale."""
         return self._field_float("complex_plddt")
 
     @property
@@ -111,7 +104,7 @@ class BoltzConfidenceMetrics:
 
     @property
     def chains_ptm(self) -> Dict[str, float]:
-        """Per-chain pTM, keyed by the chain index as a string."""
+        """Per-chain pTM, keyed by chain index as a string."""
         raw = self._load_json().get("chains_ptm", {})
         out: Dict[str, float] = {}
         if isinstance(raw, dict):
@@ -124,8 +117,8 @@ class BoltzConfidenceMetrics:
 
     @property
     def pair_chains_iptm(self) -> Dict[str, Dict[str, float]]:
-        """Pairwise inter-chain ipTM, keyed by chain index strings in
-        both the outer and the inner dict."""
+        """Pairwise inter-chain ipTM, keyed by chain index strings at
+        both levels."""
         raw = self._load_json().get("pair_chains_iptm", {})
         out: Dict[str, Dict[str, float]] = {}
         if isinstance(raw, dict):
@@ -148,9 +141,8 @@ class BoltzConfidenceMetrics:
         """Mean pLDDT across all residues, always on a 0 to 100 scale.
 
         Boltz writes the per-residue .npz on a 0 to 1 scale, while the
-        conventional pLDDT stored in a PDB B-factor runs 0 to 100.
-        This property returns 0 to 100 so it matches the rest of the
-        pipeline, including compute_metrics.py.
+        pLDDT in a PDB B-factor runs 0 to 100.  This returns 0 to 100,
+        matching the rest of the pipeline and compute_metrics.py.
         """
         if self._avg_plddt_computed:
             return self._cached_avg_plddt
@@ -159,7 +151,7 @@ class BoltzConfidenceMetrics:
             self._cached_avg_plddt = None
             return None
         try:
-            # Imported here to keep the module's top-level imports light.
+            # Imported here to keep the top-level imports light.
             import numpy as np
             data = np.load(self._plddt_npz)
             arr = data[list(data.keys())[0]]
@@ -179,12 +171,9 @@ class BoltzConfidenceMetrics:
         """Return one of ok, low_pass_frac, low_iptm, low_plddt,
         high_ipae or multiple.
 
-        This class cannot read the PAE matrix yet, so pae_pass_frac and
-        ipae are unavailable here.  The check therefore looks at iptm
-        and complex_plddt only.  The full check lives in
-        `_compute_confidence_flag` in extract_passing.py.  This method
-        can take it over once the class can reach a
-        ProteinStructurePrediction for the PAE data.
+        With no PAE matrix, pae_pass_frac and ipae are unavailable, so
+        this looks at iptm and complex_plddt only.  The full check is
+        `_compute_confidence_flag` in extract_passing.py.
         """
         triggers: List[str] = []
         if self.iptm is not None and self.iptm < thresholds.iptm_min:
@@ -212,16 +201,14 @@ class BoltzConfidenceMetrics:
     def from_prediction_dir(
         cls, prediction_dir: Path, base_name: str = "input"
     ) -> List["BoltzConfidenceMetrics"]:
-        """Return one BoltzConfidenceMetrics per sample found in
-        `prediction_dir`, sorted by model index.
+        """One BoltzConfidenceMetrics per sample in `prediction_dir`,
+        sorted by model index.
 
         Boltz writes one `confidence_<base_name>_model_<sample>.json`
-        per sample, numbered 0 to N-1 where N is diffusion_samples.
-        The default `base_name="input"` matches the Boltz output layout
-        this pipeline uses throughout.
-
-        Each instance is also linked to the matching `plddt_*.npz` when
-        that file sits in the same directory.
+        per sample, numbered 0 to N-1 for N diffusion_samples.  The
+        default `base_name="input"` matches the Boltz layout this
+        pipeline uses.  Each instance is linked to the matching
+        `plddt_*.npz` when it sits in the same directory.
         """
         prediction_dir = Path(prediction_dir)
         if not prediction_dir.is_dir():
@@ -233,7 +220,7 @@ class BoltzConfidenceMetrics:
         )
         out: List["BoltzConfidenceMetrics"] = []
         for cj in confs:
-            # The npz has the same name with a different prefix.
+            # The npz name differs only in prefix.
             stem = cj.name[len("confidence_"):-len(".json")]
             plddt = prediction_dir / f"plddt_{stem}.npz"
             out.append(cls(cj, plddt if plddt.is_file() else None))

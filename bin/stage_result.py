@@ -1,20 +1,16 @@
-"""
-stage_result.py
----------------
-StageResult — one stage's worth of predictions for one configuration.
+"""StageResult — one stage's predictions for one configuration.
 
-Tier 4 type.  It depends on ProteinStructurePrediction,
+Tier 4 type, depending on ProteinStructurePrediction,
 BoltzConfidenceMetrics, PositionSet and PipelineInternalThresholds.
 
-A stage is `cold_start`, `steered`, or `reversion`.  A configuration is
-the receptor sequence being predicted in this stage.  Each stage runs
-`num_seeds` predictions for the configuration.  The collective verdict
-drives whether the *next* stage runs (see ``triggers_next_stage``).
+A stage is `cold_start`, `steered` or `reversion`.  A configuration is
+the receptor sequence predicted in this stage, with `num_seeds`
+predictions each.  The collective verdict drives whether the *next*
+stage runs, see ``triggers_next_stage``.
 
-The steered gating rule lives here.  A steered stage triggers reversion
-when a majority of its correctly-placed seeds are contaminated.  That is
-a stage-level rule, so it is deliberately not the per-(design, seed)
-gate in ``cmd_build_contaminated`` in ``bin/reversion.py``.
+The steered gating rule lives here, at stage level, not the
+per-(design, seed) gate in ``cmd_build_contaminated`` in
+``reversion.py``.
 """
 
 from __future__ import annotations
@@ -41,15 +37,12 @@ class StageResult:
     """One stage's predictions for one configuration + collective verdict.
 
     `mutated_positions` is the PositionSet of receptor residues changed
-    from native in this stage's configuration.  Required for steered
-    and reversion stages; should be None for cold_start (which has no
-    mutations).
+    from native, required for steered and reversion and None for
+    cold_start, which has no mutations.
 
-    `applies_to_designs` is for reversion stages only.  It lists the
-    steered design_ids whose contamination produced this one reverted
-    sequence.  Several designs can revert to the same sequence, so they
-    are deduplicated and share a single reversion stage.  It is None for
-    cold_start and steered.
+    `applies_to_designs` is reversion-only, listing the steered
+    design_ids whose contamination produced this reverted sequence.
+    Designs reverting to the same sequence share one stage.
     """
     stage_type: str
     config_id: str
@@ -67,7 +60,7 @@ class StageResult:
             )
         if not isinstance(self.config_id, str) or not self.config_id:
             raise ValueError("config_id must be a non-empty string")
-        # Coerce to tuples for hashability/immutability.
+        # Coerce to tuples for immutability.
         if not isinstance(self.predictions, tuple):
             object.__setattr__(self, "predictions", tuple(self.predictions))
         if not isinstance(self.confidences, tuple):
@@ -81,12 +74,11 @@ class StageResult:
                 self, "applies_to_designs", tuple(self.applies_to_designs)
             )
         n = len(self.predictions)
-        # An empty stage has no verdict, and the gating maths would be
-        # wrong rather than merely empty.  ceil(0 / 2) is 0, so a
-        # cold_start stage with no seeds would report 0 clean seeds as
-        # "fewer than a majority" and trigger steering.  canonical_
-        # prediction would also fall through to predictions[0] and raise
-        # IndexError.  Reject the stage at construction instead.
+        # Rejected at construction because the gating maths would be
+        # wrong, not empty.  ceil(0 / 2) is 0, so a seedless cold_start
+        # counts 0 clean seeds as "fewer than a majority" and
+        # triggers steering, and canonical_prediction would hit
+        # predictions[0] and raise IndexError.
         if n == 0:
             raise ValueError("StageResult must have at least 1 prediction")
         if len(self.confidences) != n:
@@ -126,9 +118,9 @@ class StageResult:
         truth: ProteinStructurePrediction,
         contamination_positions: Optional[PositionSet] = None,
     ) -> List[str]:
-        """Return one verdict per seed (parallel to seed_indices).
+        """Return one verdict per seed, parallel to seed_indices.
 
-        Vocabulary per stage type:
+        Vocabulary:
           - cold_start: 'clean' | 'fail_structural' | 'no_data'
           - steered: 'clean_steered' | 'contaminated' | 'pose_collapses' | 'no_data'
           - reversion: 'pose_holds' | 'new_contamination' | 'pose_collapses' | 'no_data'
@@ -149,8 +141,8 @@ class StageResult:
         truth: ProteinStructurePrediction,
         contamination_positions: Optional[PositionSet],
     ) -> str:
-        """Apply the stage-specific per-seed verdict rule for one prediction."""
-        # Structural check: intact + ra_eff below the stage's cutoff.
+        """Apply the stage's per-seed verdict rule to one prediction."""
+        # Intact + ra_eff below the stage's cutoff.
         ra_eff_cutoff = (
             thresholds.reverted_ra_eff
             if self.stage_type == "reversion"
@@ -168,7 +160,7 @@ class StageResult:
             return "clean" if structurally_ok else "fail_structural"
         if not structurally_ok:
             return "pose_collapses"
-        # Contamination check: any contact in (mutated_positions ∩
+        # Any contact in (mutated_positions ∩
         # contamination_positions).
         contacts = pred.receptor_contact_residues(thresholds.contact_cutoff)
         try:
@@ -177,9 +169,8 @@ class StageResult:
                        .intersection(contamination_positions)
             )
         except Exception:
-            # A numbering-frame mismatch is the only realistic failure
-            # here.  Treat it as missing data for this one seed instead
-            # of raising and losing the whole stage.
+            # A numbering-frame mismatch is the only realistic failure.
+            # Treat it as missing data rather than lose the whole stage.
             return "no_data"
         has_contamination = not triple_intersection.is_empty()
         if self.stage_type == "steered":
@@ -192,7 +183,7 @@ class StageResult:
     def n_correctly_placed(
         self, thresholds, truth: ProteinStructurePrediction
     ) -> int:
-        """Count of seeds that pass intact + ra_eff < cutoff."""
+        """Seeds passing intact + ra_eff < cutoff."""
         ra_eff_cutoff = (
             thresholds.reverted_ra_eff
             if self.stage_type == "reversion"
@@ -214,9 +205,10 @@ class StageResult:
         truth: ProteinStructurePrediction,
         contamination_positions: PositionSet,
     ) -> int:
-        """Count of correctly-placed seeds whose contact residues
-        intersect mutated_positions ∩ contamination_positions.  Only
-        meaningful for steered/reversion (cold_start has no mutations)."""
+        """Count of correctly-placed seeds whose contacts intersect
+        mutated_positions ∩ contamination_positions.  Only
+        meaningful for steered and reversion, cold_start having no
+        mutations."""
         if self.stage_type == "cold_start":
             return 0
         verdicts = self.per_seed_verdicts(thresholds, truth, contamination_positions)
@@ -231,15 +223,10 @@ class StageResult:
         truth: ProteinStructurePrediction,
         contamination_positions: Optional[PositionSet] = None,
     ) -> int:
-        """Count of seeds whose stage-level verdict is pass-equivalent.
+        """Count of seeds whose verdict is pass-equivalent, meaning
+        'clean', 'clean_steered' or 'pose_holds' by stage.
 
-        Pass-equivalent per stage:
-          - cold_start: 'clean'
-          - steered: 'clean_steered'
-          - reversion: 'pose_holds'
-
-        This is the per-stage count only.  NegativeSteeringRun (Tier 5)
-        replaces a seed's steered verdict with its reversion verdict
+        Per-stage only.  NegativeSteeringRun (Tier 5) replaces a seed's steered verdict with its reversion verdict
         when reversion ran for that design.
         """
         verdicts = self.per_seed_verdicts(thresholds, truth, contamination_positions)
@@ -258,15 +245,13 @@ class StageResult:
         truth: ProteinStructurePrediction,
         contamination_positions: Optional[PositionSet] = None,
     ) -> bool:
-        """Apply the stage-specific gating rule:
+        """The gating rule:
 
-        - cold_start: True if fewer than a majority of seeds were clean,
-          meaning steering should run.
-        - steered: True if n_correctly_placed > 0 AND n_contaminated >=
-          ceil(n_correctly_placed / 2).  This stage-level majority rule
-          replaces the per-(design, seed) gate in
-          cmd_build_contaminated.
-        - reversion: always False, because no stage follows it.
+        - cold_start: True if fewer than a majority of seeds were
+          clean, so steering should run.
+        - steered: True if n_correctly_placed > 0 and n_contaminated >=
+          ceil(n_correctly_placed / 2).
+        - reversion: always False, no stage follows it.
         """
         if self.stage_type == "reversion":
             return False
@@ -275,7 +260,7 @@ class StageResult:
             n_clean = sum(1 for v in verdicts if v == "clean")
             majority = math.ceil(self.num_seeds / 2)
             return n_clean < majority
-        # steered — the stage-level majority rule
+        # steered
         if contamination_positions is None:
             raise ValueError(
                 "steered.triggers_next_stage requires contamination_positions"
@@ -294,9 +279,9 @@ class StageResult:
         truth: ProteinStructurePrediction,
         contamination_positions: Optional[PositionSet] = None,
     ) -> ProteinStructurePrediction:
-        """Return the best-by-ra_eff prediction (pass-equivalent seeds
-        preferred over non-passing).  Used by NegativeSteeringRun /
-        DesignCohort for the per-stage representative."""
+        """Return the best-by-ra_eff prediction, preferring
+        pass-equivalent seeds.  The per-stage representative for
+        NegativeSteeringRun and DesignCohort."""
         verdicts = self.per_seed_verdicts(thresholds, truth, contamination_positions)
         passing_idx: List[int] = []
         all_with_ra: List[Tuple[float, int]] = []
@@ -313,14 +298,14 @@ class StageResult:
             if verdict in passing:
                 passing_idx.append(i)
         if passing_idx:
-            # Among passing, pick lowest ra_eff
+            # Lowest ra_eff among passing
             best = min(passing_idx, key=lambda i: all_with_ra[
                 next(j for j, (_, ji) in enumerate(all_with_ra) if ji == i)
             ][0])
         elif all_with_ra:
-            # No passing — pick lowest ra_eff overall
+            # Lowest ra_eff overall
             best = min(all_with_ra, key=lambda x: x[0])[1]
         else:
-            # No ra_eff anywhere — fall back to first
+            # No ra_eff anywhere
             best = 0
         return self.predictions[best]

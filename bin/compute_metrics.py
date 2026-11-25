@@ -3,33 +3,18 @@
 compute_metrics.py  (minimal boltz2-only build)
 -----------------------------------------------
 Compute confidence metrics from Boltz-2 structure prediction outputs.
+A cut-down build of the full benchmark-pipeline compute_metrics.py,
+holding only what `negsteer_aggregate.py compute-final-metrics` needs.
 
-This is a cut-down build of the full benchmark-pipeline
-compute_metrics.py.  It holds only what `negsteer_aggregate.py
-compute-final-metrics` needs, namely the Boltz-2 parser and the
-confidence and PAE-derived metrics.
-
-All the structural-RMSD code is gone: Kabsch fitting, sequence
+The structural-RMSD code is gone, meaning Kabsch fitting, sequence
 alignment, reference comparison and matchmaker-style iterative pruning.
 The steering pipeline already writes authoritative per-design RMSDs to
 `all_results_multicycle.csv` with the correct truth-to-prediction chain
 mapping, so recomputing them here would add nothing.
 
-Metrics computed:
-    - avg_plddt:     Average per-residue pLDDT, 0-100 scale
-    - ptm:           Predicted TM-score, global, from Boltz confidence.json
-    - iptm:          Interface predicted TM-score, from the same file
-    - pae_mean:      Mean predicted aligned error over the full matrix
-    - ipae:          Interface PAE, the mean of both inter-chain blocks
-    - ipsae_ab:      ipSAE chain A->B (Dunbrack 2025, TM-score d0)
-    - ipsae_ba:      ipSAE chain B->A
-    - ipsae_min:     min(ipsae_ab, ipsae_ba)
-    - actifptm:      actifPTM (Varga, Ovchinnikov, Schueler-Furman
-                     2025).  See compute_actifptm.
-    - af_rank_score: 0.8 * iptm + 0.2 * ptm, AlphaFold-Multimer's
-                     ranking score.  An earlier version wrote this out
-                     mislabelled as 'actifptm'.  It is kept under its
-                     correct name for continuity.
+CSV_FIELDS lists the columns.  af_rank_score is 0.8 * iptm + 0.2 * ptm,
+AlphaFold-Multimer's ranking score.  An earlier version wrote it out
+mislabelled as 'actifptm', so it keeps its correct name here.
 
 Usage:
     python compute_metrics.py \\
@@ -40,9 +25,9 @@ Usage:
 
 --prediction-dir must point at Boltz's own nested output directory, the
 one holding the confidence, pae and plddt sidecar files.  A copied
-`prediction.pdb` has no sidecars beside it, so pointing this flag at
-that copy's parent directory yields ptm=0, iptm=0 and pae=0.  Only
-pLDDT survives, through the B-factor-column fallback in plddt_from_pdb.
+`prediction.pdb` has none beside it, so pointing this flag at that
+copy's parent yields ptm=0, iptm=0 and pae=0, with only pLDDT surviving
+through plddt_from_pdb's B-factor-column fallback.
 """
 
 import argparse
@@ -62,19 +47,17 @@ import numpy as np
 def _ipsae_d0(n):
     """TM-score d0 formula used by Dunbrack 2025's ipSAE.
 
-    Raw formula: d0 = 1.24 * (n - 15)^(1/3) - 1.8.
-    This returns max(d0, 0.5), following the TM-align convention that
-    d0 never drops below 0.5 Å.  The raw formula dips under 0.5 for n
-    roughly between 15 and 28.  Without the clamp the denominator
-    explodes there and the pTM kernel sends the score to 0 for any
+    Raw formula: d0 = 1.24 * (n - 15)^(1/3) - 1.8.  This returns
+    max(d0, 0.5), the TM-align convention.  The raw formula dips under
+    0.5 for n roughly between 15 and 28, where without the clamp the
+    denominator explodes and the pTM kernel sends the score to 0 for any
     PAE above about 1 Å.
 
-    `n` is the interacting set size for one reference residue.  That
-    is how many residues of the opposite chain fell below the PAE
-    cutoff for it, not the total chain length.  Using the interacting
-    set size is what separates ipSAE from a global pTM-style metric.
-    It also makes ipSAE asymmetric, because the two directions count
-    different numbers of partners and so get different d0 values.
+    `n` is the interacting set size for one reference residue, how many
+    residues of the opposite chain fell below the PAE cutoff for it,
+    not the chain length.  That separates ipSAE from a global pTM-style
+    metric and makes it asymmetric, because the two directions count
+    different partners and get different d0 values.
     """
     if n < 16:
         return 0.5
@@ -85,16 +68,15 @@ def _ipsae_d0(n):
 def compute_ipsae_one_direction(pae_ij, cutoff=10.0):
     """ipSAE for direction i->j (Dunbrack 2025).
 
-    For each residue i in the reference chain, take its PAE row
-    against every residue j in the partner chain.  n_below is how many
-    j have PAE_ij < cutoff, the interacting set size for i.  _ipsae_d0
-    turns n_below into d0, and the per-residue score is:
+    For each reference residue i, n_below counts the partner residues
+    j with PAE_ij < cutoff, the interacting set size _ipsae_d0 turns
+    into d0.  The per-residue score is
 
         s_i = mean over j with PAE<cutoff of  1 / (1 + (PAE_ij/d0)^2)
 
-    The ipSAE is the MAXIMUM s_i over the reference chain's residues.
-    Returns (score, best_residue_idx).  No reference-chain residue
-    having a partner below the cutoff gives (0.0, -1).
+    and the ipSAE is the MAXIMUM s_i.  Returns
+    (score, best_residue_idx), or (0.0, -1) when no reference residue
+    has a partner below the cutoff.
     """
     n_i, n_j = pae_ij.shape
     scores = []
@@ -122,12 +104,11 @@ def _pae_to_ptm_score(pae_ij, n_interface):
     Returns one score per reference residue, each the mean of
     1 / (1 + (PAE/d0)^2) over the partner columns given.
 
-    `n_interface` is the size fed to the d0 formula, and the choice of
-    size is what distinguishes the metrics.  Vanilla pTM uses the total
-    chain length.  ipTM (AlphaFold-Multimer) uses the inter-chain
-    partner length.  actifPTM (Varga 2025) uses the number of
-    interacting residues, meaning those with at least one inter-chain
-    PAE pair below the cutoff.
+    `n_interface` is the size fed to the d0 formula, and that choice
+    distinguishes the metrics.  Vanilla pTM uses the total chain length,
+    ipTM (AlphaFold-Multimer) the inter-chain partner length, actifPTM
+    (Varga 2025) the count of residues with an inter-chain PAE pair
+    below the cutoff.
     """
     if pae_ij.size == 0 or n_interface < 1:
         return np.zeros(pae_ij.shape[0], dtype=float)
@@ -145,26 +126,18 @@ def compute_actifptm(pae_matrix, chain_lengths, cutoff=10.0):
 
     actifPTM is ipTM restricted to the "interacting residue set", the
     residues with at least one inter-chain PAE entry below the cutoff.
-    The pTM kernel's d0 comes from the SIZE OF THAT SET, not from the
-    full chain length.
+    The pTM kernel's d0 comes from the SIZE OF THAT SET, not the full
+    chain length.  For a two-chain complex A, B:
 
-    Procedure for a two-chain complex A, B:
-
-      1. Interacting residues in A are those with at least one entry
-         in the PAE[A->B] block below `cutoff`.  n_int_A is the count.
-         Do the same for B through PAE[B->A], giving n_int_B.
-      2. Cut the PAE down to PAE[interacting_A, interacting_B], and
-         its transpose for the B->A direction.
-      3. For each interacting residue i in A:
+      1. n_int_A counts A's residues with at least one PAE[A->B] entry
+         below `cutoff`, n_int_B the same through PAE[B->A].
+      2. For each interacting residue i in A,
             s_i = mean over interacting j in B of
                   1 / (1 + (PAE_ij / d0(n_int_B))^2)
-         Score the interacting residues in B the same way.
-      4. actifPTM_A->B is the maximum s_i, actifPTM_B->A the maximum
-         s_j, and actifPTM is the larger of the two.
+         and score B's interacting residues the same way.
+      3. actifPTM is max(max s_i, max s_j).
 
-    Returns a float on [0, 1].  An empty interacting set, meaning no
-    residue has any inter-chain PAE below the cutoff, gives 0.0 by
-    convention.
+    Returns a float on [0, 1].  An empty interacting set gives 0.0.
     """
     if pae_matrix is None or len(chain_lengths) < 2:
         return 0.0
@@ -181,8 +154,8 @@ def compute_actifptm(pae_matrix, chain_lengths, cutoff=10.0):
     pae_ab = pae_matrix[:len_a, len_a:len_a + len_b]
     pae_ba = pae_matrix[len_a:len_a + len_b, :len_a]
 
-    # Interacting residue masks.  A residue qualifies if it has at
-    # least one inter-chain neighbour with PAE below the cutoff.
+    # A residue qualifies if it has at least one inter-chain neighbour
+    # with PAE below the cutoff.
     int_a_mask = (pae_ab < cutoff).any(axis=1)
     int_b_mask = (pae_ba < cutoff).any(axis=1)
     n_int_a = int(int_a_mask.sum())
@@ -190,10 +163,6 @@ def compute_actifptm(pae_matrix, chain_lengths, cutoff=10.0):
     if n_int_a == 0 or n_int_b == 0:
         return 0.0
 
-    # Restrict the PAE blocks to the interacting sets.  For
-    # actifPTM_A->B, each interacting i in A is scored over the
-    # interacting j in B, with d0 from n_int_B.  Taking d0 from the
-    # partner set's size is Varga's definition.
     pae_ab_sub = pae_ab[int_a_mask][:, int_b_mask]
     pae_ba_sub = pae_ba[int_b_mask][:, int_a_mask]
 
@@ -209,8 +178,8 @@ def compute_actifptm(pae_matrix, chain_lengths, cutoff=10.0):
 def compute_ipsae(pae_matrix, chain_lengths, cutoff=10.0):
     """Compute ipSAE in both directions from the full PAE matrix.
 
-    Returns ipsae_ab, ipsae_ba and their minimum.  The two directions
-    differ because each one's d0 comes from its own partner count.
+    Returns ipsae_ab, ipsae_ba and their minimum.  The two differ
+    because each one's d0 comes from its own partner count.
     """
     if pae_matrix is None or len(chain_lengths) < 2:
         return {"ipsae_ab": 0.0, "ipsae_ba": 0.0, "ipsae_min": 0.0}
@@ -255,10 +224,9 @@ def compute_ipae(pae_matrix, chain_lengths):
 
 def compute_pae_pass_frac(pae_matrix, chain_lengths, cutoff):
     """Fraction of inter-chain PAE values strictly below the ipSAE
-    cutoff.  This says how much of the interface ipSAE actually covers.
-    A value of 0.50 means half of all inter-chain residue pairs passed
-    the threshold and contributed to the score.  A value of 0.05 means
-    only 5% did, so ipSAE is summarising a very thin slice.
+    cutoff, so how much of the interface ipSAE covers.  A value of 0.05
+    means only 5% of pairs contributed, so ipSAE is summarising a very
+    thin slice.
     """
     if pae_matrix is None or len(chain_lengths) < 2:
         return 0.0
@@ -278,16 +246,12 @@ def compute_pae_pass_frac(pae_matrix, chain_lengths, cutoff):
 def _pae_derived_metrics(pae_matrix, chain_lengths, cutoff=10.0):
     """Compute all PAE-derived metrics in one call.
 
-    ipSAE is computed at two PAE cutoffs in the same pass.  `cutoff`
-    defaults to 10 Å, the Dunbrack 2025 default, and appears as
-    ipsae_ab, ipsae_ba and ipsae_min.  The second is a fixed 15 Å, a
-    more permissive cutoff that helps with borderline poses, and
-    appears as ipsae_ab_15, ipsae_ba_15 and ipsae_min_15.
-
-    The second cutoff is nearly free.  The PAE matrix is already in
-    memory and compute_ipsae's cost is mostly matrix masking.  Doing
-    both here also avoids a second pass that would reload the matrix
-    from disk, which is what the earlier implementation had to do.
+    ipSAE runs at two PAE cutoffs in one pass.  `cutoff` defaults to
+    10 Å, the Dunbrack 2025 default, giving ipsae_ab, ipsae_ba and
+    ipsae_min.  The second is a fixed 15 Å, more permissive for
+    borderline poses, giving the _15 variants.  Both run here because
+    the matrix is already in memory, where the earlier implementation
+    reloaded it from disk.
     """
     pae_mean = round(float(pae_matrix.mean()), 2) if pae_matrix is not None else 0.0
     ipae = compute_ipae(pae_matrix, chain_lengths)
@@ -312,10 +276,9 @@ def _pae_derived_metrics(pae_matrix, chain_lengths, cutoff=10.0):
 def _parse_heavy_atoms_by_chain(pdb_path):
     """Parse ATOM records from a PDB and return a dict:
         { chain_id: [ (resseq, x, y, z), ... ] }
-    Hydrogens are excluded.  Only ATOM records are read, so HETATM is
-    skipped.  Residue numbers are taken from the PDB as-is, with no
-    renumbering.  Insertion codes are dropped, and altlocs other than
-    '' or 'A' are skipped, which keeps residue identity stable.
+    Hydrogens and HETATM are excluded, residue numbers come from the PDB
+    as-is, insertion codes are dropped, and altlocs other than '' or 'A'
+    are skipped.
     """
     by_chain = {}
     try:
@@ -324,16 +287,15 @@ def _parse_heavy_atoms_by_chain(pdb_path):
                 if not line.startswith("ATOM"):
                     continue
                 # Fixed-column PDB parsing.  The spec numbers columns
-                # from 1, while Python slices are 0-based and exclude
-                # the end.
+                # from 1, Python slices from 0 and exclude the end.
                 altloc = line[16:17]
                 if altloc not in (" ", "", "A"):
                     continue
                 element = line[76:78].strip()
                 if element == "H":
                     continue
-                # A blank element column means we infer from the atom
-                # name instead.  Names starting with H are hydrogens.
+                # With a blank element column, infer from the atom
+                # name, where a leading H means hydrogen.
                 if not element:
                     atom_name = line[12:16].strip()
                     if atom_name.startswith("H") or (
@@ -366,34 +328,23 @@ def compute_effector_interface_residues(
 
     A residue qualifies when its Cα sits within `cutoff_angstroms` of
     the Cα of any receptor residue in `true_interface_residues_1b`.
-    Together they are the effector's functional binding surface.
-    Contact detection in later predictions is restricted to the heavy
-    atoms of these residues, so an off-interface contact, such as a
-    floppy effector loop brushing a non-binding receptor face, cannot
-    affect the contamination check.
+    Later predictions restrict contact detection to these residues'
+    heavy atoms, so an off-interface contact cannot affect the
+    contamination check.  The cutoff defaults to 8.0 Å, the RFDiffusion
+    filter's Cα-distance convention for `true_interface_idx`.
 
-    The filter has to work at residue level, not atom level, because
-    the RFDiffusion ground truth holds Cα atoms only.  An atom-level
-    mask built from it would contain nothing but Cα atoms, and those
-    almost never form heavy-to-heavy contacts at 5 Å against a
-    prediction with full side chains.  A residue-level mask lets every
-    heavy atom of an interface residue through, so sensitivity
-    survives.
+    The filter works at residue level, not atom level, because the
+    RFDiffusion ground truth holds Cα atoms only.  An atom-level mask
+    from it would hold only Cα atoms, which almost never form
+    heavy-to-heavy contacts at 5 Å against a full-side-chain prediction.
 
-    The cutoff defaults to 8.0 Å, matching the RFDiffusion filter's
-    Cα-distance convention for `true_interface_idx`.
-
-    Returns a set of 1-based POSITIONAL indices into the effector
-    chain, in the order residues appear in the prediction PDB, which
-    numbers each chain from 1.  This coordinate system matters.  The
-    ground-truth PDB may use a synthetic resseq scheme, because
-    RFDiffusion offsets residue numbers by 1000 or more above the
-    highest fixed residue number.  Boltz predictions always number
-    chains positionally from 1, so a filter in ground-truth resseq
-    space would match nothing.
-
-    Returns an empty set on any failure.  Callers should read empty as
-    "no filter" and fall back to unrestricted atoms.
+    Returns a set of 1-based POSITIONAL indices into the effector chain,
+    in prediction-PDB order.  The ground-truth PDB may instead use a
+    synthetic resseq scheme, because RFDiffusion offsets residue numbers
+    by 1000 or more above the highest fixed one, while Boltz always
+    numbers chains positionally from 1.  A ground-truth-resseq filter
+    would therefore match nothing.  An empty set on failure means "no
+    filter", and callers fall back to unrestricted atoms.
     """
     if not ground_truth_pdb:
         return set()
@@ -401,10 +352,9 @@ def compute_effector_interface_residues(
     if not true_set_1b:
         return set()
 
-    # Collect Cα positions per chain in file order, which is sequence
-    # order.  For the effector chain also record each residue's 1-based
-    # positional index, its rank in file order counting from 1.  That
-    # is the coordinate system the prediction uses.
+    # Cα positions per chain in file order, which is sequence order.
+    # Effector residues carry their 1-based rank in that order, the
+    # coordinate system the prediction uses.
     rec_ca = []       # list of (x, y, z), indexed 0-based positional
     eff_ca = []       # list of (pos_1b, x, y, z)
     seen_rec = set()
@@ -441,9 +391,8 @@ def compute_effector_interface_residues(
     if not rec_ca or not eff_ca:
         return set()
 
-    # Receptor interface Cα positions.  true_interface_residues_1b
-    # holds 1-based positional indices into the receptor chain, in
-    # file order.
+    # true_interface_residues_1b holds 1-based positional indices into
+    # the receptor chain, in file order.
     iface_ca = []
     for pos_1b in sorted(true_set_1b):
         idx = pos_1b - 1
@@ -453,9 +402,9 @@ def compute_effector_interface_residues(
         return set()
     iface_arr = np.array(iface_ca, dtype=np.float64)
 
-    # An effector residue joins the interface set when its Cα is within
-    # cutoff of any true-interface receptor Cα.  Record its 1-based
-    # positional index, NOT its ground-truth resseq.
+    # An effector residue joins when its Cα is within cutoff of any
+    # true-interface receptor Cα.  Its 1-based positional index goes
+    # in, NOT its ground-truth resseq.
     cutoff2 = float(cutoff_angstroms) ** 2
     interface_residues = set()
     for pos_1b, x, y, z in eff_ca:
@@ -467,9 +416,6 @@ def compute_effector_interface_residues(
     return interface_residues
 
 
-# Thin wrapper kept under the old name, so modules that still import
-# compute_effector_interface_atom_mask keep working.  New callers
-# should use the residue-level function above.
 def compute_effector_interface_atom_mask(
     ground_truth_pdb,
     true_interface_residues_1b,
@@ -477,12 +423,12 @@ def compute_effector_interface_atom_mask(
     effector_chain,
     cutoff_angstroms=8.0,
 ):
-    """Deprecated alias returning a dict keyed by (resseq, atom_name).
+    """Deprecated alias returning a dict keyed by (resseq, atom_name),
+    kept so modules still importing it keep working.
 
-    The logic underneath now filters only at residue level, so this
-    wrapper pairs each residue with a sentinel atom_name of None,
-    which means "match every atom with this resseq".  Prefer
-    compute_effector_interface_residues.
+    Filtering happens at residue level only, so each residue gets a
+    sentinel atom_name of None, meaning "match every atom with this
+    resseq".  Prefer compute_effector_interface_residues.
     """
     residues = compute_effector_interface_residues(
         ground_truth_pdb, true_interface_residues_1b,
@@ -501,27 +447,18 @@ def compute_interface_contacts(
     """Return the set of 1-based receptor residue numbers whose heavy
     atoms come within `cutoff` Å of any effector heavy atom.
 
-    Chain IDs are used as-is, so receptor_chain and effector_chain must
-    match the letters in the file.  Boltz-2 predictions normally use
-    "A" and "B", set by plan.json's pred_receptor_chain and
-    pred_effector_chain.
+    Chain IDs are used as-is, so they must match the letters in the
+    file.  Boltz-2 predictions normally use "A" and "B", from
+    plan.json's pred_receptor_chain and pred_effector_chain.
 
-    `effector_atom_filter` names the subset of effector atoms that
-    count as interface atoms.  Contacts with effector atoms outside the
-    set are ignored, so an off-interface contact, such as a floppy part
-    of the effector brushing a non-binding receptor face, no longer
-    registers.
-
-    The preferred filter is a set of effector resseq integers, produced
-    by compute_effector_interface_residues, which explains why the
-    filtering has to happen at residue level.  The older
-    (resseq, atom_name) pair form is still accepted, for plan.json
-    files already written that way, and is collapsed to its residue set
-    internally.  A pair filter of {(R, "CA"), (R, "CB")} therefore
-    becomes a residue filter of {R}.
-
-    When `effector_atom_filter` is None, every effector heavy atom
-    counts.
+    `effector_atom_filter` names the effector atoms counting as
+    interface atoms, so an off-interface brush no longer registers.  The
+    preferred form is a set of effector resseq integers from
+    compute_effector_interface_residues, which explains why filtering
+    happens at residue level.  The older (resseq, atom_name) pair form
+    is still accepted for plan.json files already written that way,
+    collapsed internally so {(R, "CA"), (R, "CB")} becomes {R}.  None
+    means every effector heavy atom counts.
 
     Returns an empty set if either chain is missing from the PDB.
     """
@@ -534,11 +471,8 @@ def compute_interface_contacts(
     if not rec_atoms or not eff_atoms:
         return set()
 
-    # Apply the effector filter at the residue level.  Two input
-    # shapes are accepted:
-    #  - a set of ints, the preferred residue-set filter
-    #  - an iterable of (resseq, atom_name) tuples, the older atom
-    #    filter, collapsed to a residue set by keeping only resseq
+    # Accepts a set of ints, or (resseq, atom_name) tuples collapsed by
+    # keeping only resseq.
     filter_residues = None
     if effector_atom_filter is not None:
         try:
@@ -566,10 +500,6 @@ def compute_interface_contacts(
     if not eff_atoms:
         return set()
 
-    # Vectorise with numpy.  Build two (N, 3) coordinate arrays plus
-    # the receptor residue-number array.  Compute pairwise squared
-    # distances, threshold them, then reduce across the effector axis
-    # per receptor atom and finally per receptor residue.
     rec_xyz = np.array([(x, y, z) for (_r, x, y, z) in rec_atoms], dtype=np.float64)
     rec_res = np.array([r for (r, _x, _y, _z) in rec_atoms], dtype=np.int32)
     eff_xyz = np.array([(x, y, z) for (_r, x, y, z) in eff_atoms], dtype=np.float64)
@@ -581,10 +511,8 @@ def compute_interface_contacts(
     # small enough that no chunking is needed.
     diff = rec_xyz[:, None, :] - eff_xyz[None, :, :]
     d2 = np.einsum("ijk,ijk->ij", diff, diff)
-    # Is this receptor atom within cutoff of ANY effector atom?
     atom_in_contact = (d2 < cutoff2).any(axis=1)
-    # A receptor residue with at least one contacting atom is a contact
-    # residue.
+    # A receptor residue with at least one contacting atom counts.
     contact_residues = set(int(r) for r in rec_res[atom_in_contact])
     return contact_residues
 
@@ -598,41 +526,34 @@ def find_contact_residues_heavy(
 ):
     """Per-residue heavy-atom contact analysis on the receptor chain.
 
-    Walks the receptor residues in PDB order, finds each one's closest
-    heavy-atom distance to any effector heavy atom, and returns
-    (positional_index_0b, closest_distance_angstroms) tuples for the
-    residues whose closest distance is under the cutoff.
+    Returns (positional_index_0b, closest_distance_angstroms) tuples for
+    the receptor residues whose closest heavy-atom distance to the
+    effector is under the cutoff.
 
     Two differences from compute_interface_contacts:
-      1. It returns POSITIONAL indices, 0-based in PDB walk order,
-         rather than seqid residue numbers.
-         derive_input_design_region.py needs these, because its design
-         region and true interface are both in positional coordinates.
-      2. It keeps the closest distance per contacting residue instead
-         of a plain contact flag, which downstream weighting uses.
+      1. POSITIONAL indices, 0-based in PDB walk order, not seqid
+         residue numbers.  derive_input_design_region.py needs these,
+         because its design region and true interface are both in
+         positional coordinates.
+      2. The closest distance per contacting residue, used by
+         downstream weighting, not a plain contact flag.
 
-    ``boltz2_negative_steering.find_contact_residues_heavy`` is a
-    second implementation with the same signature.  Both are
-    insertion-code aware and return identical positional indices, but
-    that one also sorts by distance and keeps richer per-residue atom
-    bookkeeping.  A future refactor could put both behind one shared
-    pdb_atom_io helper.
+    ``boltz2_negative_steering.find_contact_residues_heavy`` is a second
+    implementation with the same signature, also insertion-code aware
+    and returning identical indices, which additionally sorts by
+    distance and keeps richer per-residue bookkeeping.  A future
+    refactor could share one pdb_atom_io helper.
 
-    `expected_rec_seq` is an optional check.  When supplied, the number
-    of residues walked must equal its length, and a mismatch raises
-    ValueError.  This catches PDB-versus-FASTA disagreements that would
-    otherwise misalign positional indices for every consumer
-    downstream.
-
-    Hydrogens are excluded and only ATOM records are read.  Returns an
-    empty list if either chain is missing.
+    When `expected_rec_seq` is supplied, a residue count unequal to its
+    length raises ValueError.  That catches PDB-versus-FASTA
+    disagreements which would otherwise misalign positional indices
+    downstream.  Hydrogens and non-ATOM records are excluded, and a
+    missing chain gives an empty list.
     """
-    # Inline insertion-code-aware parser.  _parse_heavy_atoms_by_chain
-    # keys on resseq alone, but this keeps the (resseq, icode) tuple so
-    # residues sharing a number with different insertion codes get
-    # distinct positional indices.  Such residues are common in wwPDB
-    # structures.  This matches read_residue_heavy_atoms in
-    # bin/boltz2_negative_steering.py.
+    # _parse_heavy_atoms_by_chain keys on resseq alone, but this keeps
+    # the (resseq, icode) tuple so residues sharing a number with
+    # different insertion codes get distinct indices.  Matches
+    # read_residue_heavy_atoms in boltz2_negative_steering.py.
     rec_residue_order = []   # list of (resseq, icode) in PDB walk order
     rec_residue_atoms = {}   # (resseq, icode) -> list of (x, y, z)
     eff_atoms_xyz = []
@@ -698,18 +619,16 @@ def find_contact_residues_heavy(
 def parse_mutated_positions(spec):
     """Parse a `--mutated-positions` CLI argument.
 
-    Two forms are accepted:
-      - Plain comma-separated list:  "5,26,44,46"
-      - ChimeraX spec with chain:    "/A:5,26,44,46"
+    Accepts a plain comma-separated list, "5,26,44,46", or a ChimeraX
+    spec with chain, "/A:5,26,44,46".
 
     Returns a sorted list of ints, or [] for empty input.  An invalid
-    token is skipped with a warning.  A partial list plus a warning
-    beats a hard failure part-way through a run.
+    token is skipped with a warning, which beats a hard failure
+    part-way through a run.
     """
     if not spec:
         return []
     s = spec.strip()
-    # Strip a leading "/<chain>:" if there is one.
     if s.startswith("/"):
         colon = s.find(":")
         if colon != -1:
@@ -729,19 +648,15 @@ def parse_mutated_positions(spec):
 def parse_position_list(spec):
     """Parse a position-list CLI argument with range support.
 
-    Accepts (all forms in a single call, comma-separated):
-      - Plain ints:                  "5,26,44,46"
-      - Ranges (inclusive):          "30-78"
-      - Mixed:                       "5,30-78,92"
-      - ChimeraX spec with chain:    "/A:5,30-78,92"
-      - Whitespace inside tokens:    "5, 30 - 78, 92"
+    Accepts plain ints, inclusive ranges, a leading ChimeraX "/A:"
+    chain spec and whitespace inside tokens, mixed in one
+    comma-separated call such as "/A:5, 30 - 78, 92".
 
-    This accepts everything parse_mutated_positions does and more.
-    The two stay separate on purpose.  --mutated-positions keeps the
-    strict comma-list form, because mutation sets are small and a
-    range there would read as misleading.  --design-region-positions
-    gets the range form, which is far easier to write for design
-    regions that often span 40 or more contiguous residues.
+    This is a superset of parse_mutated_positions, and the two stay
+    separate on purpose.  --mutated-positions keeps the strict
+    comma-list form, because a range would read as misleading on a
+    small mutation set.  --design-region-positions gets ranges, far
+    easier for regions spanning 40 or more residues.
 
     Returns a sorted list of unique ints, or [] for empty input.
     """
@@ -781,15 +696,13 @@ def load_positions_file(path):
 
     Each line holds one or more integers, separated by whitespace or
     commas.  A '#' starts a comment that runs to end of line.  Range
-    syntax such as "30-78" works exactly as parse_position_list
-    handles it.
+    syntax works as parse_position_list handles it.
     """
     if not path:
         return []
     tokens = []
     with open(path) as f:
         for line in f:
-            # Strip inline comments
             if "#" in line:
                 line = line.split("#", 1)[0]
             line = line.strip()
@@ -807,17 +720,12 @@ def classify_mutation_reliance(
     """Compare contact residue numbers against the mutated positions.
 
     This is the AUTHORITATIVE contamination check for the
-    negative-steering pipeline.
-
-    Returns (n_on_mut, mutated_contact_positions).
-
-    n_on_mut > 0 means the design is contaminated.  At least one
-    steering mutation contacts the effector in the predicted pose.
-    The wet-lab construct will not carry that residue, so the pose's
-    metrics are invalid unless the reversion pass recovers it.
-
-    `mutated_contact_positions` is the sorted list of those positions,
-    which is exactly what the reversion pass must revert.
+    negative-steering pipeline.  Returns
+    (n_on_mut, mutated_contact_positions), where n_on_mut > 0 means a
+    steering mutation contacts the effector in the predicted pose.  The
+    wet-lab construct will not carry that residue, so the metrics are
+    invalid unless the reversion pass recovers it.
+    `mutated_contact_positions` is exactly what that pass must revert.
     """
     if not mutated_positions:
         return (0, [])
@@ -831,10 +739,8 @@ def classify_mutation_reliance(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def plddt_from_pdb(pdb_path):
-    """Average pLDDT read from the B-factor column of the CA atoms.
-
-    This is the fallback when no plddt sidecar .npz is available.
-    """
+    """Average pLDDT from the CA B-factor column, the fallback when no
+    plddt sidecar .npz is available."""
     bfactors = []
     try:
         with open(pdb_path) as f:
@@ -856,17 +762,9 @@ def plddt_from_pdb(pdb_path):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _finalize_entry(entry, pae_matrix, chain_lengths, pae_cutoff=10.0):
-    """Apply defaults, then compute the PAE-derived metrics and
-    actifPTM.
-
-    The 'actifptm' column holds the Varga, Ovchinnikov &
-    Schueler-Furman 2025 interface-restricted ipTM.  See
-    compute_actifptm for the definition.
-
-    'af_rank_score' is a separate column holding
-    0.8 * iptm + 0.2 * ptm, AlphaFold-Multimer's default model-ranking
-    score.  An earlier version mislabelled that formula as 'actifptm'.
-    """
+    """Apply defaults, then compute the PAE-derived metrics, actifPTM
+    and af_rank_score.  The last two are separate columns, defined in
+    compute_actifptm and the module docstring."""
     entry.setdefault("ptm", 0.0)
     entry.setdefault("iptm", 0.0)
     entry.setdefault("avg_plddt", 0.0)
@@ -877,16 +775,15 @@ def _finalize_entry(entry, pae_matrix, chain_lengths, pae_cutoff=10.0):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Native-PDB-dependent metrics.  These moved here from
+# Native-PDB-dependent metrics, moved here from
 # compute_interface_metrics.py so they are computed per prediction,
 # beside the PAE-derived metrics, instead of in a separate later pass.
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Gaussian weight parameters for the weighted Jaccard.  Read from
-# PipelineInternalThresholds, with a literal fallback if that import
-# fails.  These values stay fixed across cohorts so numbers remain
-# comparable.  A cohort needing different parameters should get a NEW
-# column rather than a retune of these.
+# Gaussian weight parameters for the weighted Jaccard, read from
+# PipelineInternalThresholds with a literal fallback.  They stay fixed
+# across cohorts so numbers stay comparable.  A cohort needing
+# different parameters gets a NEW column, not a retune of these.
 try:
     import sys as _sys
     from pathlib import Path as _Path
@@ -909,11 +806,10 @@ def _gaussian_contact_weight(distance_angstroms):
 def _collect_chain_cb_positions(structure, chain_id):
     """
     Return [(positional_index_0b, cb_xyz, residue_name)] for every
-    residue in the named chain.  Uses Cβ where present and falls back
-    to Cα for glycine and for Cα-only models.  Indexing positionally
-    rather than by seqid.num keeps the (i, j) keys comparable between
-    the model and the ground truth even when their numbering schemes
-    differ.
+    residue in the named chain, using Cβ where present and Cα for
+    glycine and Cα-only models.  Positional rather than seqid.num
+    indexing keeps the (i, j) keys comparable between model and ground
+    truth when their numbering schemes differ.
     """
     out = []
     pos_idx = 0
@@ -972,8 +868,7 @@ def _build_weighted_pair_map(structure, receptor_chain, effector_chain,
 def compute_weighted_jaccard(model_pdb, native_pdb, receptor_chain,
                               effector_chain, pair_cutoff=8.0):
     """
-    Smooth distance-weighted Jaccard contact overlap between the model
-    and the native structure.
+    Smooth distance-weighted Jaccard contact overlap, model vs native.
 
         weighted_jaccard
             = sum_pairs min(w_model(d), w_native(d))
@@ -981,9 +876,9 @@ def compute_weighted_jaccard(model_pdb, native_pdb, receptor_chain,
 
     where w(d) = exp(-(d - 4)^2 / 2.25).
 
-    Returns (weighted_jaccard_float, error_str_or_None).  Both pair
-    maps empty means there is no interface to compare, which gives
-    (NaN, None).  Exactly one empty gives 0.0.
+    Returns (weighted_jaccard_float, error_str_or_None).  Two empty pair
+    maps mean neither structure has an interface, giving (NaN, None).
+    Exactly one empty gives 0.0, and so does a zero denominator.
     """
     try:
         import gemmi
@@ -1028,12 +923,11 @@ def compute_intact_core(model_pdb, native_pdb, plddt_threshold,
     """
     Core-only intact filter.
 
-    Trim the receptor by per-residue pLDDT, Kabsch-align the trimmed
-    receptor cores of model and native, then compute the whole-complex
-    Cα RMSD over the residues the two structures share.  intact_flag
-    is 1 when that RMSD is below intact_threshold, else 0.
-
-    Returns (intact_flag, rmsd_angstroms, error_str_or_None).
+    Trims the receptor by per-residue pLDDT, Kabsch-aligns the trimmed
+    cores of model and native, then computes the whole-complex Cα RMSD
+    over the residues they share.  Returns
+    (intact_flag, rmsd_angstroms, error_str_or_None), intact_flag 1 when
+    that RMSD is below intact_threshold.
     """
     try:
         import gemmi
@@ -1108,13 +1002,12 @@ def compute_intact_core(model_pdb, native_pdb, plddt_threshold,
 def compute_interface_plddt(model_pdb, receptor_chain, effector_chain,
                              contact_cutoff=5.0):
     """
-    Mean Cα pLDDT over the interface residues.  This is the metric
-    run_biophysical_metrics.py used to compute, moved here so it runs
-    per prediction beside the other PAE and pLDDT metrics.
+    Mean Cα pLDDT over the interface residues, moved here from
+    run_biophysical_metrics.py so it runs per prediction.
 
-    Returns (interface_plddt_0_to_1, error_str_or_None).  Input on a
-    0-100 scale is normalised to 0-1.  Boltz writes pLDDT on 0-100 in
-    the PDB B-factor column, but downstream thresholds expect 0-1.
+    Returns (interface_plddt_0_to_1, error_str_or_None).  Boltz writes
+    pLDDT on 0-100 in the PDB B-factor column while downstream
+    thresholds expect 0-1, so input on 0-100 is normalised.
     """
     try:
         import gemmi
@@ -1126,7 +1019,6 @@ def compute_interface_plddt(model_pdb, receptor_chain, effector_chain,
     except Exception as e:  # noqa: BLE001
         return None, f"structure_load_failed:{type(e).__name__}"
 
-    # Collect heavy atoms per chain.
     rec_atoms = []
     eff_atoms = []
     for m in st:
@@ -1167,7 +1059,6 @@ def compute_interface_plddt(model_pdb, receptor_chain, effector_chain,
     if not interface:
         return None, "no_interface_residues"
 
-    # Mean Cα pLDDT over interface residues.
     plddts = []
     for m in st:
         for ch in m:
@@ -1238,20 +1129,16 @@ def parse_boltz2(
         output/predictions/<job>/confidence/<n>_model_<M>.json
         output/predictions/<job>/plddt/<n>_model_<M>.npz
     Some Boltz versions write flatter layouts, and the globs below
-    cover those too.  With no sidecars in reach, ptm, iptm and the
-    PAE-derived metrics all come out 0 and only avg_plddt survives,
-    through the B-factor fallback in plddt_from_pdb.
+    cover those too.
 
-    `mutated_positions` is a list of 1-based receptor residue numbers,
-    the design's cumulative steering mutations.  Supplying it turns on
-    the interface contact analysis and the mutation-reliance flag.
-    None or empty leaves the flag column blank, which suits cold-start
-    rows and any caller that has not wired the mutation list through.
+    Supplying `mutated_positions`, the design's cumulative steering
+    mutations as 1-based receptor residue numbers, turns on the
+    interface contact analysis and the mutation-reliance flag.  None or
+    empty leaves that column blank, which suits cold-start rows.
 
-    `effector_atom_filter` restricts heavy-atom contact detection to
-    the effector's interface atoms.  See
-    compute_effector_interface_residues for how the set is built and
-    compute_interface_contacts for the forms accepted.
+    `effector_atom_filter` restricts contact detection to the effector's
+    interface atoms.  See compute_effector_interface_residues and
+    compute_interface_contacts.
     """
     if mutated_positions is None:
         mutated_positions = []
@@ -1283,11 +1170,9 @@ def parse_boltz2(
                 entry["iptm"] = round(float(
                     conf.get("iptm", conf.get("protein_iptm", 0.0))
                 ), 4)
-                # Boltz-2 also writes complex_plddt, the whole-complex
-                # pLDDT, into the confidence JSON on a 0-1 scale.  It
-                # gets its own column, so the Boltz-native confidence
-                # signal is available without re-averaging the
-                # per-residue .npz.
+                # complex_plddt is the whole-complex pLDDT on a 0-1
+                # scale.  Its own column makes the Boltz-native signal
+                # available without re-averaging the per-residue .npz.
                 if "complex_plddt" in conf:
                     entry["complex_plddt"] = round(
                         float(conf["complex_plddt"]), 4
@@ -1308,13 +1193,11 @@ def parse_boltz2(
                 if arr.ndim > 1:
                     arr = arr.flatten()
                 mean_plddt = float(arr.mean())
-                # Boltz-2 writes the per-residue .npz on a 0-1 scale.
-                # The full benchmark pipeline and the B-factor fallback
-                # in plddt_from_pdb both use the conventional 0-100
-                # scale.  Rescaling here puts every row of the output
-                # CSV on 0-100 whichever path it came from.  The guard
-                # tests max <= 1.5 rather than the mean, so a file
-                # already on 0-100 is not multiplied twice.
+                # Boltz-2 writes the per-residue .npz on a 0-1 scale,
+                # while the benchmark pipeline and plddt_from_pdb's
+                # B-factor fallback use 0-100, so rescaling here puts
+                # every output row on 0-100.  The guard tests max, not
+                # the mean, so a file already on 0-100 is not doubled.
                 if float(arr.max()) <= 1.5:
                     mean_plddt *= 100.0
                 entry["avg_plddt"] = round(mean_plddt, 2)
@@ -1347,10 +1230,9 @@ def parse_boltz2(
         _finalize_entry(entry, pae_matrix, chain_lengths, pae_cutoff=pae_cutoff)
 
         # --- Interface contacts + mutation reliance ---
-        # Heavy-atom contacts between the receptor and effector chains
-        # of the PDB just loaded, pdb_path itself.  A failure here,
-        # from missing chain letters or a parse error, falls back to an
-        # empty set and a blank flag, so the row is still written.
+        # A failure here, from missing chain letters or a parse error,
+        # falls back to an empty set and a blank flag, so the row still
+        # gets written.
         try:
             contacts = compute_interface_contacts(
                 pdb_path,
@@ -1374,7 +1256,7 @@ def parse_boltz2(
         )
         entry["contact_cutoff_used"] = contact_cutoff
 
-        # --- interface_plddt (always computable from model PDB alone) ---
+        # --- interface_plddt (needs the model PDB only) ---
         ifp_val, ifp_err = compute_interface_plddt(
             pdb_path,
             receptor_chain=receptor_chain,
@@ -1386,12 +1268,10 @@ def parse_boltz2(
         )
 
         # --- intact_core + weighted_jaccard (need native_pdb) ---
-        # Both metrics compare against a ground-truth structure.  A
-        # None native_pdb, as in a benchmark run without one, leaves
-        # both columns blank.  When it is supplied both are computed
-        # inside this per-prediction loop, so the values travel the
-        # same aggregator, passing_summary and cross_summary chain as
-        # the PAE-derived metrics.
+        # A None native_pdb leaves both columns blank.  Computing them
+        # in this per-prediction loop sends the values down the same
+        # aggregator, passing_summary and cross_summary chain as the
+        # PAE metrics.
         if native_pdb is not None:
             ic_flag, _ic_rmsd, _ic_err = compute_intact_core(
                 pdb_path, native_pdb,
@@ -1452,23 +1332,17 @@ CSV_FIELDS = [
     "ipsae_min_15",
     "actifptm",
     "af_rank_score",
-    # Interface contacts and mutation reliance.  Filled in for every
-    # parsed PDB whether or not --mutated-positions was supplied.
-    # mutated_contact_positions is blank when no mutations were passed.
-    #
-    # This IS the authoritative contamination check for the
-    # negative-steering pipeline.  Any mutated residue contacting the
-    # effector in the predicted pose invalidates the metrics, because
-    # the wet-lab construct will not carry the steered residue at that
-    # position, protected or not.
+    # Interface contacts and mutation reliance, filled in for every
+    # parsed PDB.  mutated_contact_positions is blank when
+    # --mutated-positions was not supplied.  See
+    # classify_mutation_reliance for the contamination rule.
     "n_contact_residues",
     "contact_residues",
     "n_contacts_on_mutated_positions",
     "mutated_contact_positions",
     "contact_cutoff_used",
-    # interface_plddt is the mean Cα pLDDT over the interface residues,
-    # always computable from the model PDB alone.  intact_core and
-    # weighted_jaccard need --native-pdb and stay blank without it.
+    # intact_core and weighted_jaccard need --native-pdb and stay blank
+    # without it.  interface_plddt needs the model PDB only.
     "interface_plddt",
     "intact_core",
     "weighted_jaccard",
@@ -1498,10 +1372,9 @@ def main():
                              "output reports what fraction of pairs "
                              "passed at the cutoff used.")
     # --receptor-chain and --effector-chain were once accepted and
-    # ignored.  The interface contact analysis now uses them to decide
-    # which chain IDs in the prediction PDB are the receptor and the
-    # effector.  The defaults match plan.json's pred_receptor_chain
-    # and pred_effector_chain.
+    # ignored.  The interface contact analysis now uses them, and the
+    # defaults match plan.json's pred_receptor_chain and
+    # pred_effector_chain.
     parser.add_argument("--receptor-chain", default="A",
                         help="Receptor chain ID in the prediction PDB "
                              "(used by the interface contact analysis). "
@@ -1542,10 +1415,10 @@ def main():
                              "not register as a contact.  The steering "
                              "pipeline writes the set to plan.json under "
                              "'effector_interface_residues', or under the "
-                             "older 'effector_interface_atoms' key, "
-                             "— point this flag at plan.json directly "
-                             "and it will read from that key.  Blank / "
-                             "unset → no filter (legacy behaviour).")
+                             "older 'effector_interface_atoms' key.  Point "
+                             "this flag at plan.json and it reads whichever "
+                             "key is there.  Left unset, every effector "
+                             "atom counts.")
     parser.add_argument("--native-pdb", default="",
                         help="Path to the ground-truth (native) PDB for "
                              "this design.  When supplied, the per-PDB "
@@ -1587,22 +1460,16 @@ def main():
 
     print(f"Contact cutoff:  {args.contact_cutoff} Å heavy-atom")
 
-    # Load the effector interface filter if one was supplied.  The JSON
-    # file's top level may be a list, in either of two forms:
-    #   - a list of ints, the preferred residue set
-    #   - a list of [resseq, atom_name] pairs, the older atom filter,
-    #     collapsed to a residue set by compute_interface_contacts
-    # It may instead be a plan.json dict, which lets the caller point
-    # this flag straight at plan.json.  Then the filter is read from
-    # 'effector_interface_residues' if present, or from the older
-    # 'effector_interface_atoms' otherwise.
+    # The JSON top level may be a list of ints, a list of
+    # [resseq, atom_name] pairs, or a plan.json dict read from
+    # 'effector_interface_residues' or the older
+    # 'effector_interface_atoms'.
     effector_atom_filter = None
     if args.effector_atom_filter_json:
         try:
             with open(args.effector_atom_filter_json) as f:
                 raw = json.load(f)
             if isinstance(raw, dict):
-                # Prefer the residue list, fall back to the atom list.
                 pairs = (raw.get("effector_interface_residues")
                          or raw.get("effector_interface_atoms")
                          or [])
@@ -1610,8 +1477,6 @@ def main():
                 pairs = raw
             else:
                 pairs = []
-            # Build the filter set from ints or (resseq, atom_name)
-            # pairs.
             flt = set()
             for p in pairs:
                 if isinstance(p, int):
@@ -1636,8 +1501,7 @@ def main():
             print("  Contamination check will run on all effector atoms.")
             effector_atom_filter = None
 
-    # Resolve native_pdb to a usable path, or None if it is blank or
-    # does not exist.
+    # None if blank or missing from disk.
     native_pdb_arg = args.native_pdb.strip() if args.native_pdb else ""
     native_pdb_path = None
     if native_pdb_arg:

@@ -4,75 +4,25 @@ negsteer_plots.py
 -----------------
 Cohort-level plots for a negative-steering cohort.
 
-Reads the cross_sequence_summary.csv written by NEGSTEER_CROSS_SUMMARY
-and emits the diagnostic plot suite to --outdir. The analyses under
-analysis/ call the figure helpers directly rather than running this as
-a script.
+Reads the cross_sequence_summary.csv written by NEGSTEER_CROSS_SUMMARY. The
+analyses under analysis/ call the figure helpers directly rather than running
+this as a script.
 
-Plots produced
---------------
+Figures written to --outdir:
 
-negsteer_tier_landscape.png
-    Per-sequence bar of cross_composite_score, sorted by
-    cross_rank_by_composite, coloured by tier.  This is the main
-    ranker view.  It shows the cohort's composite-score distribution
-    and the gap between tier A and the tail.
+    negsteer_tier_landscape.png         composite per sequence, by tier
+    negsteer_seed_outcomes_heatmap.png  per-seed stage and outcome, rep sg
+    negsteer_seed_outcomes_bars.png     those two marginals, all sgs
+    negsteer_ra_eff_vs_jaccard.png      with iso-composite contours
+    negsteer_filter_cascade.png         survivors of each Boltz filter
+    negsteer_controls_diagnostic.png    steered against controls
+    negsteer_mutation_impact.png        composite by mutated position
 
-negsteer_seed_outcomes_heatmap.png
-    Per-MPNN-sequence dot grid (representative sg only, 3 seeds per
-    row).  Sorted by composite score descending.  Shape encodes which
-    stage produced the seed's final prediction (cold-start /
-    steering / reversion); colour encodes how that prediction fared
-    (pass / off_target / poor_prediction / multiple_failures /
-    new_contamination / no_data).  Replaces the old seed_verdicts
-    plot, which mixed stage and outcome into a single label.
-
-negsteer_seed_outcomes_bars.png
-    Two side-by-side stacked bars per sequence using ALL sequence
-    groups (typically 9 seeds per sequence: 3 sg × 3 Boltz seeds).
-    Left panel: stage breakdown.  Right panel: outcome breakdown.
-    Shows the marginal distributions across the cohort.
-
-negsteer_ra_eff_vs_jaccard.png
-    Scatter of rep_ra_eff_vs_truth_median (x) vs
-    rep_true_jaccard_median (y), coloured by tier, with
-    iso-composite contours overlaid.  Controls drawn as different
-    markers.  The composite score made geometric.
-
-negsteer_filter_cascade.png
-    Waterfall: how many sequences pass each Boltz confidence filter
-    in succession (complex_plddt → ipae → pae_pass_frac → tiered).
-    Treats the Boltz confidence metrics as filters rather than
-    rankers.  They separate a collapsed prediction from a plausible
-    one, but they do not order plausible ones against each other.
-
-negsteer_controls_diagnostic.png
-    Two-panel boxplot, ra_eff (top) and true_jaccard (bottom),
-    grouped by row_type (steered / control_scrambled / control_polyA).
-    Reference lines at controls_warning_ra_eff_min=5.0.  If the
-    control distributions overlap the steered distribution, the
-    pipeline is mis-calibrated.
-
-negsteer_mutation_impact.png
-    Per-input-PDB-position summary of how steering mutations
-    correlate with composite score.  For each position p that
-    appears in any sequence's rep_steered_mutations_chimerax,
-    plot the median composite score of sequences mutating p vs the
-    cohort median.  Bars sized by number of sequences mutating p.
-    Faint background shading marks design-region positions for
-    context (mutations should never fall there by construction).
-    The "which mutations make negative steering work" plot.
-
-Run by hand on a finished cohort. No Nextflow process invokes this module,
-and none of its figures is committed, so it is a diagnostic rather than a
-pipeline stage.
+Run by hand on a finished cohort. No Nextflow process invokes this module and
+none of its figures is committed, so it is a diagnostic, not a pipeline stage.
 
 Usage:
-    python negsteer_plots.py \\
-        --csv cross_sequence_summary.csv \\
-        --runs-dir runs \\
-        --input-design-region input_design_region.txt \\
-        --outdir plots
+    python negsteer_plots.py --csv cross_sequence_summary.csv --outdir plots
 """
 
 from __future__ import annotations
@@ -94,8 +44,8 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 
 # ── Threshold defaults ────────────────────────────────────────────────────
-# Default values mirror extract_passing._compute_confidence_flag.
-# Override at the CLI to reflect the values pinned in your run.
+# Defaults mirror extract_passing._compute_confidence_flag.  Override at
+# the CLI to match the values pinned in your run.
 COMPOSITE_RA_EFF_WEIGHT = 0.05      # composite = true_jaccard − 0.05·ra_eff
 CONTROL_RA_EFF_MIN     = 5.0        # controls_warning_ra_eff_min
 CONFIDENCE_PLDDT_MIN   = 0.70       # complex_plddt_min in extract_passing
@@ -103,10 +53,8 @@ CONFIDENCE_IPAE_MAX    = 15.0       # ipae_max in extract_passing
 CONFIDENCE_PAEPF_MIN   = 0.10       # pass_frac_min in extract_passing
 CONFIDENCE_IPTM_MIN    = 0.30       # iptm_min in extract_passing
 
-# Minimum number of sequences sharing a mutated position before the
-# position is plotted with a confidence-bearing colour in the
-# mutation-impact plot.  Below this, the bar is rendered faint to
-# convey the lower n.
+# Sequences sharing a mutated position below which the mutation-impact plot
+# renders the bar faint, to convey the lower n.
 MUT_IMPACT_MIN_N = 3
 
 
@@ -132,34 +80,26 @@ COLOUR_WORSE_THAN    = "#D62728"   # red (mutation associated with below-cohort 
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Which prediction counts as a sequence's "final" one:
+#   - cold start only (never steered): the cold-start prediction, which the
+#     pipeline stores in steered_* and writes no reverted_* columns for.
+#   - steered, outcome no_reversion: the steered prediction, because the
+#     mutated positions came back clean and reversion never ran.
+#   - steered, outcome pose_holds / pose_collapses / new_contamination: the
+#     reverted prediction, because reversion ran and steered_* is only an
+#     intermediate stage.
 #
-#   - cold start only (never steered): the cold-start prediction.  The
-#     pipeline stores it in the steered_* columns and writes no
-#     reverted_* columns.
-#   - steered, outcome no_reversion: the steered prediction.  The
-#     mutated positions came back clean, so reversion never ran.
-#   - steered, outcome pose_holds / pose_collapses /
-#     new_contamination: the reverted prediction.  Reversion ran, so
-#     reverted_* holds the last prediction made and steered_* is only
-#     an intermediate stage.
-#
-# Plots must follow that rule.  Reading steered_* unconditionally was
-# the old behaviour and it hid reversion failures.  It made d0_s3 look
-# good at ra_eff 3.013 and true Jaccard 0.7 while that sequence's
-# reverted prediction had collapsed to ra_eff 30.5.  That collapse is
-# exactly what negative steering exists to detect.
+# Reading steered_* unconditionally was the old behaviour and it hid reversion
+# failures.  It made d0_s3 look good at ra_eff 3.013 and true Jaccard 0.7
+# while that sequence's reverted prediction had collapsed to ra_eff 30.5.
+# That collapse is exactly what negative steering exists to detect.
 
-# How each rep_* field is derived from an aggregated_results.csv row.
-# Each entry maps the destination field to a tuple of:
-#   (steered_column_name, reverted_column_name_or_None)
-# When reverted_col is None, the steered column is always used, as for
-# the verdict-bucket counts that have no reverted equivalent.
+# Maps each rep_* field to (steered_column, reverted_column_or_None).  A None
+# reverted column means the steered column is always used, as for the
+# verdict-bucket counts that have no reverted equivalent.
 _AGG_FINAL_FIELD_MAP = {
-    # n_seeds, n_pass and outcome — single source of truth (no reverted).
     "rep_n_seeds":                       ("n_seeds", None),
     "rep_n_pass":                        ("n_pass", None),
     "rep_outcome":                       ("outcome", None),
-    # Steered/reverted metric pairs — picked per row by verdict.
     "rep_ra_eff_vs_truth_median": (
         "steered_ra_eff_vs_truth_median", "reverted_ra_eff_vs_truth_median"),
     "rep_true_jaccard_median": (
@@ -176,18 +116,14 @@ _AGG_FINAL_FIELD_MAP = {
         "steered_interface_plddt_median", "reverted_interface_plddt_median"),
     "rep_weighted_jaccard_median": (
         "steered_weighted_jaccard_median","reverted_weighted_jaccard_median"),
-    # Receptor-intact majority flag (used by the cascade's structural
-    # filter step).  Verdict-aware: clean_steered uses steered side,
-    # pose_holds/collapses/contamination use reverted side.
+    # Carried so a row projected from aggregated_results.csv has the same
+    # columns as a cross_summary row. No figure here reads it.
     "rep_receptor_intact_majority": (
         "steered_receptor_intact_majority",
         "reverted_receptor_intact_majority"),
-    # Mutations.  cross_summary populates both rep_steered_* and
-    # rep_reverted_mutations_majority_*.  aggregated_results.csv holds
-    # only the raw columns, which extract_passing fills in later when
-    # cross_summary is built.  So this map fills the steered slot only.
-    # plot_mutation_impact makes the verdict-aware choice itself, by
-    # reading the right cross_summary column based on rep_outcome.
+    # aggregated_results.csv holds only the raw mutation columns, so this map
+    # fills the steered slot only.  plot_mutation_impact makes the
+    # verdict-aware choice itself from rep_outcome.
     "rep_steered_mutations_chimerax":    ("steered_mutations_chimerax", None),
     "rep_steered_mutations_aa":          ("steered_mutations_aa", None),
     "rep_total_mutations_median":        ("steered_total_mutations_median", None),
@@ -198,9 +134,9 @@ _VERDICTS_WITH_REVERSION = {"pose_holds", "pose_collapses", "new_contamination"}
 
 
 def _final_prediction_value(agg_row: Dict, dest_field: str) -> str:
-    """Return the value of `dest_field` from `agg_row`, picking the
-    steered or reverted column based on the row's outcome.  The
-    comment above _AGG_FINAL_FIELD_MAP states the policy."""
+    """Return `dest_field` from `agg_row`, picking the steered or reverted
+    column by the row's outcome.  The comment above _AGG_FINAL_FIELD_MAP
+    states the policy."""
     spec = _AGG_FINAL_FIELD_MAP.get(dest_field)
     if spec is None:
         return ""
@@ -209,24 +145,23 @@ def _final_prediction_value(agg_row: Dict, dest_field: str) -> str:
         return agg_row.get(steered_col, "") or ""
     verdict = (agg_row.get("outcome") or "").strip()
     if verdict in _VERDICTS_WITH_REVERSION:
-        # Prefer reverted; fall back to steered if reverted is blank
-        # (e.g. reversion failed to produce a prediction at all).
+        # Fall back to steered when reverted is blank, which happens when
+        # reversion failed to produce a prediction at all.
         v = agg_row.get(reverted_col, "")
         if v not in ("", None):
             return v
         return agg_row.get(steered_col, "") or ""
-    # no_reversion / singleton / blank — use steered (cold start or
-    # clean-steered prediction; the only prediction that exists).
+    # no_reversion / singleton / blank: steered holds the only prediction
+    # that exists, either cold-start or clean-steered.
     return agg_row.get(steered_col, "") or ""
 
 
 def _project_agg_row(seq_name: str, agg_row: Dict, row_type: str = "steered") -> Dict:
-    """Convert an aggregated_results.csv row into a cross_summary-shaped
-    dict.  Only the columns the plots need are populated.
+    """Convert an aggregated_results.csv row into a cross_summary-shaped dict,
+    populating only the columns the plots need.
 
-    Tier defaults to 'none'.  cross_summary.py assigns cross_tier
-    after the passing filter, so a sequence with no passing rows
-    never gets a tier."""
+    Tier defaults to 'none'.  cross_summary.py assigns cross_tier after the
+    passing filter, so a sequence with no passing rows never gets a tier."""
     out = {
         "mpnn_sequence": seq_name,
         "row_type":      row_type,
@@ -244,21 +179,18 @@ def _pick_best_agg_row(agg_rows: List[Dict],
                         prefer_pathway: Optional[str] = None,
                         prefer_sequence_group: Optional[str] = None,
                         ) -> Optional[Dict]:
-    """A sequence's aggregated_results.csv may have several rows, one
-    per (cycle, pathway, sequence_group), plus a singleton row.
+    """Pick one of a sequence's aggregated_results.csv rows, which run one per
+    (cycle, pathway, sequence_group) plus a singleton row.
 
-    When cross_summary names a representative row, return that exact
-    row.  It is the row the cross-rank was computed on, so swapping in
-    a better-looking row would make the plotted point disagree with
-    the rank printed beside it.
+    When cross_summary names a representative row, return that exact row.  It
+    is the row the cross-rank was computed on, so swapping in a better-looking
+    row would make the plotted point disagree with the rank printed beside it.
 
-    Tier-none sequences have no representative pointer.  For those,
-    pick the row with the best composite score
-    (true_jaccard − 0.05·ra_eff), so the cohort plots show the
-    sequence's best attempt rather than its worst.  Tier-none means no
-    row crossed extract_passing's filters, but the best aggregate row
-    is still the most informative thing to plot.  Singleton rows are
-    skipped because they carry no real seed counts."""
+    Tier-none sequences have no representative pointer, so pick the best
+    composite (true_jaccard − 0.05·ra_eff) instead.  No row crossed
+    extract_passing's filters, but the sequence's best attempt is still more
+    informative than its worst.  Singleton rows are skipped because they
+    carry no real seed counts."""
     if not agg_rows:
         return None
 
@@ -281,12 +213,12 @@ def _pick_best_agg_row(agg_rows: List[Dict],
         ra = _try_float(r.get("steered_ra_eff_vs_truth_median"))
         tj = _try_float(r.get("steered_true_jaccard_median"))
         if ra is None or tj is None:
-            # Penalise rows with missing numbers — they would
-            # otherwise outscore real rows.
+            # Penalise rows with missing numbers, which would otherwise
+            # outscore real rows.
             return -1e9
         return tj - 0.05 * ra
 
-    # Pick by best composite (highest = best attempt).
+    # Highest composite = best attempt.
     return sorted(candidates, key=lambda r: -_composite(r))[0]
 
 
@@ -295,25 +227,18 @@ def load_unified_cohort(
     runs_dir: Optional[Path],
     verbose: bool = True,
 ) -> List[Dict]:
-    """Build the cohort by merging cross_sequence_summary.csv (which
-    has tier / composite-rank info plus tier-none stub rows for every
-    sequence) with per-sequence aggregated_results.csv files (which
-    have the seed-count / ra_eff / jaccard data even for tier-none
-    sequences).
+    """Merge cross_sequence_summary.csv with the per-sequence
+    aggregated_results.csv files into one list of dicts in the cross_summary
+    vocabulary.
 
-    Returns a unified list of dicts in the cross_summary vocabulary.
-    Sequences in cross_summary keep their identification and tier
-    info.  A tier-none sequence had no passing rows, so its rep_*
-    columns are blank by construction.  For those, the seed counts,
-    ra_eff, jaccard and mutation columns are backfilled from
-    aggregated_results.csv when it is available.
+    Sequences in cross_summary keep their identification and tier info.  A
+    tier-none sequence had no passing rows, so its rep_* columns are blank by
+    construction and are backfilled from aggregated_results.csv when it is
+    available.
 
-    Sequences present in runs/ but absent from cross_summary (older
-    workdirs, partial runs) get a synthetic entry built from their
-    best aggregated_results row.
-
-    Controls (control_polyA, control_scrambled) pass through from
-    cross_summary unchanged.  cross_summary already handles them.
+    Sequences in runs/ but absent from cross_summary (older workdirs, partial
+    runs) get a synthetic entry from their best aggregated_results row.
+    Controls pass through unchanged, since cross_summary handles them.
     """
     # Step 1: read cross_summary into a dict keyed by mpnn_sequence.
     cross_rows: Dict[str, Dict] = {}
@@ -325,8 +250,8 @@ def load_unified_cohort(
 
     if verbose:
         print(f"  cross_summary contains {len(cross_rows)} rows")
-        # Show tier breakdown for visibility — tier-none rows often have
-        # blank rep_* and need backfill from aggregated_results.
+        # Tier-none rows often have blank rep_* and need backfill from
+        # aggregated_results.
         from collections import Counter
         tier_counter = Counter(
             (r.get("cross_tier") or "none").strip() for r in cross_rows.values()
@@ -334,7 +259,7 @@ def load_unified_cohort(
         print(f"  cross_summary tier breakdown: "
               f"A={tier_counter.get('A',0)} B={tier_counter.get('B',0)} "
               f"C={tier_counter.get('C',0)} none={tier_counter.get('none',0)}")
-        # Count rows missing n_pass (the tell that backfill is needed).
+        # Rows missing n_pass are the tell that backfill is needed.
         n_blank_seedcounts = sum(
             1 for r in cross_rows.values()
             if not (r.get("rep_n_pass") or "").strip()
@@ -368,11 +293,10 @@ def load_unified_cohort(
         with open(agg_path) as f:
             agg_rows = list(csv.DictReader(f))
 
-        # When cross_summary already names a representative row, use
-        # its (cycle, pathway, sequence_group) to find the matching
-        # aggregated_results row exactly.  When tier is "none", tell
-        # the picker to skip no_reversion rows so seed_verdicts gets
-        # real counts instead of a synthesised all-clean stack.
+        # A representative named by cross_summary gives the exact
+        # (cycle, pathway, sequence_group) to match on. A tier-none sequence
+        # names none, and the picker then falls back to the best composite
+        # among the rows whose outcome is not "singleton".
         cross = cross_rows.get(seq_name)
         if cross is not None:
             best_agg = _pick_best_agg_row(
@@ -388,23 +312,18 @@ def load_unified_cohort(
             n_in_cross += 1
             row = dict(cross_rows[seq_name])
             if best_agg is not None:
-                # Metric fields are always overwritten with the
-                # verdict-aware final value.  cross_summary computes
-                # its rep_*_median columns from the steered side even
-                # when reversion ran.  Re-sourcing them here gives
-                # pose_collapses and new_contamination sequences their
-                # reverted metrics, which are the real final
-                # prediction, instead of the misleading steered
-                # intermediate.  Verdict counts and mutation strings
-                # have no reverted equivalent, so they are filled in
-                # only when blank.
+                # cross_summary computes its rep_*_median columns from the
+                # steered side even when reversion ran.  Re-sourcing them here
+                # gives pose_collapses and new_contamination sequences their
+                # reverted metrics, the real final prediction, instead of the
+                # misleading steered intermediate.
                 for dst, (steered_col, reverted_col) in _AGG_FINAL_FIELD_MAP.items():
                     final_val = _final_prediction_value(best_agg, dst)
                     if reverted_col is not None:
-                        # Steered/reverted pair → always take final.
                         row[dst] = final_val
                     else:
-                        # Verdict count / mutation string → only fill blanks.
+                        # Verdict counts and mutation strings have no reverted
+                        # equivalent, so fill only the blanks.
                         if not row.get(dst):
                             row[dst] = final_val
                 n_backfilled += 1
@@ -427,8 +346,7 @@ def load_unified_cohort(
               f"(of which backfilled from agg: {n_backfilled})")
         print(f"    not in cross_summary (synthesised): {n_synthesised}")
 
-    # Step 3: any cross_summary rows we didn't see in runs_dir get
-    # appended verbatim.
+    # Step 3: cross_summary rows absent from runs_dir are appended verbatim.
     leftover_count = len(cross_rows)
     for leftover in cross_rows.values():
         augmented.append(leftover)
@@ -543,10 +461,10 @@ def _short_name(name: str) -> str:
 
 def plot_tier_landscape(rows: List[Dict], out_path: str) -> bool:
     """Per-sequence bar of cross_composite_score, sorted by
-    cross_rank_by_composite (tier A first, then B, then C, then none),
-    coloured by tier.  Controls are excluded.  They sit outside the
-    cohort ranking by design, so their cross_rank is blank, and they
-    get their own figure in plot_controls_diagnostic."""
+    cross_rank_by_composite (tier A, B, C, then none), coloured by tier.
+
+    Controls are excluded.  They sit outside the cohort ranking by design, so
+    their cross_rank is blank, and plot_controls_diagnostic is their figure."""
     items = []
     for row in rows:
         if not _is_steered(row):
@@ -554,8 +472,8 @@ def plot_tier_landscape(rows: List[Dict], out_path: str) -> bool:
         rk = _try_int(row.get("cross_rank_by_composite"))
         cs = _try_float(row.get("cross_composite_score"))
         # Tier-none sequences have blank cross_rank_by_composite by
-        # construction.  Recompute composite from the representative
-        # row if possible so they still appear in the bar chart.
+        # construction, so recompute from the representative row to keep them
+        # in the bar chart.
         if cs is None:
             cs = _composite_from_row(row)
         tier = (row.get("cross_tier") or "none").strip()
@@ -570,16 +488,14 @@ def plot_tier_landscape(rows: List[Dict], out_path: str) -> bool:
         _make_empty_plot("No steered rows in cross-sequence summary", out_path)
         return False
 
-    # Tier-then-composite ordering (tier-none at the tail, sorted by
-    # composite descending within the none tail).
+    # Tier, then composite descending within the tier-none tail.
     items.sort(key=lambda d: (
         d["rank"],
         -(d["comp"] if d["comp"] is not None else -1e6),
     ))
 
     n = len(items)
-    # Minimum width 9.  The lifted legend has 5 entries and needs
-    # the full plot width to lay out in one row without squashing.
+    # Minimum width 9, so the lifted legend's 5 entries lay out in one row.
     fig_w = max(9, min(22, n * 0.50 + 4))
     fig, ax = plt.subplots(figsize=(fig_w, 5))
 
@@ -589,15 +505,13 @@ def plot_tier_landscape(rows: List[Dict], out_path: str) -> bool:
 
     ax.bar(xs, ys, color=colors, edgecolor="black", linewidth=0.4)
 
-    # Mark sequences whose composite could not be computed, for
-    # example a blank true_jaccard, with a small "×" at y=0.  Without
-    # it they look identical to a real zero-composite sequence.
+    # A small "×" at y=0 marks sequences whose composite could not be
+    # computed.  Without it they look identical to a real zero composite.
     for i, d in enumerate(items):
         if d["comp"] is None:
             ax.scatter(i, 0, marker="x", s=40,
                        color="black", linewidth=1.5, zorder=4)
 
-    # Vertical dotted separators between tier boundaries.
     tier_starts: Dict[str, int] = {}
     for i, d in enumerate(items):
         tier_starts.setdefault(d["tier"], i)
@@ -606,7 +520,7 @@ def plot_tier_landscape(rows: List[Dict], out_path: str) -> bool:
             ax.axvline(tier_starts[tier] - 0.5, color="black",
                        linewidth=0.6, linestyle=":", alpha=0.5)
 
-    # Reference at composite = 0 — no signal.
+    # composite = 0 means no signal.
     ax.axhline(0, color="black", linewidth=0.5, alpha=0.4)
 
     ax.set_xticks(xs)
@@ -621,9 +535,7 @@ def plot_tier_landscape(rows: List[Dict], out_path: str) -> bool:
     ax.yaxis.grid(True, linestyle="-", linewidth=0.3, alpha=0.4, color="grey")
     ax.set_axisbelow(True)
 
-    # Legend with per-tier counts.  Lifted above the panel so it
-    # never overlaps the top bar (which is always the tallest in
-    # composite-sorted order).
+    # Lifted above the panel, clear of the tallest bar.
     tier_counts = defaultdict(int)
     for d in items:
         tier_counts[d["tier"]] += 1
@@ -654,27 +566,19 @@ def plot_tier_landscape(rows: List[Dict], out_path: str) -> bool:
 # Plot 2: Per-seed outcomes — heatmap + side-by-side bars
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# Two plots of per-seed outcomes.  They replace the old
-# negsteer_seed_verdicts plot, which mixed stage and outcome into one
-# label.  Both classify each seed twice.
+# Both plots classify each seed twice.  They replace the old
+# negsteer_seed_verdicts plot, which mixed stage and outcome into one label.
 #   - stage:    cold_start | steering | reversion
 #   - outcome:  pass | off_target | poor_prediction | multiple_failures
 #               | new_contamination | no_data
-# Stage says which prediction was the FINAL one for that seed, so it
-# names the prediction cross_summary's rep_* fields would read.
-# Outcome combines the structural checks (ra_eff, receptor intact)
-# with the four confidence checks (plddt, ipae, paepf, iptm).
+# Stage says which prediction was the FINAL one for that seed, so it names the
+# prediction cross_summary's rep_* fields would read.  Outcome combines the
+# structural checks (ra_eff, receptor intact) with the four confidence checks
+# (plddt, ipae, paepf, iptm).
 #
-# negsteer_seed_outcomes_heatmap.png uses the representative
-# sequence_group only.  One row per MPNN sequence, sorted by composite
-# with the best at top, 3 cells per row.  Shape is stage and colour is
-# outcome.  It shows which sequences passed and at which stage, plus
-# the spread across seeds within the representative attempt.
-#
-# negsteer_seed_outcomes_bars.png uses ALL seeds across ALL
-# sequence_groups (typically 9 seeds per sequence: 3 sg × 3 Boltz
-# seeds).  Two stacked-bar panels side by side, one for stage and one
-# for outcome, giving the cohort's marginal distributions.
+# The heatmap uses the representative sequence_group only, 3 seeds per
+# sequence.  The bars use all sequence_groups, typically 9 seeds per sequence
+# (3 sg × 3 Boltz seeds).
 
 # ── Classifier thresholds (matching extract_passing.py) ─────────────────
 SEED_RA_EFF_MAX     = 5.0
@@ -719,18 +623,17 @@ def classify_seed(row: Dict) -> Tuple[str, str]:
     """Return (stage, outcome) for one raw_per_seed_results.csv row.
 
     Stage:
-      - reversion: reversion_verdict is populated (any value)
-      - cold_start: steered_total_mutations==0 AND no reversion ran
-      - steering:   steered_total_mutations>0  AND no reversion ran
+      - reversion: reversion_verdict is populated, with any value
+      - cold_start: steered_total_mutations == 0, no reversion
+      - steering:   steered_total_mutations > 0, no reversion
 
-    Outcome (based on the row's stage-appropriate metric columns):
-      - new_contamination: pipeline labelled it directly (only valid
-        for reversion stage)
-      - pass: ra_eff < 5 AND intact AND all 4 confidence metrics pass
-      - off_target: ra_eff fails but confidence passes
-      - poor_prediction: confidence fails but ra_eff passes
-      - multiple_failures: both ra_eff and confidence fail
-      - no_data: required fields missing/unparseable
+    Outcome, read from the stage-appropriate metric columns:
+      - new_contamination: pipeline labelled it, reversion stage only
+      - pass: ra_eff < 5, intact, all 4 confidence metrics pass
+      - off_target: ra_eff fails, confidence passes
+      - poor_prediction: confidence fails, ra_eff passes
+      - multiple_failures: both fail
+      - no_data: required fields missing or unparseable
     """
     reversion_verdict = (row.get("reversion_verdict") or "").strip()
     if reversion_verdict:
@@ -780,11 +683,10 @@ def _rep_sg_for_outcomes(
 ) -> Optional[str]:
     """Pick the representative sequence_group for one MPNN sequence.
 
-    For tier A/B/C sequences cross_summary already names a
-    representative in rep_sequence_group, so use that.  For tier-none
-    sequences it leaves the column blank.  Then pick the
-    aggregated_results row with the best composite
-    (true_jaccard − 0.05·ra_eff) among the non-singleton rows."""
+    For tier A/B/C sequences cross_summary names it in rep_sequence_group.
+    For tier-none sequences that column is blank, so fall back to the
+    non-singleton aggregated_results row with the best composite
+    (true_jaccard − 0.05·ra_eff)."""
     seq_name = seq_dir.name
     cs_row = cs_lookup.get(seq_name)
     if cs_row:
@@ -831,9 +733,8 @@ def load_seed_outcomes(
     """Build per-sequence (stage, outcome, seed_index) lists from
     raw_per_seed_results.csv.  Returns (seq_outcomes, composites).
 
-    When all_sgs=False (default), filter to the representative
-    sequence_group only (3 seeds per MPNN sequence).  When True,
-    include all sequence_groups (typically 9 seeds per sequence)."""
+    all_sgs=False keeps the representative sequence_group only, 3 seeds per
+    MPNN sequence.  True keeps all of them, typically 9 seeds."""
     cs_lookup: Dict[str, Dict] = {}
     with open(cross_summary_path) as f:
         for r in csv.DictReader(f):
@@ -870,9 +771,8 @@ def load_seed_outcomes(
         if not seeds:
             continue
         out[seq_dir_name] = seeds
-        # Composite for ranking — uses cross_summary's verdict-aware
-        # rep_*_median when available, else falls back to
-        # the best aggregate row's composite.
+        # Ranking composite: cross_summary's verdict-aware rep_*_median when
+        # available, else the best aggregate row's composite.
         cs = cs_lookup.get(seq_dir_name)
         comp_value = float("-inf")
         if cs is not None:
@@ -918,9 +818,8 @@ def plot_seed_outcomes_heatmap(
     composites: Dict[str, float],
     out_path: str,
 ) -> bool:
-    """One row per MPNN sequence, sorted by composite descending
-    (best at top).  Each row has 3 cells (representative sg seeds).
-    Cell shape = stage; cell colour = outcome."""
+    """One row per MPNN sequence, best composite at top, 3 cells per row for
+    the representative sg's seeds.  Cell shape = stage, colour = outcome."""
     if not seq_outcomes:
         _make_empty_plot("No seed-outcome data available", out_path)
         return False
@@ -992,9 +891,8 @@ def plot_seed_outcomes_bars(
     out_path: str,
 ) -> bool:
     """Two side-by-side stacked bars per sequence, sorted by composite
-    descending.  Left panel: stage breakdown (which final stage did
-    each seed end at?).  Right panel: outcome breakdown (how did each
-    seed fare?)."""
+    descending.  The left panel breaks down the stage each seed ended at and
+    the right panel how each seed fared."""
     if not seq_outcomes:
         _make_empty_plot("No seed-outcome data available", out_path)
         return False
@@ -1075,17 +973,15 @@ def plot_seed_outcomes_bars(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def plot_ra_eff_vs_jaccard(rows: List[Dict], out_path: str) -> bool:
-    """Two-panel layout, stacked vertically:
+    """Two panels stacked vertically.
 
-    Top: scatter of receptor-aligned effector RMSD (x) vs interface
-    Jaccard (y), one dot per steered sequence, coloured by tier.
-    Iso-composite contours overlaid (composite = jaccard − 0.05·rmsd).
+    Top: receptor-aligned effector RMSD against interface Jaccard, one dot per
+    steered sequence, coloured by tier, with iso-composite contours overlaid
+    (composite = jaccard − 0.05·rmsd).
 
-    Bottom: histogram of receptor-aligned effector RMSD across the
-    full cohort.  Stacked: tier A (green), tier-none (grey), control
-    scrambled (brown), control polyA (purple).  Lets the reader see
-    the RMSD distribution including controls and tier-none failures
-    that the scatter would otherwise compress into a corner.
+    Bottom: histogram of the same RMSD across the full cohort, stacked by
+    tier and control type.  It shows the controls and tier-none failures the
+    scatter would compress into a corner.
     """
     pts_steered: Dict[str, List[Tuple[float, float, str]]] = defaultdict(list)
     pts_ctrl_s: List[Tuple[float, float, str]] = []
@@ -1112,7 +1008,7 @@ def plot_ra_eff_vs_jaccard(rows: List[Dict], out_path: str) -> bool:
         _make_empty_plot("No RMSD/jaccard data available", out_path)
         return False
 
-    # Scatter axis range — clip to the meaningful steered region.
+    # Clip the scatter axis to the meaningful steered region.
     abc_xs = []
     for tier in ("A", "B", "C"):
         abc_xs.extend(p[0] for p in pts_steered.get(tier, []))
@@ -1120,8 +1016,8 @@ def plot_ra_eff_vs_jaccard(rows: List[Dict], out_path: str) -> bool:
 
     if abc_xs:
         scatter_x_max = max(abc_xs)
-        # Include tier-none in scatter if within 1.5× the worst tier
-        # A/B/C; otherwise leave them for the histogram below.
+        # Tier-none joins the scatter within 1.5× the worst tier A/B/C, and
+        # is otherwise left to the histogram below.
         for x in none_xs:
             if x <= scatter_x_max * 1.5:
                 scatter_x_max = max(scatter_x_max, x)
@@ -1132,7 +1028,7 @@ def plot_ra_eff_vs_jaccard(rows: List[Dict], out_path: str) -> bool:
         scatter_x_max = 10.0
     scatter_x_min = max(0.0, (min(abc_xs) if abc_xs else 0.0) - 1.0)
 
-    # Y range — anchored to (0, 1) but extended if data spills.
+    # Anchored to (0, 1), extended if the data spills.
     all_y = []
     for v in pts_steered.values():
         all_y.extend(p[1] for p in v)
@@ -1141,7 +1037,7 @@ def plot_ra_eff_vs_jaccard(rows: List[Dict], out_path: str) -> bool:
     y_min = min(0.0, min(all_y) - 0.05)
     y_max = max(1.0, max(all_y) + 0.05)
 
-    # ── Layout: scatter on top (taller), histogram below (shorter) ────
+    # ── Taller scatter on top, shorter histogram below ────────────────
     fig, (ax, ax_h) = plt.subplots(
         2, 1, figsize=(7.5, 7.5),
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.35},
@@ -1188,10 +1084,7 @@ def plot_ra_eff_vs_jaccard(rows: List[Dict], out_path: str) -> bool:
               fontsize=8, framealpha=0.95, ncol=4)
 
     # ── Bottom panel: stacked histogram of RMSD across full cohort ────
-    # Build the full RMSD distribution including controls + everything
-    # off-scale.  Stack: tier A / B / C / none / ctrl_scrambled /
-    # ctrl_polyA so the reader can see at a glance where each cohort
-    # group sits along the RMSD axis.
+    # The stack runs tier A / B / C / none / ctrl_scrambled / ctrl_polyA.
     series = []
     series_colours = []
     series_labels = []
@@ -1214,7 +1107,7 @@ def plot_ra_eff_vs_jaccard(rows: List[Dict], out_path: str) -> bool:
         all_rmsd = [v for s in series for v in s]
         h_x_min = 0.0
         h_x_max = max(all_rmsd) * 1.05
-        # Bin width — aim for ~25 bins across the full range.
+        # Aim for ~25 bins across the full range.
         n_bins = max(15, min(40, int(np.sqrt(len(all_rmsd)) * 3)))
         bins = np.linspace(h_x_min, h_x_max, n_bins + 1)
         ax_h.hist(series, bins=bins, stacked=True,
@@ -1245,15 +1138,14 @@ def plot_ra_eff_vs_jaccard(rows: List[Dict], out_path: str) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def plot_filter_cascade(rows: List[Dict], thresholds: Dict, out_path: str) -> bool:
-    """Waterfall of how many sequences pass each Boltz confidence
-    filter in succession.  Thresholds come from the `thresholds` dict,
-    forwarded from the CLI flags, so the bar labels show the values
-    extract_passing.py actually applied rather than hard-coded
-    constants.
+    """Waterfall of how many sequences pass each Boltz confidence filter in
+    succession.  Thresholds come from the `thresholds` dict, forwarded from
+    the CLI flags, so the bar labels show the values extract_passing.py
+    applied rather than hard-coded constants.
 
-    All four confidence thresholds are used here as filters, not
-    rankers.  Their job is to drop collapsed predictions, not to order
-    plausible ones.
+    All four confidence thresholds are filters here, not rankers.  They
+    separate a collapsed prediction from a plausible one, but they do not
+    order plausible ones against each other.
     """
     steered = [r for r in rows if _is_steered(r)]
     if not steered:
@@ -1265,17 +1157,14 @@ def plot_filter_cascade(rows: List[Dict], thresholds: Dict, out_path: str) -> bo
     ipae_max = thresholds["ipae_max"]
     paepf_min = thresholds["pae_pass_frac_min"]
     iptm_min = thresholds["iptm_min"]
-    # The structural ra_eff cap of 5.0 Å matches
-    # _agg_row_is_clean_steered and _agg_row_is_pose_holds in
-    # negsteer_aggregate.py.  That is the same structural filter that
-    # decides whether a sequence's aggregate gets a
-    # rank_by_composite_score, and so whether it reaches
-    # passing_summary and cross_summary.  Applying it here makes the
-    # cascade's final-step count match the tier-A/B/C count instead of
-    # diverging from it.
+    # The structural ra_eff cap of 5.0 Å matches _agg_row_is_clean_steered
+    # and _agg_row_is_pose_holds in negsteer_aggregate.py, the same filter
+    # that decides whether an aggregate gets a rank_by_composite_score and so
+    # reaches passing_summary and cross_summary.  Applying it here makes the
+    # cascade's final-step count match the tier-A/B/C count.
     ra_eff_max = thresholds.get("ra_eff_max", 5.0)
 
-    # Per-sequence boolean pass arrays — one per filter, in cascade order.
+    # One boolean pass array per filter, in cascade order.
     pass_plddt, pass_ipae, pass_paepf, pass_iptm, pass_ra = (
         [], [], [], [], [])
     for row in steered:
@@ -1315,8 +1204,6 @@ def plot_filter_cascade(rows: List[Dict], thresholds: Dict, out_path: str) -> bo
                  n_plddt_ipae_pf, n_all_confidence,
                  n_all_confidence_ra]
 
-    # Labels read thresholds from the dict so they reflect what the
-    # pipeline actually applied.
     labels = [
         "All steered",
         f"complex_plddt\n≥ {plddt_min:g}",
@@ -1349,9 +1236,7 @@ def plot_filter_cascade(rows: List[Dict], thresholds: Dict, out_path: str) -> bo
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.yaxis.grid(True, linestyle="-", linewidth=0.3, alpha=0.4, color="grey")
     ax.set_axisbelow(True)
-    # Legend lifted above the panel area, single row, so it never
-    # overlaps the bars (the leftmost "All steered" bar is always
-    # the tallest).
+    # Lifted above the panel in one row, clear of "All steered".
     ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02),
               ncol=2, fontsize=9, framealpha=0.95)
 
@@ -1366,14 +1251,12 @@ def plot_filter_cascade(rows: List[Dict], thresholds: Dict, out_path: str) -> bo
 # ═══════════════════════════════════════════════════════════════════════════
 
 def plot_controls_diagnostic(rows: List[Dict], thresholds: Dict, out_path: str) -> bool:
-    """Two-panel boxplot: ra_eff (top), true_jaccard (bottom).
-    Grouped by row_type.  Pale-red shading above the
-    controls_warning_ra_eff_min threshold marks the expected control
-    region.  Controls should sit above that line and steered
-    candidates should sit below it.
+    """Two-panel boxplot of ra_eff and true_jaccard, grouped by row_type.
 
-    If the control distributions overlap the steered distribution,
-    the pipeline is mis-calibrated.
+    Pale-red shading above the controls_warning_ra_eff_min threshold marks
+    the expected control region.  Controls should sit above that line and
+    steered candidates below it.  If the control distributions overlap the
+    steered distribution, the pipeline is mis-calibrated.
     """
     groups: Dict[str, Dict[str, List[float]]] = {
         "steered_passing":   {"ra": [], "tj": []},   # tier A/B/C
@@ -1413,10 +1296,9 @@ def plot_controls_diagnostic(rows: List[Dict], thresholds: Dict, out_path: str) 
     # ── Panel 1: ra_eff ────────────────────────────────────────────
     ra_data = [groups[g]["ra"] for g in group_order]
     counts_ra = [len(d) for d in ra_data]
-    # Replace empty groups with [nan] so positions are preserved.
-    # showfliers=False — outlier markers double up with the jittered
-    # data points overlaid below, making the panel look noisier than
-    # it is.
+    # [nan] preserves the position of an empty group.  showfliers=False
+    # because outlier markers double up with the jittered points overlaid
+    # below, making the panel look noisier than it is.
     ra_plot = [d if d else [np.nan] for d in ra_data]
     bp_ra = ax_ra.boxplot(ra_plot, positions=range(len(group_order)),
                            widths=0.55, patch_artist=True, showfliers=False)
@@ -1430,17 +1312,14 @@ def plot_controls_diagnostic(rows: List[Dict], thresholds: Dict, out_path: str) 
                           c=group_colours[i], edgecolor="black",
                           linewidth=0.3, s=22, alpha=0.85, zorder=3)
 
-    # Plot the data first so matplotlib computes the y-axis range.
-    # Then set the y-limits explicitly.  The top sits just above the
-    # largest data point, which avoids a huge empty red expanse when
-    # controls sit at, say, 25 Å.  The floor of 1.5× the threshold
+    # The top sits just above the largest data point, which avoids a huge
+    # empty red expanse when controls sit at, say, 25 Å.  The 1.5× floor
     # keeps the threshold line visibly placed.
     y_top_data = max([v for d in ra_data for v in d] + [ra_threshold])
     y_top = max(y_top_data * 1.05, ra_threshold * 1.5)
     ax_ra.set_ylim(0, y_top)
 
-    # Pale-red shading from threshold to the top of the panel.  Drawn
-    # before the threshold line so the line sits on top of the shading.
+    # Shade before drawing the threshold line, so the line sits on top.
     ax_ra.axhspan(ra_threshold, ax_ra.get_ylim()[1],
                   color=COLOUR_THRESHOLD, alpha=0.07, zorder=0)
     ax_ra.axhline(ra_threshold, color=COLOUR_THRESHOLD,
@@ -1449,9 +1328,7 @@ def plot_controls_diagnostic(rows: List[Dict], thresholds: Dict, out_path: str) 
     ax_ra.set_ylabel("Receptor Aligned Effector RMSD (Å)", fontsize=10)
     ax_ra.yaxis.grid(True, linestyle="-", linewidth=0.3, alpha=0.4, color="grey")
     ax_ra.set_axisbelow(True)
-    # Legend ABOVE the panel area so it never overlaps data points or
-    # the threshold line.  bbox_to_anchor y > 1.0 puts it outside the
-    # axes box at the top.
+    # bbox_to_anchor y > 1.0 lifts the legend clear of the data points.
     ax_ra.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02),
                  fontsize=9, framealpha=0.95)
 
@@ -1475,8 +1352,7 @@ def plot_controls_diagnostic(rows: List[Dict], thresholds: Dict, out_path: str) 
     ax_tj.yaxis.grid(True, linestyle="-", linewidth=0.3, alpha=0.4, color="grey")
     ax_tj.set_axisbelow(True)
 
-    # Single n per group: prefer ra_eff count, fall back to tj count if
-    # ra_eff count is zero.  Drop the "row_type" axis label entirely.
+    # One n per group, the ra_eff count unless it is zero.
     ax_tj.set_xticks(range(len(group_order)))
     ax_tj.set_xticklabels(
         [f"{lbl}\n(n={n_ra if n_ra else n_tj})"
@@ -1500,26 +1376,20 @@ def plot_mutation_impact(
     pdb_length: Optional[int],
     out_path: str,
 ) -> bool:
-    """For each input-PDB position p that appears in any steered
-    sequence's FINAL mutation set, compute the median composite score
-    of sequences mutating p.  Bars coloured by delta vs cohort median
-    (green = better, red = worse), faded for low-n.
+    """For each input-PDB position p in any steered sequence's FINAL mutation
+    set, plot the median composite score of the sequences mutating p.
 
-    The final mutation set is the set present in the prediction that
-    cross_summary calls "representative".  When reversion ran (verdict
-    in {pose_holds, pose_collapses, new_contamination}) that is the
-    reverted majority set.  Reversion can put some steered mutations
-    back to wild-type, so the steered set would over-count positions
-    that are not in the final structure.  When reversion did not run,
-    the steered set IS the final set.
+    The final mutation set is the one in the prediction cross_summary calls
+    "representative".  When reversion ran (verdict in {pose_holds,
+    pose_collapses, new_contamination}) that is the reverted majority set.
+    Reversion can put steered mutations back to wild-type, so the steered set
+    would over-count positions absent from the final structure.  Without
+    reversion the steered set IS the final set.
 
-    The x-axis spans the full input PDB length (1 → pdb_length), so
-    positions with no mutations show as gaps.  When
-    input_design_region.txt is available, the design region's
-    footprint on the input PDB is shaded.  Steering mutations cannot
-    fall there by construction.
+    The x-axis spans 1 → pdb_length, so unmutated positions show as gaps.
+    When input_design_region.txt is available its footprint is shaded.
+    Steering mutations cannot fall there by construction.
     """
-    # Build per-position: list of (sequence_name, composite_score) pairs.
     per_pos: Dict[int, List[Tuple[str, float]]] = defaultdict(list)
     cohort_composites: List[float] = []
 
@@ -1530,9 +1400,6 @@ def plot_mutation_impact(
         if comp is None:
             continue
         cohort_composites.append(comp)
-        # Pick the final mutation set based on verdict.  When reversion
-        # ran, the reverted_majority set is what survived.  Otherwise
-        # the steered set is the final.
         verdict = (row.get("rep_outcome") or "").strip()
         if verdict in _VERDICTS_WITH_REVERSION:
             mut_str = (row.get("rep_reverted_mutations_majority_chimerax")
@@ -1553,28 +1420,24 @@ def plot_mutation_impact(
 
     cohort_median = float(np.median(cohort_composites)) if cohort_composites else 0.0
 
-    # Per-position medians.
     positions = sorted(per_pos.keys())
     medians = [float(np.median([c for _, c in per_pos[p]])) for p in positions]
     deltas  = [m - cohort_median for m in medians]
     counts  = [len(per_pos[p]) for p in positions]
 
-    # X-axis range: 1 to full PDB length when known, else just the
-    # range of mutated positions.
+    # Full PDB length when known, else the range of mutated positions.
     if pdb_length and pdb_length > 0:
         x_min, x_max = 1, pdb_length
     else:
         x_min = min(positions)
         x_max = max(positions)
 
-    # Compressed width: ~0.10 fig-units per residue, capped to 14.
+    # ~0.10 fig-units per residue, capped to 14.
     fig_w = max(8, min(14, (x_max - x_min) * 0.10 + 2))
     fig, ax = plt.subplots(figsize=(fig_w, 4.5))
 
-    # Design-region shading marks the input-PDB positions whose
-    # ranges the contig replaces with de novo segments.  The contig
-    # forbids mutations there, so none can fall in the shaded bands.
-    # The shading is context, not a data slot.
+    # The shading marks the input-PDB positions the contig replaces with de
+    # novo segments.  It forbids mutations there, so the bands are context.
     if design_region_positions:
         sorted_dr = sorted(design_region_positions)
         run_start = sorted_dr[0]
@@ -1587,20 +1450,17 @@ def plot_mutation_impact(
                     run_start = p
             prev = p if p is not None else prev
 
-    # Cohort-median reference line.
     ax.axhline(cohort_median, color="black", linewidth=0.6,
                linestyle=":", alpha=0.5, zorder=1)
 
-    # Every bar takes its green or red colour from its delta against
-    # the cohort median.  Low-n bars are faded with a low alpha but
-    # stay green or red.  No bar is ever drawn grey.  The grey swatch
-    # in the legend stands for the faded versions of those colours.
+    # Every bar is green or red by its delta against the cohort median, and
+    # low-n bars fade but keep that colour.  No bar is drawn grey, so the
+    # legend's grey swatch stands for the faded versions.
     for p, m, d, c in zip(positions, medians, deltas, counts):
         colour = COLOUR_BETTER_THAN if d >= 0 else COLOUR_WORSE_THAN
         alpha = 0.30 if c < MUT_IMPACT_MIN_N else 0.85
         ax.bar(p, m, width=0.8, color=colour, alpha=alpha,
                edgecolor="black", linewidth=0.4, zorder=2)
-        # Count label above/below the bar.
         if m >= 0:
             va = "bottom"
             y_text = m + 0.005
@@ -1617,10 +1477,6 @@ def plot_mutation_impact(
     ax.yaxis.grid(True, linestyle="-", linewidth=0.3, alpha=0.4, color="grey")
     ax.set_axisbelow(True)
 
-    # Legend: the cohort-median line, two bright bar swatches for
-    # n >= MUT_IMPACT_MIN_N, a grey swatch standing for the faded
-    # green and red bars, and the design-region shading.  The grey
-    # swatch is a legend symbol only, as noted above.
     legend_handles = [
         plt.Line2D([0], [0], color="black", linestyle=":", linewidth=0.6,
                    label=f"Cohort median = {cohort_median:.3f}"),
@@ -1640,7 +1496,7 @@ def plot_mutation_impact(
               bbox_to_anchor=(0.5, 1.18), fontsize=8, framealpha=0.95,
               ncol=len(legend_handles))
 
-    # X-tick spacing — aim for ~20 ticks max.
+    # Aim for ~20 x-ticks at most.
     span = x_max - x_min
     step = max(1, span // 20)
     ax.set_xticks(np.arange(x_min, x_max + 1, step))
@@ -1657,10 +1513,9 @@ def plot_mutation_impact(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _resolve_csv_path(supplied: Optional[str]) -> Path:
-    # --csv is required. An earlier variant of this script fell back to a
-    # hard-coded test path when the flag was absent, which silently drew the
-    # figures from whatever that path happened to hold. Refusing is the only
-    # safe answer: the caller passing no CSV means the cohort is unknown.
+    # An earlier variant fell back to a hard-coded test path when --csv was
+    # absent, which silently drew the figures from whatever that path held.
+    # No CSV means the cohort is unknown, so refusing is the only safe answer.
     if not supplied:
         raise SystemExit("--csv is required")
     p = Path(supplied)
@@ -1673,23 +1528,18 @@ def _load_input_design_region(
     input_design_region_path: Optional[str],
 ) -> Tuple[Optional[set], Optional[int]]:
     """Load input-PDB-numbered design-region positions from
-    input_design_region.txt (1-based, comma-separated, written by
-    derive_input_design_region.py and published to
-    .../negative_steering/controls_inputs/).
+    input_design_region.txt, written by derive_input_design_region.py and
+    published to .../negative_steering/controls_inputs/.  The format is
+    comma-separated 1-based positions, with '#' comment lines.
 
-    Returns (positions_set, highest_position).  Both are None when the
-    file is missing, unreadable or parses to nothing.
+    Returns (positions_set, highest_position), both None when the file is
+    missing, unreadable or parses to nothing.
 
-    The second element is NOT the receptor length.  The file lists only
-    the design-region positions and records nothing about how long the
-    receptor is, so its highest position is a lower bound.  main()
-    takes it as `dr_max` and uses it as the mutation-impact plot's
-    x-axis extent only when --pdb-length was not supplied.  A run that
-    wants the full receptor on that axis must pass --pdb-length.
-
-    File format:
-        # comment lines start with #
-        1,2,3,30,31,32,...     comma-separated 1-based positions
+    The second element is NOT the receptor length.  The file records nothing
+    about how long the receptor is, so its highest position is a lower bound.
+    main() takes it as `dr_max` and uses it as the mutation-impact x-axis
+    extent only when --pdb-length was not supplied.  A run that wants the full
+    receptor on that axis must pass --pdb-length.
     """
     if not input_design_region_path:
         return None, None
@@ -1778,7 +1628,7 @@ def main() -> int:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Resolve runs_dir: explicit --runs-dir, else <csv>/../runs.
+    # --runs-dir, else <csv>/../runs.
     if args.runs_dir:
         runs_dir: Optional[Path] = Path(args.runs_dir)
         if not runs_dir.exists():
@@ -1814,16 +1664,14 @@ def main() -> int:
     if design_region:
         print(f"  loaded {len(design_region)} input-PDB design-region positions")
 
-    # PDB length: explicit --pdb-length first, else fall back to the
-    # design-region max (which is at least an upper bound on the part
-    # of the PDB any plot cares about).
+    # --pdb-length first, else the design-region max, at least an upper bound
+    # on the part of the PDB any plot cares about.
     pdb_length: Optional[int] = args.pdb_length
     if pdb_length is None and dr_max is not None:
         pdb_length = dr_max
     if pdb_length:
         print(f"  using PDB length: {pdb_length}")
 
-    # Pack thresholds into a dict for plots that need them.
     thresholds = {
         "complex_plddt_min":   args.complex_plddt_min,
         "ipae_max":            args.ipae_max,
@@ -1832,10 +1680,8 @@ def main() -> int:
         "control_ra_eff_min":  CONTROL_RA_EFF_MIN,
     }
 
-    # Per-seed outcomes — loaded once for both heatmap and bars.
-    # Heatmap uses representative sg only (3 seeds per sequence).
-    # Bars use all sgs (typically 9 seeds per sequence: 3 sg × 3 Boltz
-    # seeds).  Both require runs_dir to find raw_per_seed_results.csv.
+    # Loaded once for both the heatmap and the bars.  Both need runs_dir to
+    # find raw_per_seed_results.csv.
     seed_outcomes_rep: Dict[str, List[Tuple[str, str, int]]] = {}
     seed_composites: Dict[str, float] = {}
     seed_outcomes_all: Dict[str, List[Tuple[str, str, int]]] = {}

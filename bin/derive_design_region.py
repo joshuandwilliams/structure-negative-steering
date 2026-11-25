@@ -1,44 +1,31 @@
 #!/usr/bin/env python3
-"""
-derive_design_region.py
------------------------
-Extract the ProteinMPNN-designed residue positions for one RFDiffusion
-design from `rfdiffusion_metrics.json`.  Positions come out as 1-based
-positional indices, which is what
+"""Extract the ProteinMPNN-designed residue positions for one
+RFDiffusion design from `rfdiffusion_metrics.json`.  Positions come out
+as 1-based positional indices, which is what
 `negsteer_aggregate.py compute-final-metrics
 --design-region-positions-file` expects.
 
 Background
 ==========
-Each element of the top-level `designs` array in
-`rfdiffusion_metrics.json` carries two fields this script needs.
+Each element of the top-level `designs` array carries two fields this
+script needs.
 
   per_design_design_residues
-      The de novo residues RFDiffusion built for this design.  These
-      are synthetic residue numbers, not real PDB resnums.  They are
-      offset from the highest fixed resnum by 1000 so they cannot
-      collide with the fixed residues.
+      The de novo residues RFDiffusion built for this design.  They are
+      synthetic resnums, not real PDB resnums, offset from the highest
+      fixed resnum by 1000 so they cannot collide with it.
 
   receptor_position_order
       Every receptor residue number in atom-walk order, which is the
       order they appear in the prediction PDB.  The steering pipeline
-      uses the same convention to derive `true_interface_idx`.
+      uses the same convention for `true_interface_idx`.
 
-What this script does
-=====================
-1. Loads rfdiffusion_metrics.json.
-2. Finds the design entry matching the supplied name.  It accepts
-   "design_3", "design_3.pdb", or the bare integer "3".
-3. Looks up each synthetic resnum from per_design_design_residues in
-   receptor_position_order to get its 0-based positional index.
-4. Adds 1 to every index, because compute-final-metrics counts from 1,
-   then writes them to the output file.
+Each synthetic resnum is looked up in receptor_position_order for its
+0-based index, then 1 is added because compute-final-metrics counts
+from 1.
 
 Output format
 =============
-A text file that compute-final-metrics reads through its
---design-region-positions-file flag:
-
   # derived from <path to rfdiffusion_metrics.json>
   # design: design_3
   # source field: per_design_design_residues (N residues)
@@ -53,16 +40,13 @@ Usage
       --design design_3 \\
       --output design_3_design_region.txt
 
-  # --cross-check-plan compares the result against the
-  # true_interface_idx that plan.json already holds for this design.
-  # It catches coordinate-system mismatches.
-  python3 derive_design_region.py \\
-      --metrics-json ... --design design_3 --output ... \\
-      --cross-check-plan /path/to/cycle_0/plan.json
+--cross-check-plan compares the result against the true_interface_idx
+that plan.json already holds, which catches coordinate-system
+mismatches.
 
 On success it exits 0 and prints a summary to stderr.  A missing file,
 an unknown design, an empty result or a failed cross-check all exit
-non-zero with a message saying what went wrong.
+non-zero with a message.
 """
 
 import argparse
@@ -76,7 +60,6 @@ def normalise_design_id(raw):
     bare and the .pdb form, so the caller can match whichever key
     rfdiffusion_metrics.json happens to use."""
     raw = str(raw).strip()
-    # Drop a trailing .pdb if there is one.
     if raw.endswith(".pdb"):
         stem = raw[:-4]
     else:
@@ -103,16 +86,12 @@ def find_design_entry(metrics, design_id):
             "(got type %s)" % type(designs).__name__
         )
     ids = normalise_design_id(design_id)
-    # The JSON usually stores the identifier under the key "design".
-    # Accept both the "design_3" and "design_3.pdb" spellings.
+    # The identifier is usually under the key "design".
     for entry in designs:
         key = entry.get("design") or entry.get("name") or ""
         key = str(key).strip()
-        # ids["with_pdb"] is ids["bare"] + ".pdb", so this single test
-        # covers a key written either way.
         if key in (ids["bare"], ids["with_pdb"]):
             return entry
-    # No match.  Build an error message listing what is there.
     available = sorted(
         str(e.get("design") or e.get("name") or "?") for e in designs
     )
@@ -131,14 +110,8 @@ def derive_positional_indices(entry):
     indices, sorted ascending.
 
     The transform intersects per_design_design_residues with
-    receptor_position_order:
-
-        design_region_indices = [
-            i for i, rn in enumerate(entry["receptor_position_order"])
-            if rn in set(entry["per_design_design_residues"])
-        ]
-
-    Raises ValueError if either field is missing or empty.
+    receptor_position_order.  Raises ValueError if either field is
+    missing or empty.
     """
     design_residues = entry.get("per_design_design_residues")
     position_order = entry.get("receptor_position_order")
@@ -166,8 +139,7 @@ def derive_positional_indices(entry):
         i for i, rn in enumerate(position_order) if rn in design_set
     ]
 
-    # Every synthetic resnum in design_residues must appear in
-    # position_order.  If any is missing, the two lists describe
+    # A missing synthetic resnum means the two lists describe
     # different atom walks, so the derivation cannot be trusted.
     found_resnums = {position_order[i] for i in indices}
     missing = design_set - found_resnums
@@ -189,15 +161,13 @@ def cross_check_with_plan(plan_path, design_indices_0based):
 
     On a receptor-resurfacing design every residue in
     true_interface_idx must sit inside the design region, because the
-    true interface is a subset of it by construction.  A failure has
-    one of two causes.  Either this script has a coordinate-system
-    mismatch, or the design is not receptor-resurfacing and its true
-    interface runs outside the de novo block.  The second case is
-    legal but unusual, so it is worth showing the user.
+    true interface is a subset of it by construction.  A failure means
+    either a coordinate-system mismatch here, or a design that is not
+    receptor-resurfacing and whose true interface runs outside the de
+    novo block.  The second case is legal but unusual.
 
-    Returns True if the check passes and False if it does not.  It
-    never raises, because the cross-check is advisory and does not
-    gate the output.
+    Returns True when the check passes.  It never raises, because the
+    cross-check is advisory and does not gate the output.
     """
     plan_path = Path(plan_path)
     if not plan_path.exists():
@@ -331,16 +301,13 @@ def main():
         return 2
 
     if not indices_0based:  # pragma: no cover - unreachable today
-        # derive_positional_indices already raises on an empty design
-        # region, an empty position order, and any residue missing from
-        # that order, so an empty result cannot reach here.  The guard
-        # stays because those invariants live in that function, not
-        # this one.
+        # derive_positional_indices already raises on every case that
+        # would empty this list.  The guard stays because that
+        # invariant lives there, not here.
         print("ERROR: derivation produced an empty index list",
               file=sys.stderr)
         return 2
 
-    # Summarise what was derived, for the stderr log.
     indices_1based = [i + 1 for i in indices_0based]
     n = len(indices_1based)
     lo, hi = indices_1based[0], indices_1based[-1]
@@ -358,13 +325,11 @@ def main():
           f"{'contiguous' if contiguous else 'with gaps'})",
           file=sys.stderr)
 
-    # Run the optional cross-check.
     if args.cross_check_plan is not None:
         cross_check_with_plan(
             args.cross_check_plan, indices_0based
         )
 
-    # Write the output file.
     text = format_output(
         indices_1based,
         args.metrics_json,

@@ -2,63 +2,28 @@
 """
 reversion.py
 ------------
-Helpers for the post-steering reversion validation pass.
+Library and CLI for the post-steering reversion validation pass.
 
-Context
-=======
-The steering pipeline sometimes rescues a pose on a mutated
-("steered") sequence.  If a mutated residue touches the effector in
-that pose, the prediction's metrics cannot be trusted.  The wet-lab
-construct is expressed from the original pre-steering sequence, so it
-never carries the steered residue at that position.  Such residues are
-the "contaminating mutations", and
-compute_metrics.py:classify_mutation_reliance reports them as
+A mutated residue touching the effector in a rescued pose invalidates
+that prediction's metrics, because the wet-lab construct is expressed
+from the pre-steering sequence and never carries it.  Such residues are
+the "contaminating mutations", reported by
+compute_metrics.py:classify_mutation_reliance as
 `mutated_contact_positions`.
 
 The reversion pass asks one question.  If we put the contaminating
 mutations back to wild-type and leave every other steering mutation in
 place, does Boltz still place the effector in the same pose?
 
-Three pure-logic pieces build and harvest the reverted predictions.
+Four CLI stages answer it, each carrying its own contract below.
+build-contaminated flags the contaminated designs, plan-reversions
+stages their reverted Boltz YAMLs, predict-reversion-one runs Boltz on
+one of them, and harvest-reversions reads the results back and
+classifies a verdict.
 
-    build_reverted_sequence(steered_seq, cumulative_mutations,
-                            positions_to_revert)
-        Substitute the wild-type residue back at each listed position,
-        taking it from the cumulative mutation history.  Pure string
-        work.
-
-    write_reversion_plan(workdir, contaminated, plan_meta)
-        Write one Boltz YAML per contaminated design under
-        workdir/reversions/design_XX/.  Also write a
-        reversion_plan.json manifest holding every staged reversion and
-        the metadata the harvest needs.  Stdlib only, runs on the host.
-
-    harvest_reversion_results(workdir, plan_meta,
-                              compute_metrics_script)
-        Read each finished prediction back and compute reverted
-        structural, contact and confidence metrics.  Returns a dict
-        from design label to that design's reverted metric record.
-        Needs numpy and Bio.Align through the steering pipeline's
-        compute_binding_rmsds, so it runs inside the singularity
-        container.
-
-Coordinate conventions
-======================
-- Receptor positions are 1-based wherever the user sees them
-  (mutations.tsv, mutations_chimerax, contact_residues) and 0-based
-  inside the sequence strings.  This module converts between the two
-  only when it builds a sequence.  Everything else stays 1-based.
-- The "cumulative mutation history" is a list of (pos1, wt, mut)
-  tuples in chronological order.
-  pathway_labels.read_mutations_tsv_full reads it from the design's own
-  mutations.tsv.  A single-cycle design has no ancestors, so that one
-  file is the whole history.  If a position was edited twice, the
-  earliest wt is the true wild-type.
-
-This module imports no numpy or Bio at module level, so host-side code
-can safely import build_reverted_sequence or write_reversion_plan.
-harvest_reversion_results does the numpy-dependent imports inside its
-own body.
+Receptor positions are 1-based everywhere but inside sequence strings.
+Nothing here imports numpy or Bio at module level, so host-side code can
+import build_reverted_sequence or write_reversion_plan safely.
 """
 
 from __future__ import annotations
@@ -73,29 +38,25 @@ from typing import Dict, List, Optional, Set, Tuple
 # ───────────────────────────────────────────────────────────────────────
 # Reverted-confidence forwarding — single source of truth
 # ───────────────────────────────────────────────────────────────────────
-# negsteer_aggregate.py forwards these confidence columns as one block,
-# from a reverted prediction's per_seed_records entry into the
-# downstream candidate dict and the aggregated CSVs.
+# negsteer_aggregate.py imports this tuple and forwards these columns as
+# one block into the downstream candidate dict and the aggregated CSVs.
 #
-# Left out on purpose and overlaid inline instead: the structural RMSDs
-# (reverted_ra_eff*, reverted_independent_*), the contact flags
-# (reverted_n_contact_residues, reverted_contact_residues,
-# reverted_mutated_contact_positions), reverted_prediction_pdb,
-# reverted_intact, and reverted_ra_eff_vs_steered.  Each of those
-# either renames to a canonical column on pose_holds rows or is
-# diagnostic only.
+# Left out on purpose and overlaid inline instead: reverted_ra_eff*,
+# reverted_independent_*, reverted_n_contact_residues,
+# reverted_contact_residues, reverted_mutated_contact_positions,
+# reverted_prediction_pdb and reverted_intact.  Each either renames to a
+# canonical column on pose_holds rows or is diagnostic only.
 #
-# Keep this tuple in step with the keys assigned into
+# Keep it in step with the keys assigned into
 # per_seed_records[(label, seed_index)] in harvest_reversion_results
-# below.  Six bugs came from the two drifting apart, so the list lives
-# here once and negsteer_aggregate.py imports it.
+# below.  Six bugs came from the two drifting apart.
 _REVERTED_CONFIDENCE_FIELDS = (
     "reverted_ipsae_min",
     "reverted_ipsae_ab",
     "reverted_ipsae_ba",
-    # 15 Å iPSAE variants, so reverted predictions carry the same
-    # metric set as steered ones.  harvest_reversion_results reads them
-    # from compute_metrics.py.
+    # 15 Å iPSAE variants, the same Dunbrack calculation at a more
+    # permissive PAE cutoff, so reverted predictions carry the same
+    # metric set as steered ones.
     "reverted_ipsae_min_15",
     "reverted_ipsae_ab_15",
     "reverted_ipsae_ba_15",
@@ -114,17 +75,14 @@ _REVERTED_CONFIDENCE_FIELDS = (
     "reverted_interface_plddt",
     "reverted_intact_core",
     "reverted_weighted_jaccard",
-    # Structural-Jaccard fields.  harvest_reversion_results computes
-    # them per seed by re-running find_contact_residues_heavy on each
-    # reverted PDB and comparing against the cycle_0 plan's
-    # true_interface_idx and initial_wrong_interface_idx.  This mirrors
-    # boltz2_negative_steering._write_initial_multiseed_csv on the
-    # steered side.  Drop them and the aggregator's
-    # reverted_*_jaccard_median, reverted_n_shared_*_median and
-    # reverted_n_design_interface_residues_median columns go blank.
-    # cross_summary's rep_*_median then cannot fall back to the
-    # reverted side on pose_holds rows, and the dispersion plots drop
-    # those seeds because tj is None.
+    # Structural-Jaccard fields, computed per seed against the cycle_0
+    # plan's true_interface_idx and initial_wrong_interface_idx.  Drop
+    # them and the aggregator's reverted_*_jaccard_median,
+    # reverted_n_shared_*_median and
+    # reverted_n_design_interface_residues_median columns go blank,
+    # cross_summary's rep_*_median then cannot fall back to the reverted
+    # side on pose_holds rows, and the dispersion plots drop those seeds
+    # because tj is None.
     "reverted_true_jaccard",
     "reverted_wrong_jaccard",
     "reverted_n_shared_true",
@@ -145,42 +103,24 @@ def build_reverted_sequence(
 ) -> Tuple[str, List[Tuple[int, str, str]]]:
     """Build a reverted receptor sequence.
 
-    Arguments
-    ---------
-    steered_seq
-        The receptor sequence as Boltz saw it for the rescued pose,
-        with every steering mutation already applied.  Read it from
-        `<design_workdir>/receptor.fasta`, which the steering pipeline
-        writes at plan time.
+    `steered_seq` is the receptor as Boltz saw it for the rescued pose,
+    read from the `<design_workdir>/receptor.fasta` the steering
+    pipeline writes at plan time.  `cumulative_mutations` is the
+    design's chronological `(pos1, wt, mut)` history, and where a
+    position was edited twice the earliest wt is the true wild-type.
+    `positions_to_revert` holds 1-based positions, normally a
+    contaminated.json entry's `positions_to_revert` field.
 
-    cumulative_mutations
-        The design's full chronological mutation history, as
-        `(pos1, wt, mut)` tuples.  If a position was edited twice, the
-        earliest wt is the true wild-type and the one used here.
+    Returns (reverted_seq, applied_reversions), the latter the
+    (pos1, mut_at_steer, wt) tuples actually applied, for logging and
+    the manifest.  A requested position missing from
+    cumulative_mutations is skipped with a stderr warning, which
+    consistent inputs never trigger.
 
-    positions_to_revert
-        1-based positions to revert.  Normally the
-        `positions_to_revert` field of a contaminated.json entry, which
-        holds the mutated residues contacting the effector in the
-        steered prediction.
-
-    Returns
-    -------
-    (reverted_seq, applied_reversions)
-        reverted_seq is the steered sequence with those positions put
-        back to their true wild-type.  applied_reversions lists the
-        (pos1, mut_at_steer, wt) tuples actually applied, for logging
-        and for the reversion manifest.  A requested position missing
-        from cumulative_mutations is skipped and warned about on
-        stderr.  That should not happen with consistent inputs.
-
-    Errors
-    ------
-    Raises ValueError if steered_seq is empty, if a requested position
-    is out of range for the sequence length, or if the steered
-    sequence's residue at a reversion position disagrees with the "mut"
-    in cumulative_mutations.  The last case means the two inputs
-    describe different designs.
+    Raises ValueError on an empty steered_seq, an out-of-range position,
+    or a steered residue that disagrees with the "mut" in
+    cumulative_mutations.  The last case means the two inputs describe
+    different designs.
     """
     if not steered_seq:
         raise ValueError("steered_seq is empty")
@@ -195,11 +135,9 @@ def build_reverted_sequence(
                 f"{n}-residue receptor sequence"
             )
 
-    # Build a pos1 -> wt lookup from the cumulative mutation history.
-    # A position can appear twice when an ancestor edited it and a
-    # descendant edited it again.  Keep the FIRST occurrence, which is
-    # the true wild-type.  pos_to_latest_mut holds the most recent
-    # residue at each position, for the check against steered_seq.
+    # Keep the FIRST wt per position, which is the true wild-type when
+    # an ancestor and a descendant both edited it.  pos_to_latest_mut
+    # holds the most recent residue, for the check against steered_seq.
     pos_to_wt: Dict[int, str] = {}
     pos_to_latest_mut: Dict[int, str] = {}
     for pos1, wt, mut in cumulative_mutations:
@@ -270,11 +208,10 @@ def _read_receptor_fasta(fasta_path: Path) -> str:
 
 
 def _read_ca_chain(pdb_path: Path, chain: str):
-    """Yield one residue 3-letter code per CA atom on `chain` in
-    `pdb_path`, in file order.  Stdlib only.  The per-seed
-    reverted-jaccard length guard uses it to check receptor-chain
-    length without importing numpy or boltz code.  Yields nothing if
-    the chain is absent."""
+    """Yield one residue 3-letter code per CA atom on `chain`, in file
+    order.  Stdlib only, so the reverted-jaccard length guard can check
+    receptor-chain length without numpy or boltz code.  Yields nothing
+    if the chain is absent."""
     with open(pdb_path) as f:
         for line in f:
             if not line.startswith("ATOM"):
@@ -294,35 +231,22 @@ def write_reversion_plan(
     """Stage reverted Boltz YAMLs for every contaminated design and
     write a reversion_plan.json manifest.
 
-    Deduplication: designs that revert to the same receptor sequence
-    share a single staged YAML.  The manifest records which designs
-    share each unique sequence, so harvest-reversions can copy the
-    result to all of them.
+    Designs reverting to the same receptor sequence share one staged
+    YAML, and the manifest records which designs share it so
+    harvest-reversions can copy the result to all of them.  When
+    plan_meta["num_seeds"] > 1, each unique reverted sequence gets
+    num_seeds prediction slots with their own Boltz seeds, matching the
+    steered prediction pass.
 
-    Multi-seed: when plan_meta["num_seeds"] > 1, each unique reverted
-    sequence gets num_seeds prediction slots, each with its own Boltz
-    seed.  This matches the steered prediction pass.
+    `workdir` is this cycle's collect-phase workdir, and artefacts go
+    under `workdir/reversions/`.  Each `contaminated` dict must carry
+    label, design_idx, design_workdir, cumulative_mutations,
+    positions_to_revert, steered_ra_eff_vs_truth and
+    steered_contact_residues.  `plan_meta` must carry effector_seq,
+    effector_template_cif, pred_receptor_chain, pred_effector_chain,
+    base_seed, num_seeds and boltz_constraints_block.
 
-    Arguments
-    ---------
-    workdir
-        This cycle's collect-phase workdir.  Reversion artefacts go
-        under `workdir/reversions/`.
-
-    contaminated
-        Dicts describing the contaminated designs.  Each one must carry
-        label, design_idx, design_workdir, cumulative_mutations,
-        positions_to_revert, steered_ra_eff_vs_truth and
-        steered_contact_residues.
-
-    plan_meta
-        Per-cycle info: effector_seq, effector_template_cif,
-        pred_receptor_chain, pred_effector_chain, base_seed, num_seeds
-        and boltz_constraints_block.
-
-    Returns
-    -------
-    Path to the written `reversion_plan.json`.
+    Returns the path to the written `reversion_plan.json`.
     """
     import hashlib
 
@@ -345,8 +269,6 @@ def write_reversion_plan(
     boltz_constraints_block = plan_meta.get("boltz_constraints_block")
 
     # ── Phase 1: build all reverted sequences ──────────────────────
-    # Collect (reverted_seq, metadata) for each contaminated design,
-    # then group by sequence.
     per_design: List[Dict] = []
     for c in contaminated:
         label = c["label"]
@@ -379,10 +301,9 @@ def write_reversion_plan(
         per_design.append({
             "label": label,
             "design_idx": c.get("design_idx"),
-            # Carried over from the contaminated entry.  The harvest
-            # pairs each steered design with the reverted prediction
-            # that has the same seed_index, so the index has to travel
-            # with the design all the way into the manifest.
+            # The harvest pairs each steered design with the reverted
+            # prediction of the same seed_index, so the index travels
+            # with the design into the manifest.
             "seed_index": int(c.get("seed_index", 0) or 0),
             "design_workdir": str(design_workdir),
             "steered_fasta": str(steered_fasta),
@@ -422,10 +343,9 @@ def write_reversion_plan(
         # Use first member's label for the directory name
         canonical_label = group_members[0]["label"]
         safe_canonical = canonical_label.replace(".", "_").replace("/", "_")
-        # all_label_seeds replaces the older plain list of label
-        # strings, which lost the seed information.  Each entry pairs a
-        # steered label with the seed_index it had on the steered side,
-        # so the harvest can match it to the right reverted seed.
+        # all_label_seeds replaces an older plain label list that lost
+        # the seed information.  Each entry pairs a steered label with
+        # its steered-side seed_index for the harvest to match on.
         all_label_seeds = [
             {"label": d["label"], "seed_index": d["seed_index"]}
             for d in group_members
@@ -443,12 +363,10 @@ def write_reversion_plan(
             rev_dir = reversions_root / rev_dirname
             rev_dir.mkdir(parents=True, exist_ok=True)
 
-            # Write receptor FASTA
             (rev_dir / "receptor.fasta").write_text(
                 f">receptor_reverted_{rev_dirname}\n{reverted_seq}\n"
             )
 
-            # Write Boltz YAML
             yaml_path = write_boltz_yaml(
                 out_dir=rev_dir,
                 rec_seq=reverted_seq,
@@ -459,7 +377,7 @@ def write_reversion_plan(
                 constraints_block=boltz_constraints_block,
             )
 
-            # Metadata for the canonical member
+            # Metadata for the canonical member.
             first = group_members[0]
             c = first["contaminated_entry"]
             metadata = {
@@ -502,9 +420,6 @@ def write_reversion_plan(
             manifest_entries.append({
                 "label": canonical_label,
                 "all_labels": all_labels,
-                # Per-seed pairing info.  The harvest uses it to assign
-                # each reverted-seed result to the right steered
-                # per-seed label.
                 "all_label_seeds": all_label_seeds,
                 "safe_name": rev_dirname,
                 "rev_dir": str(rev_dir),
@@ -618,7 +533,8 @@ def _locate_reverted_prediction_pdb(rev_dir: Path) -> Optional[Path]:
 def _count_pdb_chain_ca_lengths(
     reverted_pdb: Path, pred_rec: str, pred_eff: str
 ) -> Tuple[int, int]:
-    """Return (rec_len, eff_len) CA counts; falls back to two largest chains."""
+    """Return the (receptor, effector) CA counts. A prediction that does not use
+    the named chains falls back to the two largest."""
     from collections import Counter
     ca_counts: Counter = Counter()
     with open(reverted_pdb) as f:
@@ -653,7 +569,8 @@ def _build_remaining_mutations_str(
 
 
 def _run_compute_metrics_for_reverted(cmd, per_row_csv: Path):
-    """Run compute_metrics.py for a reverted prediction; return cm row dict or error string."""
+    """Run compute_metrics.py on a reverted prediction. Returns its row as a
+    dict, or an error string naming what went wrong."""
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=600
@@ -698,32 +615,28 @@ def _compute_reverted_seed_jaccards(
         try:
             # Do NOT pass expected_rec_seq=cycle0_rec_seq here.
             # cycle_0's wild_type_receptor_seq is the pre-steering MPNN
-            # sequence, but the reverted prediction keeps every
-            # steering mutation the pass left in place.  The two
-            # sequences therefore differ at those positions.  Passing
-            # the wild-type as the expected sequence made the guard
-            # inside find_contact_residues_heavy raise ValueError on
-            # every pose_holds row.  Verified against design_7_seq_3
-            # sg=0, which has 5 surviving mutations: the ValueError was
+            # sequence, while the reverted prediction keeps the steering
+            # mutations the pass left in place, so the two differ there.
+            # Passing it made the guard inside
+            # find_contact_residues_heavy raise ValueError on every
+            # pose_holds row.  Verified against design_7_seq_3 sg=0,
+            # which has 5 surviving mutations.  The ValueError was
             # swallowed below and the jaccards came out blank.
             #
-            # The guard is there to catch index misalignment between
-            # the per-seed contact set and cycle0_true_idx.  Matching
-            # amino-acid identity is the wrong invariant for that.
-            # Matching LENGTH is the right one, and the check below
-            # enforces it, so the safety property survives without
-            # breaking on expected mutations.
+            # The guard catches index misalignment between the per-seed
+            # contact set and cycle0_true_idx.  Amino-acid identity is
+            # the wrong invariant for that and LENGTH is the right one,
+            # which the check below enforces instead.
             seed_contacts = find_contact_residues_heavy(
                 reverted_pdb,
                 cycle0_pred_rec, cycle0_pred_eff,
                 cycle0_contact_cutoff,
                 expected_rec_seq=None,
             )
-            # Length-only safety net.  Index N in seed_contact_idx must
-            # mean the same position as index N in cycle0_true_idx.  A
-            # different chain length means the wrong PDB was picked up
-            # or the chain layout changed, so the indices are not
-            # comparable and the jaccard would be meaningless.
+            # Index N in seed_contact_idx must mean the same position as
+            # index N in cycle0_true_idx.  A different chain length
+            # means the wrong PDB or a changed chain layout, so the
+            # jaccard would be meaningless.
             if cycle0_rec_seq:
                 actual_len = sum(
                     1 for _ in _read_ca_chain(
@@ -752,9 +665,9 @@ def _compute_reverted_seed_jaccards(
                     seed_contact_idx, cycle0_wrong_idx
                 )
         except Exception as e:
-            # Soft failure.  Leave every jaccard field blank, but log
-            # to stderr so the next failure does not vanish silently
-            # the way the original ValueError did.
+            # Leave every jaccard field blank, but log to stderr so the
+            # next failure does not vanish the way the original
+            # ValueError did.
             sys.stderr.write(
                 f"  WARN reverted-jaccard {label} s{seed_index}: "
                 f"{type(e).__name__}: {e}\n"
@@ -772,9 +685,8 @@ def _pair_per_seed_records_to_steered_labels(
     for entry in manifest.get("entries", []):
         rev_seed_idx = int(entry.get("seed_index", 0) or 0)
         canonical = entry["label"]
-        # Prefer all_label_seeds.  Fall back to all_labels so older
-        # manifests, written before per-seed pairing existed, still
-        # load.
+        # Fall back to all_labels so manifests written before per-seed
+        # pairing existed still load.
         all_label_seeds = entry.get("all_label_seeds")
         if all_label_seeds is None:
             all_label_seeds = [
@@ -784,8 +696,7 @@ def _pair_per_seed_records_to_steered_labels(
         for member in all_label_seeds:
             steered_label = member["label"]
             steered_seed_idx = int(member.get("seed_index", 0) or 0)
-            # Pair a steered label with a reverted record only when the
-            # two seed indices are equal.
+            # Pair only when the two seed indices are equal.
             if steered_seed_idx != rev_seed_idx:
                 continue
             rec = per_seed_records.get((canonical, rev_seed_idx))
@@ -828,41 +739,23 @@ def harvest_reversion_results(
     contact_cutoff: float = 5.0,
 ) -> Dict[str, Dict]:
     """Read every staged reverted prediction, compute metrics, and
-    return a per-label result dict.
+    return {pathway_label: result_dict}.
 
     This runs INSIDE the singularity container.  It needs numpy and
     Bio.Align for the Kabsch and sequence alignment inside
-    boltz2_negative_steering.compute_binding_rmsds.  It also shells out
-    to compute_metrics.py for the confidence and contact analysis, the
-    same way cmd_compute_final_metrics does per row.
+    boltz2_negative_steering.compute_binding_rmsds, and it shells out to
+    compute_metrics.py for the confidence and contact analysis, as
+    cmd_compute_final_metrics does per row.
 
-    Arguments
-    ---------
-    workdir                    Collect workdir holding reversion_plan.json.
-    ground_truth_pdb           RFDiffusion design PDB the reverted pose is
-                               compared against.
-    truth_receptor_chain       Receptor chain letter in ground_truth_pdb.
-    truth_effector_chain       Effector chain letter in ground_truth_pdb.
-    compute_metrics_script     Path to compute_metrics.py.
-    pae_cutoff                 Forwarded to compute_metrics.py for ipSAE.
-    contact_cutoff             Heavy-atom contact cutoff for the contact
-                               analysis on reverted predictions.
+    `ground_truth_pdb` is the RFDiffusion design PDB the reverted pose
+    is compared against, with its own chain letters.
 
-    Returns
-    -------
-    Dict keyed by pathway label, each value a dict with:
-        reverted_ra_eff_vs_truth         float
-        reverted_ra_eff_vs_steered       float
-        reverted_independent_receptor_rmsd   float
-        reverted_independent_effector_rmsd   float
-        reverted_intact                   bool
-        reverted_n_contact_residues       int
-        reverted_contact_residues         List[int]
-        reverted_mutated_contact_positions  List[int]
-        reverted_prediction_pdb           str  (path)
-        plus every entry in `_REVERTED_CONFIDENCE_FIELDS`, the
-        confidence columns forwarded as a block to downstream CSVs.
-    If a reverted prediction failed or is missing, its value is
+    Each result dict carries reverted_ra_eff_vs_truth and
+    reverted_ra_eff_vs_steered (ra_eff against the ground truth and
+    against the steered parent), both reverted_independent_* RMSDs,
+    reverted_intact, reverted_prediction_pdb, the three
+    reverted_*contact* fields, and every entry in
+    `_REVERTED_CONFIDENCE_FIELDS`.  A failed or missing prediction gives
     {"error": "..."} with no metric fields.
     """
     # Lazy numpy import.  Only the harvest phase needs it.
@@ -884,31 +777,21 @@ def harvest_reversion_results(
         )
     manifest = json.loads(manifest_path.read_text())
 
-    # Find cycle_0/plan.json so it can be passed to compute_metrics.py
-    # as the effector-atom-filter source.  That filter restricts
-    # contact detection to the effector's interface atoms, so an
-    # off-interface brush against a non-binding face does not register
-    # as a contact.  Only the cycle_0 plan will do, because the ground
-    # truth and true_interface that define those atoms are set there
-    # and nowhere else.
+    # cycle_0/plan.json is the effector-atom-filter source for
+    # compute_metrics.py.  That filter restricts contact detection to
+    # the effector's interface atoms, so an off-interface brush against
+    # a non-binding face does not register.  Only the cycle_0 plan will
+    # do, because the ground truth and true_interface defining those
+    # atoms are set there and nowhere else.  Not found means no filter.
     #
-    # Layout: plan.json sits in workdir itself for a flat cycle-0 run.
-    # A nested run puts this pathway's plan.json in workdir and leaves
-    # cycle_0/plan.json at <root>/cycle_0/plan.json.
+    # plan.json sits in workdir itself for a flat cycle-0 run.  A nested
+    # run leaves cycle_0/plan.json at <root>/cycle_0/plan.json.
     cycle0_plan_path = _resolve_cycle0_plan_path(workdir)
-    # Not found means no filter.  Contact detection then runs on all
-    # effector atoms.
 
-    # The cycle_0 plan also supplies true_interface_idx and
-    # initial_wrong_interface_idx, which drive the per-seed structural
-    # Jaccard against each reverted prediction.  Steered predictions
-    # already get this in
-    # boltz2_negative_steering._write_initial_multiseed_csv and
-    # _write_initial_only_csv, and reverted predictions need it so the
-    # aggregator can compute reverted_true_jaccard_median,
-    # reverted_wrong_jaccard_median and the rest.  If the plan cannot
-    # be loaded, the per-seed jaccard fields stay blank and the
-    # aggregator writes "" for them.
+    # The same plan supplies true_interface_idx and
+    # initial_wrong_interface_idx for the per-seed structural Jaccard.
+    # Without them the aggregator writes "" for
+    # reverted_true_jaccard_median and the rest.
     _cycle0_ctx = _load_cycle0_plan_context(cycle0_plan_path, contact_cutoff)
     cycle0_true_idx: List[int] = _cycle0_ctx["true_idx"]
     cycle0_wrong_idx: List[int] = _cycle0_ctx["wrong_idx"]
@@ -917,18 +800,14 @@ def harvest_reversion_results(
     cycle0_pred_eff: str = _cycle0_ctx["pred_eff"]
     cycle0_contact_cutoff: float = _cycle0_ctx["contact_cutoff"]
 
-    # Build per-seed records first, then pair them with steered labels
-    # by matching seed_index.  The older code wrote results[label] in a
-    # loop under the same label, so with num_seeds > 1 only the LAST
-    # seed's record survived and the other seeds' GPU work was thrown
-    # away.
-    #
-    # per_seed_records[(canonical_label, seed_index)] = result_dict
+    # per_seed_records[(canonical_label, seed_index)] = result_dict.
+    # The older code wrote results[label] in a loop under the same
+    # label, so with num_seeds > 1 only the LAST seed's record survived
+    # and the other seeds' GPU work was thrown away.
     per_seed_records: Dict[Tuple[str, int], Dict] = {}
 
-    # results is the public return value, {steered_label: result_dict}.
-    # It is filled in at the end by walking all_label_seeds and looking
-    # up the reverted record at each steered label's seed_index.
+    # The public return value, {steered_label: result_dict}, filled in
+    # at the end from all_label_seeds.
     results: Dict[str, Dict] = {}
 
     for entry in manifest.get("entries", []):
@@ -938,11 +817,9 @@ def harvest_reversion_results(
         design_workdir = Path(entry["design_workdir"])
         steered_pdb = design_workdir / "prediction.pdb"
 
-        # Locate the reverted prediction PDB.  Boltz writes it to a
-        # nested path such as
-        # `<rev_dir>/predictions/<stem>/pdb/<stem>_model_0.pdb`.  To
-        # stay independent of Boltz's exact layout, glob for any .pdb
-        # under rev_dir that is not a reference.
+        # Boltz writes the prediction to a nested path such as
+        # `<rev_dir>/predictions/<stem>/pdb/<stem>_model_0.pdb`, so the
+        # helper globs rather than assuming that layout.
         reverted_pdb = _locate_reverted_prediction_pdb(rev_dir)
         if reverted_pdb is None:
             per_seed_records[(label, seed_index)] = {
@@ -970,9 +847,8 @@ def harvest_reversion_results(
             continue
 
         # --- Structural metrics vs steered parent ---
-        # The same function, with the steered prediction standing in as
-        # the truth reference.  This measures how far the reverted pose
-        # has drifted from its own steered parent.
+        # The steered prediction stands in as the truth reference, so
+        # this measures drift from the parent.
         try:
             ra_eff_vs_steered, _, _ = binding_rmsds(
                 pred_pdb=reverted_pdb,
@@ -994,14 +870,12 @@ def harvest_reversion_results(
         # --- Confidence / contact metrics via compute_metrics.py ---
         per_row_csv = rev_dir / "metrics.csv"
 
-        # Count CAs for chain-lengths arg
         rec_len, eff_len = _count_pdb_chain_ca_lengths(
             reverted_pdb, pred_rec, pred_eff
         )
 
-        # The reverted design's mutation list is the steered mutation
-        # list minus the reverted positions, because those positions
-        # carry wild-type again.
+        # The reverted design's mutation list is the steered one minus
+        # the reverted positions, which carry wild-type again.
         reverted_positions = set(entry.get("positions_to_revert") or [])
         remaining_muts_str = _build_remaining_mutations_str(
             rev_dir, reverted_positions
@@ -1017,18 +891,11 @@ def harvest_reversion_results(
             "--receptor-chain", pred_rec,
             "--effector-chain", pred_eff,
             "--contact-cutoff", str(contact_cutoff),
-            # The ground-truth PDB lets compute_metrics.py fill in
-            # intact_core, weighted_jaccard and interface_plddt for the
-            # reverted prediction.  Those columns come out blank
-            # without it.  The steered side already passes --native-pdb
-            # with the cycle_0 ground truth, so this keeps the two
-            # sides comparable.
+            # Without this, intact_core, weighted_jaccard and
+            # interface_plddt come out blank.  The steered side passes
+            # the cycle_0 ground truth too, so the two stay comparable.
             "--native-pdb", str(ground_truth_pdb),
         ]
-        # Restrict reverted-pose contact detection to the effector
-        # interface atoms listed in cycle_0/plan.json.  When the plan
-        # could not be found, the filter is omitted and contact
-        # detection runs on all effector atoms.
         if cycle0_plan_path is not None:
             cmd.extend(["--effector-atom-filter-json", str(cycle0_plan_path)])
         if remaining_muts_str:
@@ -1060,15 +927,11 @@ def harvest_reversion_results(
 
         # CONTAMINATION RULE on the reverted prediction
         # ==============================================
-        # remaining_muts holds the cumulative mutations minus the
-        # positions this pass reverted.  Any of them that contacts the
-        # effector in the reverted prediction is new contamination.
-        # The rescue pose is then held in place by a residue the
-        # construct will not carry.
-        #
-        # This is the same rule build-contaminated applies to the
-        # steered prediction.  The protected-set fields are diagnostic
-        # only and do not drive the verdict.
+        # The same rule build-contaminated applies to the steered
+        # prediction.  Any surviving mutation contacting the effector is
+        # new contamination, because the rescue pose is then held by a
+        # residue the construct will not carry.  The protected-set
+        # fields are diagnostic only.
         reverted_contact_str = cm.get("contact_residues", "") or ""
         reverted_contact_set = set(
             int(p) for p in reverted_contact_str.split(",")
@@ -1082,15 +945,10 @@ def harvest_reversion_results(
             remaining_muts_set & reverted_contact_set
         )
 
-        # Per-seed structural Jaccard against the ground-truth
-        # interface, mirroring _write_initial_multiseed_csv on the
-        # steered side.  Re-run find_contact_residues_heavy on THIS
-        # seed's PDB for 0-based positional contact indices, then
-        # jaccard those against the cycle_0 plan's true_interface_idx
-        # and initial_wrong_interface_idx.  If the cycle_0 plan could
-        # not be loaded, both index lists default to empty and every
-        # jaccard field stays blank.  DictWriter then writes "" instead
-        # of dropping the row.
+        # Mirrors boltz2_negative_steering's
+        # _write_initial_multiseed_csv and _write_initial_only_csv on
+        # the steered side.  With no cycle_0 plan both index lists are
+        # empty and every jaccard field stays blank.
         (rev_true_jaccard, rev_wrong_jaccard, rev_n_shared_true,
          rev_n_shared_wrong, rev_n_design_iface) = (
             _compute_reverted_seed_jaccards(
@@ -1120,8 +978,6 @@ def harvest_reversion_results(
             "reverted_n_contacts_on_mutated_positions": len(
                 mutated_contact_positions
             ),
-            # Per-seed structural Jaccard, measured against the cycle_0
-            # plan's true and initial-wrong interface indices.
             "reverted_true_jaccard": rev_true_jaccard,
             "reverted_wrong_jaccard": rev_wrong_jaccard,
             "reverted_n_shared_true": rev_n_shared_true,
@@ -1130,9 +986,6 @@ def harvest_reversion_results(
             "reverted_ipsae_min": _fl("ipsae_min"),
             "reverted_ipsae_ab": _fl("ipsae_ab"),
             "reverted_ipsae_ba": _fl("ipsae_ba"),
-            # 15 Å iPSAE variants.  Same Dunbrack iPSAE calculation as
-            # the 10 Å trio above, at a more permissive PAE cutoff.
-            # compute_metrics.py always emits them.
             "reverted_ipsae_min_15": _fl("ipsae_min_15"),
             "reverted_ipsae_ab_15": _fl("ipsae_ab_15"),
             "reverted_ipsae_ba_15": _fl("ipsae_ba_15"),
@@ -1145,38 +998,29 @@ def harvest_reversion_results(
             "reverted_ipae": _fl("ipae"),
             "reverted_pae_mean": _fl("pae_mean"),
             "reverted_pae_pass_frac": _fl("pae_pass_frac"),
-            # These three need the --native-pdb passed in the cmd
-            # above.  They mirror the steered side so plots can compare
-            # interface_plddt, intact_core and weighted_jaccard across
-            # stages.
+            # These three need the --native-pdb passed in the cmd above.
             "reverted_interface_plddt": _fl("interface_plddt"),
             "reverted_intact_core":     _int("intact_core"),
             "reverted_weighted_jaccard": _fl("weighted_jaccard"),
         }
 
     # ── Pair per-seed records back to steered labels ─────────────────
-    # Each manifest entry covers one (unique reverted sequence,
-    # reverted seed index) pair.  Its all_label_seeds field lists the
-    # steered labels sharing that reverted sequence, each with its own
-    # steered seed index.  A steered label takes the reverted record
-    # whose seed index equals its own, so design_05_s0 pairs with
-    # reverted seed 0, design_05_s1 with reverted seed 1, and so on.
-    #
-    # The older block instead copied the canonical label's single
-    # record to every shared label, and that record had already been
-    # collapsed to one seed by the overwrite bug noted above.
-    #
-    # A steered label with no reverted record at its seed index gets a
-    # stub error record instead of a blank.  That only happens when the
-    # harvest failed for that one reverted seed.
+    # Each manifest entry covers one (unique reverted sequence, reverted
+    # seed index) pair, and its all_label_seeds lists the steered labels
+    # sharing that sequence with their own steered seed indices.  A
+    # steered label takes the reverted record whose seed index equals
+    # its own, so design_05_s0 pairs with reverted seed 0 and
+    # design_05_s1 with reverted seed 1.  The older block instead copied
+    # the canonical label's single record to every shared label, and
+    # that record had already been collapsed to one seed by the
+    # overwrite bug noted above.
     results = _pair_per_seed_records_to_steered_labels(
         per_seed_records, manifest
     )
 
-    # Persist both files next to the manifest for traceability.
-    # {label: result} is what the finalize readers expect.
-    # {label: {seed_index: result}} keeps the per-seed structure for
-    # post-hoc analysis.
+    # Both sit next to the manifest.  The finalize readers expect
+    # {label: result}, and {label: {seed_index: result}} keeps the
+    # per-seed structure for post-hoc analysis.
     _persist_reversion_results_to_disk(workdir, results, per_seed_records)
     return results
 
@@ -1194,29 +1038,19 @@ def classify_reversion_verdict(
 ) -> Tuple[str, str]:
     """Classify the outcome of the reversion pass for one design.
 
-    The structural filter is repeated on the reverted prediction.  It
+    The structural filter is repeated on the reverted prediction, which
     must be intact and have reverted_ra_eff_vs_truth < cutoff.
 
-    Contamination rule on the reverted prediction:
-
-      A mutated residue contacting the effector counts as
-      new_contamination only when its position lies inside
-      `contamination_gating_positions`.  That set is the union of the
-      RFDiffusion design region and the true interface.
-
-      The gate matches the policy already used at the pre-reversion
-      (build-contaminated) stage.  Positions outside the gated set were
-      accepted there as valid steering contacts on the steered pose.
-      They are not reverted and survive into the reverted sequence on
-      purpose.  Flagging those same positions as new contamination on
-      the reverted pose would contradict that decision.  A contact
-      inside the design region or true interface is different.  It
-      means the reverted pose has moved relative to the steered pose
-      and a mutated residue has landed in the region that matters.
-
-      When `contamination_gating_positions` is None the gate is off and
-      any mutated contact fires new_contamination.  That was the
-      original behaviour, before the gated set was introduced.
+    A mutated residue contacting the effector counts as
+    new_contamination only when its position lies inside
+    `contamination_gating_positions`, the union of the RFDiffusion
+    design region and the true interface.  Positions outside that set
+    were accepted as valid steering contacts at the pre-reversion
+    (build-contaminated) stage and deliberately left in the reverted
+    sequence, so flagging them here would contradict that.  A gated
+    contact instead means the reverted pose has moved and a mutated
+    residue has landed where it matters.  Passing None turns the gate
+    off, the behaviour before the gated set existed.
 
     Verdict resolution:
       - reverted fails the structural filter  → 'pose_collapses'
@@ -1248,9 +1082,6 @@ def classify_reversion_verdict(
 
     mutated_contacts = reverted.get("reverted_mutated_contact_positions") or []
     if contamination_gating_positions is not None:
-        # Only positions inside the gated set count as contamination.
-        # The rest are acceptable by construction, because they passed
-        # the pre-reversion filter on the steered pose.
         gated_contacts = [p for p in mutated_contacts
                           if p in contamination_gating_positions]
         ungated_contacts = [p for p in mutated_contacts
@@ -1266,9 +1097,7 @@ def classify_reversion_verdict(
                            f"pre-reversion policy)")
             return ("new_contamination", reason)
         if ungated_contacts:
-            # No gated contamination, but ungated contacts do exist.
-            # Name them in the reason for transparency and still return
-            # pose_holds.
+            # Still pose_holds, but name them in the reason.
             return ("pose_holds",
                     f"reverted pose holds structurally and cleanly; "
                     f"ungated mutated contacts at {ungated_contacts} "
@@ -1288,9 +1117,8 @@ def classify_reversion_verdict(
 # Command-line stages
 #
 # Moved here from boltz2_iterate_steering.py, which no longer exists.
-# These four stages are the CLI over the library above, so they belong
-# beside it rather than in a module named after a loop that was never
-# run.
+# They belong beside the library above rather than in a module named
+# after a loop that was never run.
 # ======================================================================
 
 import argparse  # noqa: E402
@@ -1312,12 +1140,11 @@ from pathway_labels import (  # noqa: E402
 # ───────────────────────────────────────────────────────────────────────
 #
 # Container-phase CPU work.  For every intact candidate in
-# prefilter.json, shell out to compute_metrics.py for the contact
-# analysis.  A design is contaminated when any of its steering
-# mutations contacts the effector in the steered prediction, and those
-# contacting positions are the ones the reversion pass will revert.
-# Writes contaminated.json listing every flagged design, in the schema
-# plan-reversions consumes.
+# prefilter.json it shells out to compute_metrics.py for the contact
+# analysis.  A design is contaminated when a steering mutation contacts
+# the effector in the steered prediction, and those positions are the
+# ones the reversion pass reverts.  Writes contaminated.json in the
+# schema plan-reversions consumes.
 def cmd_build_contaminated(args: argparse.Namespace) -> int:
     workdir = args.workdir.resolve()
     plan_path = workdir / "plan.json"
@@ -1347,14 +1174,12 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
         return 0
 
     # The workdir is cycle 0's, so the plan it holds IS the cycle-0
-    # plan.  Multi-cycle runs were different.  They ran from
-    # <root>/cycle_N/pathway_<label>/ and had to load
-    # <root>/cycle_0/plan.json separately, keyed off an
-    # "experiment_root" field that only the multi-cycle planner wrote.
-    # That planner and the reader for its output are both archived, in
+    # plan.  Multi-cycle runs ran from <root>/cycle_N/pathway_<label>/
+    # and loaded <root>/cycle_0/plan.json separately, keyed off an
+    # "experiment_root" field only the multi-cycle planner wrote.  That
+    # planner and its reader are archived in
     # archive/boltz2_iterate_steering_multicycle.py and
     # archive/cycle1plus_aggregation.py.
-    #
     cycle0_plan = plan
     cycle0_plan_path = plan_path
 
@@ -1374,21 +1199,18 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
     scratch_dir = workdir / "contamination_scratch"
     scratch_dir.mkdir(parents=True, exist_ok=True)
 
-    # One entry per passing candidate, contaminated or not.  After the
-    # loop these are grouped by design and the majority rule is
-    # applied: reversion runs only when
-    # n_contaminated >= ceil(n_correctly_placed / 2).
+    # One entry per passing candidate, contaminated or not.  The
+    # majority gate after the loop groups them by design.
     per_seed_evaluations: List[Dict] = []
     contaminated_entries: List[Dict] = []
     n_checked = 0
     intact_candidates = prefilter.get("intact_candidates", [])
 
-    # Only check candidates whose steered prediction passes the ra_eff
+    # Only candidates whose steered prediction passes the ra_eff
     # threshold.  The reversion pass asks whether a GOOD steered pose
-    # survives without the contaminating mutations.  Running it on a
-    # design whose steered pose is already far off does not answer
-    # that.  It only asks whether Boltz happens to find the right pose
-    # on a fresh random seed.
+    # survives without the contaminating mutations.  On an already
+    # far-off pose it would instead ask whether Boltz happens to find
+    # the right pose on a fresh random seed.
     rmsd_threshold = float(plan.get("rmsd_threshold", 5.0))
     ra_eff_key = "receptor_aligned_effector_rmsd_vs_truth"
     passing_candidates = []
@@ -1423,20 +1245,15 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
         design_workdir = pdb.parent
 
         # The label is the flat cycle-0 "design_NN".  Multi-cycle runs
-        # built a dotted lineage label instead, "parent.cNdMM".  That
-        # scheme lives in archive/cycle1plus_aggregation.py, and the
-        # harness that would have produced such a run is in
-        # archive/boltz2_iterate_steering_multicycle.py.
+        # built a dotted lineage label, "parent.cNdMM", in the archived
+        # archive/cycle1plus_aggregation.py.
         label = label_suffix
 
-        # Read the cumulative mutation history for this design.  It
-        # supplies --mutated-positions for compute_metrics.py, and for
-        # contaminated designs the full [(pos1, wt, mut)] list goes
-        # into contaminated.json for the reversion pass.
-        #
-        # A cycle-0 design has no ancestors, so its own mutations.tsv
-        # is the whole history.  Multi-cycle runs walked the lineage
-        # with read_cumulative_mutations instead.
+        # The cumulative mutation history supplies --mutated-positions
+        # for compute_metrics.py, and for contaminated designs the full
+        # [(pos1, wt, mut)] list goes into contaminated.json.  A cycle-0
+        # design has no ancestors, so its own mutations.tsv is the whole
+        # history.  Multi-cycle runs walked the lineage instead.
         cumulative: List[Tuple[int, str, str]] = []
         mut_path = design_workdir / "mutations.tsv"
         if mut_path.exists():
@@ -1449,7 +1266,7 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
         mutated_positions_1 = sorted(set(pos for pos, _, _ in cumulative))
         mutated_cli = ",".join(str(p) for p in mutated_positions_1)
 
-        # Count CAs per chain for --chain-lengths
+        # CA counts per chain for --chain-lengths.
         from collections import Counter
         ca_counts: Counter = Counter()
         with open(pdb) as f:
@@ -1488,10 +1305,9 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
             "--receptor-chain", pred_rec_chain,
             "--effector-chain", pred_eff_chain,
             "--contact-cutoff", str(args.contact_cutoff),
-            # Restrict contact detection to the effector interface-atom
-            # set listed in cycle_0/plan.json.  An empty list there
-            # leaves contact detection unfiltered, which
-            # compute_metrics.py handles internally.
+            # Restricts contact detection to the effector interface-atom
+            # set in cycle_0/plan.json.  An empty list there leaves
+            # detection unfiltered, which compute_metrics.py handles.
             "--effector-atom-filter-json", str(cycle0_plan_path),
         ]
         if mutated_cli:
@@ -1522,8 +1338,8 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
             continue
         cm = cm_rows[0]
 
-        # Parse contact residues: 1-based positions that form contacts
-        # with the effector in the steered prediction.
+        # 1-based positions contacting the effector in the steered
+        # prediction.
         contact_residues_str = cm.get("contact_residues", "")
         steered_contact_residues = sorted(set(
             int(p) for p in contact_residues_str.split(",")
@@ -1535,21 +1351,15 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
         # ANY mutated position contacting the effector in the steered
         # prediction is contamination.  The wet-lab construct carries
         # the original pre-steering sequence, so it carries no steered
-        # residue at all, protected position or not.  A mutation
-        # outside the protected set is therefore just as invalidating
-        # as one inside it.  Either way the rescue pose depends on a
-        # residue that will not exist when the construct is expressed.
-        #
+        # residue at all, protected position or not.  Hence
         # positions_to_revert = mutated_positions ∩ contact_residues,
         # with no protected-set filter.
         mutated_positions_set = set(mutated_positions_1)
         contact_set = set(steered_contact_residues)
         positions_to_revert = sorted(mutated_positions_set & contact_set)
 
-        # Record every per-seed evaluation, including the clean ones.
-        # The majority gate below needs n_correctly_placed as well as
-        # n_contaminated per design, so clean seeds have to be counted
-        # too.
+        # Clean seeds are recorded too, because the majority gate below
+        # needs n_correctly_placed as well as n_contaminated.
         per_seed_evaluations.append({
             "design_slot": cand.get("design"),  # cycle-0 slot name,
                                                 # e.g. "design_03".
@@ -1573,16 +1383,13 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
         })
 
     # ── Majority gating ─────────────────────────────────────────────
-    # Group the per-seed evaluations by design_slot.  Then per design:
-    #   n_correctly_placed = seeds of this design that got this far,
-    #     already filtered upstream to intact and ra_eff < threshold.
-    #   n_contaminated     = those with positions_to_revert.
-    # Reversion runs only when n_correctly_placed > 0 and
-    # n_contaminated >= ceil(n_correctly_placed / 2), so at least half
-    # of a design's correctly-placed seeds must be contaminated.
-    #
-    # The earlier gate fired per (design, seed), on any single
-    # contaminated seed.  That sent one-seed artefacts into a reversion
+    # Per design_slot, n_correctly_placed is the seeds that got this far
+    # (filtered upstream to intact and ra_eff < threshold) and
+    # n_contaminated is those with positions_to_revert.  Reversion runs
+    # only when n_contaminated >= ceil(n_correctly_placed / 2), so at
+    # least half of a design's correctly-placed seeds must be
+    # contaminated.  The earlier gate fired per (design, seed) on any
+    # single contaminated seed, which sent one-seed artefacts into a
     # pass costing a full prediction each.
     from collections import defaultdict
     by_design: Dict[str, List[Dict]] = defaultdict(list)
@@ -1594,20 +1401,19 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
         n_correctly_placed = len(evals)
         n_contaminated = sum(1 for e in evals if e["is_contaminated"])
         if n_correctly_placed == 0:  # pragma: no cover - defaultdict key
-            # by_design is a defaultdict and every key is created by an
-            # append, so a group always has at least one evaluation.
+            # Every by_design key is created by an append, so a group
+            # always has at least one evaluation.
             continue
         majority_threshold = math.ceil(n_correctly_placed / 2)
         if n_contaminated < majority_threshold:
-            # Below-majority contamination, so leave the steered result
-            # alone.  The contaminated seeds still count as failures in
-            # n_pass at the aggregate level, because they are not
-            # pass-equivalent.  They just are not reverted.
+            # Below-majority contamination leaves the steered result
+            # alone.  Those seeds still count as failures in n_pass,
+            # they just are not reverted.
             continue
         n_designs_triggering += 1
-        # Emit only the genuinely contaminated entries.  These are the
-        # seeds whose reverted sequence the reversion stage will
-        # predict, after write_reversion_plan deduplicates by sequence.
+        # Only the genuinely contaminated entries, whose reverted
+        # sequences the reversion stage predicts after
+        # write_reversion_plan deduplicates them.
         contaminated_entries.extend(
             e["entry"] for e in evals if e["is_contaminated"]
         )
@@ -1625,14 +1431,12 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
     }, indent=2, default=str))
 
     # Delete the scratch directory on a clean run and keep it for a
-    # post-mortem otherwise.  Every candidate that completes the loop
-    # appends exactly one per-seed evaluation.  A shortfall therefore
-    # means at least one candidate was dropped, from a missing PDB,
-    # undeterminable chain lengths, or a compute_metrics.py failure.
-    # Its per-row CSV is then the only record of what the metrics call
-    # saw.  n_checked is the wrong test here.  It counts candidates
-    # entered, so it equals the passing count whether or not any
-    # failed.
+    # post-mortem otherwise.  Every candidate completing the loop
+    # appends exactly one per-seed evaluation, so a shortfall means one
+    # was dropped by a missing PDB, undeterminable chain lengths or a
+    # compute_metrics.py failure, and its per-row CSV is the only record
+    # of what that call saw.  n_checked counts candidates entered, so it
+    # equals the passing count whether or not any failed.
     if len(per_seed_evaluations) == len(passing_candidates):
         try:
             shutil.rmtree(scratch_dir)
@@ -1646,24 +1450,21 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
 # Subcommand: plan-reversions
 # ───────────────────────────────────────────────────────────────────────
 #
-# Runs after structural filtering, inside a cycle's collect phase.
-# Takes the structurally-passing designs, picks out the ones
-# build-contaminated flagged, and stages a reverted Boltz YAML for each
-# under <workdir>/reversions/<safe_label>/.
+# Runs after structural filtering, inside a cycle's collect phase.  It
+# stages a reverted Boltz YAML under <workdir>/reversions/<safe_label>/
+# for each design build-contaminated flagged.
 #
 # Every input is a file, so this subcommand can be tested standalone.
 # It reads <workdir>/plan.json for chain IDs, the effector fasta, the
-# boltz container and hyperparameters, and the ground-truth path.  It
-# reads <workdir>/contaminated.json for the collect phase's list of
-# contaminated candidates, each carrying label, design_workdir,
-# positions_to_revert and cumulative_mutations.  It writes
-# <workdir>/reversion_plan.json, the manifest of every staged
-# reversion, which predict-reversion-one and harvest-reversions read.
+# boltz container and hyperparameters and the ground-truth path, and
+# <workdir>/contaminated.json for the candidates.  It writes
+# <workdir>/reversion_plan.json, which predict-reversion-one and
+# harvest-reversions read.
 #
-# This must run INSIDE the singularity container.  It imports
-# boltz2_negative_steering.write_boltz_yaml, which sits at that
-# module's top level and cannot be lazy-imported without pulling in
-# numpy and Bio.
+# This must run INSIDE the singularity container, because it imports
+# boltz2_negative_steering.write_boltz_yaml, which sits at that module's
+# top level and cannot be lazy-imported without pulling in numpy and
+# Bio.
 def cmd_plan_reversions(args: argparse.Namespace) -> int:
     workdir: Path = args.workdir.resolve()
     plan_path = workdir / "plan.json"
@@ -1707,10 +1508,9 @@ def cmd_plan_reversions(args: argparse.Namespace) -> int:
         }, indent=2))
         return 0
 
-    # Load the effector sequence the same way cmd_plan does, from the
-    # ground-truth PDB's effector chain via the steering module's
-    # get_chain_sequence.  An effector-fasta override in plan.json
-    # takes precedence.
+    # The effector sequence comes from the ground-truth PDB's effector
+    # chain via get_chain_sequence, as cmd_plan does.  An
+    # effector-fasta override in plan.json takes precedence.
     script_dir = SCRIPT_DIR
     if str(script_dir) not in sys.path:
         sys.path.insert(0, str(script_dir))
@@ -1782,9 +1582,9 @@ def cmd_predict_reversion_one(args: argparse.Namespace) -> int:
 
     idx = args.index
     if idx < 0 or idx >= len(entries):
-        # An out-of-range index is not an error for an array task.  It
-        # means this slot has no work.  Exit 0 so the array still
-        # completes cleanly when the shell script over-provisioned it.
+        # An out-of-range index means this slot has no work, not an
+        # error.  Exit 0 so the array still completes cleanly when the
+        # shell script over-provisioned it.
         print(f"[predict-reversion-one] index {idx} out of range "
               f"(have {len(entries)} reversions) — nothing to do")
         return 0
@@ -1806,9 +1606,8 @@ def cmd_predict_reversion_one(args: argparse.Namespace) -> int:
             yaml_path, rev_dir,
             plan["boltz_container"],
             plan["recycling_steps"], plan["diffusion_samples"],
-            # Prefer the seed the manifest already computed.  Older
-            # manifests have no boltz_seed field, so fall back to the
-            # original formula.
+            # Older manifests have no boltz_seed field, so fall
+            # back to the original formula.
             entry.get("boltz_seed",
                        int(plan["seed"]) + 100000 + idx + 1),
             plan["no_kernels"],
@@ -1829,11 +1628,10 @@ def cmd_predict_reversion_one(args: argparse.Namespace) -> int:
 # Subcommand: harvest-reversions
 # ───────────────────────────────────────────────────────────────────────
 #
-# In-container harvest.  For every staged reversion it computes the
-# reverted structural metrics (ra_eff against both the ground truth and
-# the steered parent), the contact analysis, the contamination check on
-# the reverted prediction, and the pose_holds, pose_collapses or
-# new_contamination verdict.  Writes reversion_results.json.
+# In-container harvest.  Per staged reversion it computes the reverted
+# structural metrics, the contact analysis, the contamination check and
+# the pose_holds, pose_collapses or new_contamination verdict.  Writes
+# reversion_results.json.
 def cmd_harvest_reversions(args: argparse.Namespace) -> int:
     workdir: Path = args.workdir.resolve()
     plan_path = workdir / "plan.json"
@@ -1844,10 +1642,9 @@ def cmd_harvest_reversions(args: argparse.Namespace) -> int:
         return 2
     if not manifest_path.exists():
         # plan-reversions may never have run, because
-        # build-contaminated found nothing or crashed upstream.  Write
-        # an empty results document so the finalize stages still run
-        # without a reversion phase.  No verdicts are then applied and
-        # every intact design flows through unchanged.
+        # build-contaminated found nothing or crashed upstream.  An
+        # empty results document lets the finalize stages still run,
+        # with no verdicts applied and every intact design unchanged.
         print("[harvest-reversions] no reversion_plan.json — writing "
               "empty reversion_results.json")
         (workdir / "reversion_results.json").write_text("{}\n")
@@ -1856,8 +1653,7 @@ def cmd_harvest_reversions(args: argparse.Namespace) -> int:
     plan = json.loads(plan_path.read_text())
     manifest = json.loads(manifest_path.read_text())
 
-    # Resolve compute_metrics.py the same way cmd_compute_final_metrics
-    # does.
+    # Resolved the same way cmd_compute_final_metrics does.
     compute_metrics_script = args.compute_metrics_script
     if compute_metrics_script is None:
         compute_metrics_script = SCRIPT_DIR / "compute_metrics.py"
@@ -1884,10 +1680,9 @@ def cmd_harvest_reversions(args: argparse.Namespace) -> int:
         contact_cutoff=float(args.contact_cutoff),
     )
 
-    # Classify a verdict per label.  Classification needs the steered
-    # row, which lives in contaminated.json.  The default thresholds
-    # match compute-final-metrics' RFDiffusion tier, ra_eff < 5.0 and
-    # intact.
+    # Classification needs the steered row, which lives in
+    # contaminated.json.  The default thresholds match
+    # compute-final-metrics' RFDiffusion tier, ra_eff < 5.0 and intact.
     contaminated_path = workdir / "contaminated.json"
     steered_by_label: Dict[str, Dict] = {}
     if contaminated_path.exists():
@@ -1898,13 +1693,10 @@ def cmd_harvest_reversions(args: argparse.Namespace) -> int:
                 "receptor_intact": 1,  # it had to be intact to get here
             }
 
-    # Build the contamination-gating set, the union of the RFDiffusion
-    # design region and the true interface.  It is 1-based to match
-    # reverted_mutated_contact_positions.  This repeats the
-    # pre-reversion policy.  Only mutated contacts inside these regions
-    # count as new_contamination, because contacts outside them were
-    # already accepted as valid steering contacts on the steered pose
-    # and were never reverted.
+    # The contamination-gating set is the union of the RFDiffusion design
+    # region and the true interface, 1-based to match
+    # reverted_mutated_contact_positions.  classify_reversion_verdict
+    # explains the policy.
     gating_1b: Set[int] = set()
     dr = plan.get("design_region_idx") or []
     ti = plan.get("true_interface_idx") or []

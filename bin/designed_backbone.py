@@ -1,22 +1,17 @@
-"""
-designed_backbone.py
---------------------
-DesignedBackbone — one RFDiffusion output.
+"""DesignedBackbone — one RFDiffusion output.
 
-Tier 3 type.  It depends on ProteinStructurePrediction, ContigSpec and
+Tier 3 type, depending on ProteinStructurePrediction, ContigSpec and
 PositionSet.
 
-It wraps a ``ProteinStructurePrediction`` rather than extending it, so
-the structure is reached through ``backbone.structure.X``.  Composition
-was chosen over inheritance because a backbone is not a kind of
-prediction.  On top of the structure, DesignedBackbone adds the fields
-that only RFDiffusion produces, which are design_id, the contig and
-the Rosetta filter score.  It also adds the design-region accessor,
-which the contig answers.
+It wraps a ``ProteinStructurePrediction`` rather than extending it,
+since a backbone is not a kind of prediction, so the structure is
+reached through ``backbone.structure.X``.  It adds the
+RFDiffusion-only fields design_id, contig and Rosetta filter score,
+plus the design-region accessor the contig answers.
 
-A DesignedBackbone has a structure but no sequence.  The residue
-identities for the de novo region arrive later, from MPNN.  Adding a
-sequence gives a `DesignedSequence`, which is Tier 4.
+A DesignedBackbone has a structure but no sequence.  The de novo
+region's residue identities arrive later from MPNN, and adding a
+sequence gives a Tier 4 `DesignedSequence`.
 """
 
 from __future__ import annotations
@@ -39,9 +34,7 @@ from protein_structure_prediction import ProteinStructurePrediction  # noqa: E40
 class DesignedBackbone:
     """One RFDiffusion-generated receptor backbone.
 
-    It holds the structure file in a composed
-    ProteinStructurePrediction, the contig that produced it, and the
-    Rosetta filter score that let it through.
+    The structure file sits in a composed ProteinStructurePrediction.
     """
     pdb_path: Path
     design_id: str
@@ -67,9 +60,9 @@ class DesignedBackbone:
     # ── Convenience delegating to ContigSpec ─────────────────────────
 
     def design_region(self) -> PositionSet:
-        """Return the receptor positions inside de novo segments, in
-        the `designed` frame.  The result carries the contig, so a
-        caller can convert it with `set.in_frame('native')`."""
+        """Receptor positions inside de novo segments, in the
+        `designed` frame.  The result carries the contig, so a caller
+        can convert it with `set.in_frame('native')`."""
         chain = self.receptor_chain
         positions = self.contig.design_region_positions(chain)
         return PositionSet(
@@ -78,8 +71,8 @@ class DesignedBackbone:
         )
 
     def fixed_anchor_positions(self) -> PositionSet:
-        """Return the receptor positions anchored to native residues,
-        meaning those in fixed segments, in the `designed` frame."""
+        """Receptor positions in fixed segments, so anchored to native
+        residues, in the `designed` frame."""
         chain = self.receptor_chain
         positions = self.contig.fixed_anchor_positions(chain)
         return PositionSet(
@@ -88,8 +81,8 @@ class DesignedBackbone:
         )
 
     def receptor_length(self) -> int:
-        """Total residues in the resolved receptor chain, which is the
-        fixed and de novo segment lengths added together."""
+        """Total residues in the resolved receptor chain, fixed plus de
+        novo segment lengths."""
         return self.contig.chain_length(self.receptor_chain)
 
     # ── Pass-through to the composed structure ───────────────────────
@@ -102,7 +95,7 @@ class DesignedBackbone:
     def effector_chain(self) -> str:
         return self.structure.effector_chain
 
-    # ── Factory that parses the contig and loads the structure ──────
+    # ── Factory ─────────────────────────────────────────────────────
 
     @classmethod
     def from_pdb_and_contig(
@@ -116,8 +109,8 @@ class DesignedBackbone:
         rfdiff_metrics: Optional[dict] = None,
     ) -> "DesignedBackbone":
         """Build a DesignedBackbone from a contig string and the file
-        paths.  It parses the contig and constructs the
-        ProteinStructurePrediction for you.
+        paths, parsing the contig and constructing the
+        ProteinStructurePrediction.
         """
         contig = ContigSpec.from_resolved_string(contig_string)
         structure = ProteinStructurePrediction(

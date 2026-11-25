@@ -1,9 +1,8 @@
 """The `negsteer` command line interface.
 
 One command, one run directory. This is the supported way to call negative
-steering from another pipeline, in the same way RFDiffusion or ProteinMPNN
-would be called: a containerised binary with explicit inputs and a documented
-output contract.
+steering from another pipeline: a containerised binary with explicit inputs
+and a documented output contract.
 
     singularity exec --nv negsteer.img negsteer run \
         --name design_00 \
@@ -15,13 +14,12 @@ output contract.
         --outdir         design_00
 
 It runs the same nine stages, in the same order, with the same arguments as
-bin/negative_steering_run_one.sh, which produced the committed benchmark. The
-difference is the interface, not the science.
+bin/negative_steering_run_one.sh, which produced the committed benchmark.
 
-On nesting: the stages call `boltz` directly when already inside a container,
-which the engine detects from SINGULARITY_NAME. That is why this can run
-in-container while the old shell orchestrator could not, and why
---boltz-container is only needed when running on a bare host.
+The stages call `boltz` directly inside a container, which the engine
+detects from SINGULARITY_NAME. That is why this runs in-container
+where the old shell orchestrator could not, and why --boltz-container is
+only needed on a bare host.
 """
 
 from __future__ import annotations
@@ -45,21 +43,19 @@ from . import (
 def _find_bin() -> Path:
     """Locate the engine scripts.
 
-    bin/ is a directory of standalone entry points invoked by path, not an
-    importable package, so it has to be found rather than imported. Three
-    places, most specific first:
+    bin/ holds standalone entry points invoked by path, not an importable
+    package, so it must be found. Three places, most specific first:
 
-      NEGSTEER_BIN            an explicit override, for an unusual layout
-      <package>/../bin        a source checkout, where negsteer/ sits beside bin/
-      /opt/...  /bin          the container, where pip has put the package in
-                              site-packages and bin/ was staged separately
+      NEGSTEER_BIN       an explicit override
+      <package>/../bin   a source checkout, negsteer/ beside bin/
+      /opt/.../bin       the container, where pip put the package in
+                         site-packages and bin/ was staged separately
 
     Raising here beats failing at the first stage with "no such file", which
     reads as a broken engine rather than a broken installation.
     """
-    # An override that is set but wrong is an error, not a hint. Falling
-    # through would run a different engine than the caller asked for, and
-    # a typo would look like it worked.
+    # A set-but-wrong override is an error, not a hint. Falling through
+    # would silently run a different engine.
     override = os.environ.get("NEGSTEER_BIN")
     if override:
         path = Path(override)
@@ -92,9 +88,9 @@ AGGREGATE = BIN / "negsteer_aggregate.py"
 EXTRACT = BIN / "extract_passing.py"
 CROSS_SUMMARY = BIN / "cross_summary_cli.py"
 
-# predict-one and predict-reversion-one return 1 for a per-design failure and
-# 0 otherwise. Anything else is fatal, which is what the shell orchestrator
-# did and what stops one bad design taking the cohort with it.
+# predict-one and predict-reversion-one return 1 for a per-design failure,
+# 0 otherwise. Anything else is fatal, as in the shell orchestrator, so one
+# bad design cannot take the cohort.
 PER_DESIGN_FAILURE = 1
 
 
@@ -112,10 +108,9 @@ def _in_container() -> bool:
 
 
 def _running_image() -> str | None:
-    """Path of the image we are running inside, if we are.
-
-    The runtime exports it, and it is the honest answer to "which image should
-    the engine use", because it is the one already loaded.
+    """Path of the image we are running inside, if we are.  The runtime
+    exports it, and it is the right image for the engine, being the one
+    already loaded.
     """
     return (os.environ.get("SINGULARITY_CONTAINER")
             or os.environ.get("APPTAINER_CONTAINER"))
@@ -124,14 +119,11 @@ def _running_image() -> str | None:
 def _resolve_container(explicit: str | None) -> str | None:
     """The image the plan stage is told about.
 
-    plan requires --boltz-container whether or not it will use it. Inside a
-    container it does not use it. It detects the runtime and calls boltz
-    directly, because nested singularity is unsupported. argparse still
-    demands the flag, so omitting it fails before the engine gets to decide
-    anything.
+    plan requires --boltz-container even when it will not use it, as inside
+    a container, where it detects the runtime and calls boltz directly
+    because nested singularity is unsupported.
 
-    So pass the running image. It is accurate rather than a placeholder, and
-    it keeps the flag meaningful if the engine ever does shell out again.
+    Passing the running image is accurate rather than a placeholder.
     """
     return explicit or _running_image()
 
@@ -152,7 +144,7 @@ def _stage(script: Path, *args) -> list[str]:
 
 
 def _count(path: Path, key: str) -> int:
-    """Read a fan-out width from a plan file, tolerating its absence."""
+    """Read a fan-out width from a plan file, tolerating absence."""
     if not path.is_file():
         return 0
     try:
@@ -164,8 +156,8 @@ def _count(path: Path, key: str) -> int:
 def _plan_args(a: argparse.Namespace) -> list[str]:
     """Knobs forwarded to the plan stage.
 
-    Only flags the caller actually set are forwarded, so an unset knob keeps
-    the engine's own default rather than this CLI silently restating it.
+    Only flags the caller set are forwarded, so an unset knob keeps the
+    engine's default rather than this CLI restating it.
     """
     out: list[str] = []
     for flag, value in (
@@ -179,9 +171,9 @@ def _plan_args(a: argparse.Namespace) -> list[str]:
         ("--contact-cutoff", a.contact_cutoff),
         ("--seed", a.seed),
         ("--mode", a.mode),
-        # The plan-stage threshold decides whether the cold start already
-        # passes, so it gates whether steering runs at all. Distinct from
-        # --postprocess-rmsd-threshold, which only scores the result.
+        # This gates whether steering runs at all, deciding whether the
+        # cold start already passes. --postprocess-rmsd-threshold only
+        # scores the result.
         ("--rmsd-threshold", a.rmsd_threshold),
     ):
         if value is not None:
@@ -210,7 +202,6 @@ def cmd_run(a: argparse.Namespace) -> int:
             "       with singularity exec --nv <image> negsteer run ...\n")
         return 2
 
-    # Always passed. plan requires it even when it will not use it.
     container = ["--boltz-container", image]
     started = time.time()
 
@@ -234,8 +225,8 @@ def cmd_run(a: argparse.Namespace) -> int:
     if not a.dry_run:
         if not plan.is_file():
             raise StageError(f"plan stage produced no {plan}")
-        # skip_steering is a legitimate soft exit: the cold start already
-        # passed, so there is nothing to steer away from.
+        # skip_steering is a legitimate soft exit, the cold start having
+        # already passed.
         skipped = bool(json.loads(plan.read_text()).get("skip_steering"))
         if rc != 0 and not skipped:
             raise StageError(f"plan stage exited {rc}")
@@ -267,7 +258,7 @@ def cmd_run(a: argparse.Namespace) -> int:
     print("\n--- 6/9 harvest + finalize", flush=True)
     _run(_stage(REVERSION, "harvest-reversions", "--workdir", cycle0), dry=a.dry_run)
     # --max-cycles 0 finalises this cycle without spawning another. This tool
-    # is single-cycle by construction and has no path to submit a follow-up.
+    # is single-cycle with no path to a follow-up.
     _run(_stage(COLDSTART, "kickoff-finalize",
                 "--experiment-root", outdir,
                 "--max-cycles", 0,
@@ -285,9 +276,8 @@ def cmd_run(a: argparse.Namespace) -> int:
     _run(_stage(AGGREGATE, "aggregate-per-sequence", "--experiment-root", outdir),
          dry=a.dry_run)
 
-    # Stamped before extract_passing so it measures the Boltz and metrics work,
-    # which is the comparable quantity. extract_passing reads it back into
-    # passing_summary.csv, so it has to exist by now.
+    # Stamped before extract_passing so it measures the Boltz and metrics
+    # work, and because extract_passing reads it into passing_summary.csv.
     elapsed = int(time.time() - started)
     if not a.dry_run:
         (outdir / OUTPUT_FILES["runtime_seconds"]).write_text(f"{elapsed}\n")
@@ -296,8 +286,8 @@ def cmd_run(a: argparse.Namespace) -> int:
     _run(_stage(EXTRACT, "--input", outdir / OUTPUT_FILES["aggregated_results"]),
          dry=a.dry_run)
 
-    # Non-fatal. The engine results are already written, and a tiering hiccup
-    # must not fail a run that produced them.
+    # Non-fatal. The results are written, and a tiering hiccup must not fail
+    # a run that produced them.
     print("\n--- 9/9 cross summary", flush=True)
     tiered = True
     try:

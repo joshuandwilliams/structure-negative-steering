@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
-"""
-cross_summary_cli.py
--------------------
-Typed CLI entry point for writing the cross-sequence summary.
+"""Typed CLI entry point for writing the cross-sequence summary.
 
-From the Nextflow process's point of view this is a drop-in
-replacement for cross_summary.py.  It takes the same flags, which are
---passing-summary-dir, --published-runs-dir, --scored-metadata and
---output, and it writes a byte-identical CSV.
+To the Nextflow process this is a drop-in replacement for
+cross_summary.py.  It takes the same flags, --passing-summary-dir,
+--published-runs-dir, --scored-metadata and --output, and writes a
+byte-identical CSV.
 
 The work goes through ``DesignCohort.emit_cross_summary_from_dirs`` in
 design_cohort.py, which hands the column-level CSV construction to
-``cross_summary.aggregate``.  Routing through the typed API means
-cohort-CSV emission is a method on DesignCohort.  Later refactors can
-therefore work through the type hierarchy without changing the
-Nextflow process or this CLI.
+``cross_summary.aggregate``.  Later refactors can therefore work
+through the type hierarchy without changing the Nextflow process or
+this CLI.
 """
 
 from __future__ import annotations
@@ -39,9 +35,8 @@ def _parse_passing_summary_arg(
 ) -> Tuple[str, Path]:
     """Parse one --passing-summary argument into (seq_name, path).
 
-    An argument of the form NAME=PATH gives that name directly.
-    Otherwise the name comes from the path, either its parent
-    directory or its grandparent, as `seq_name_mode` selects.
+    NAME=PATH gives the name directly.  Otherwise it comes from the
+    path's parent or grandparent directory, as `seq_name_mode` selects.
     """
     if "=" in arg:
         name, path_str = arg.split("=", 1)
@@ -96,9 +91,8 @@ def main() -> int:
     explicit_pairs: List[Tuple[str, Path]] = []
     for raw in args.passing_summary:
         # _parse_passing_summary_arg only does a str.split and a
-        # Path(), and neither raises ValueError for any string, so this
-        # handler cannot fire today.  It stays because that function's
-        # job is parsing, and parsers tend to gain validation.
+        # Path(), neither of which raises ValueError, so this handler
+        # cannot fire today.  It stays because parsers gain validation.
         try:
             explicit_pairs.append(
                 _parse_passing_summary_arg(raw, args.seq_name_mode)

@@ -3,13 +3,13 @@ negative_steering_run.py
 ------------------------
 NegativeSteeringRun — one MPNN sequence's full negsteer experiment.
 
-Tier 5 type.  It depends on StageResult, DesignedSequence and
+Tier 5 type, depending on StageResult, DesignedSequence and
 PipelineInternalThresholds.
 
-This is a read-only view built from stages that have already finished.
-Running them stays the job of `negative_steering_run_one.sh` and the
-Nextflow process body.  This class owns the cross-stage per-seed
-verdict aggregation, plus the outcome, n_pass and tier decisions.
+A read-only view built from finished stages, since running them stays
+the job of `negative_steering_run_one.sh` and the Nextflow process
+body.  This class owns the cross-stage per-seed verdict aggregation,
+plus the outcome, n_pass and tier decisions.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ VALID_ROW_TYPES = frozenset(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Workdir discovery helpers (used by from_workdir)
+# Workdir discovery helpers
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -46,7 +46,7 @@ def _find_boltz_outputs(
     """Find the canonical Boltz PDB and its confidence JSON inside a
     prediction directory.  Returns (None, None) if either is missing.
 
-    The layout, which matches negsteer_aggregate.py's
+    The layout, matching negsteer_aggregate.py's
     aggregate-per-sequence:
       <pred_dir>/boltz_results_input/predictions/input/
           pdb/input_model_<M>.pdb
@@ -57,9 +57,8 @@ def _find_boltz_outputs(
         return None, None
     pdb_path = pred_root / "pdb" / f"input_model_{model_sample}.pdb"
     if not pdb_path.is_file():
-        # Some pipeline versions write the PDB straight into the
-        # prediction directory with no pdb/ subdirectory.  Try that
-        # flat layout as well.
+        # Some pipeline versions write the PDB flat in the prediction
+        # directory, with no pdb/ subdirectory.
         alt = pred_root / f"input_model_{model_sample}.pdb"
         pdb_path = alt if alt.is_file() else None
     conf_path = pred_root / f"confidence_input_model_{model_sample}.json"
@@ -71,9 +70,8 @@ def _find_boltz_outputs(
 def _read_mutations_positionset(
     tsv_path: Path, chain: str
 ) -> Optional["PositionSet"]:
-    """Parse mutations.tsv, whose columns are pos1, wt and mut, into a
-    designed-frame PositionSet.  Returns None if the file is
-    missing."""
+    """Parse mutations.tsv, columns pos1/wt/mut, into a designed-frame
+    PositionSet.  Returns None when the file is missing."""
     import csv as _csv
     if not tsv_path.is_file():
         return None
@@ -98,12 +96,10 @@ def _read_seed_stage_dirs(
 ) -> Tuple[List, List, List[int]]:
     """Walk the cold-start seed subdirectories under cycle_dir.
 
-    Seed 0 lives in ``initial/``.  Seeds 1 to N live in ``initial_s1/``,
-    ``initial_s2/`` and so on.
-
-    Returns three parallel lists: predictions, confidences and
-    seed_indices.  A seed is skipped if its PDB or confidence sidecar
-    is missing.
+    Seed 0 lives in ``initial/``, seeds 1 to N in ``initial_s1/``,
+    ``initial_s2/`` and so on.  Returns parallel lists of predictions,
+    confidences and seed_indices, skipping a seed whose PDB or
+    confidence sidecar is missing.
     """
     preds: List = []
     confs: List = []
@@ -117,8 +113,7 @@ def _read_seed_stage_dirs(
         if pdb is None or conf is None:
             if require_pdb:
                 continue
-            # Even with require_pdb False there is nothing to build a
-            # prediction from, so skip the seed either way.
+            # Nothing to build a prediction from, so skip either way.
             continue
         preds.append(ProteinStructurePrediction(
             path=pdb,
@@ -135,10 +130,9 @@ def _read_seed_stage_dirs(
 class NegativeSteeringRun:
     """One MPNN sequence's complete negative-steering chain.
 
-    The constructor takes StageResults that are already built.  The
-    factory that walks a workdir is ``from_workdir`` below.  It will
-    absorb the remaining parsers in cross_summary.py when those
-    callers migrate.
+    The constructor takes already-built StageResults.  ``from_workdir``
+    below walks a workdir, and will absorb the remaining parsers in
+    cross_summary.py when those callers migrate.
     """
     mpnn_sequence_id: str
     workdir: Path
@@ -207,52 +201,35 @@ class NegativeSteeringRun:
     ) -> Optional["NegativeSteeringRun"]:
         """Build a NegativeSteeringRun by reading a per-MPNN workdir.
 
-        It walks the workdir layout that
-        ``negative_steering_run_one.sh`` produces:
+        The layout ``negative_steering_run_one.sh`` produces:
 
             <workdir>/cycle_<C>/initial[_sN]/                ← cold-start seeds
             <workdir>/cycle_<C>/steered/design_NN_sS/        ← steered (design, seed)
             <workdir>/cycle_<C>/reversions/rev_design_NN_sS_sR/  ← reversion
 
-        In every prediction directory the canonical Boltz output is
-        ``boltz_results_input/predictions/input/pdb/input_model_<M>.pdb``
-        with the sidecar ``confidence_input_model_<M>.json``.  M is the
-        Boltz sample index within a seed.  It defaults to 0, the first
-        sample, which matches the post-canonicalisation convention used
-        elsewhere.
-
+        ``_find_boltz_outputs`` locates each prediction's Boltz output.
         Mutations for steered and reverted stages come from
-        ``mutations.tsv`` in the prediction directory, whose columns
-        are ``pos1 wt mut``.  Those positions become the
-        ``mutated_positions`` PositionSet with frame="designed",
-        because mutation positions are 1-based on the designed-frame
-        receptor.
+        ``mutations.tsv`` there, columns ``pos1 wt mut``, and become the
+        ``mutated_positions`` PositionSet with frame="designed", since
+        mutation positions are 1-based on the designed-frame receptor.
 
-        Returns None when the workdir has no cold-start data.  That
-        tells ``DesignCohort.from_runs_directory`` to skip the
-        sequence.
+        Returns None when the workdir has no cold-start data, which
+        tells ``DesignCohort.from_runs_directory`` to skip the sequence.
 
-        Arguments
-        ---------
-        receptor_chain / effector_chain : Chain labels Boltz emits.
-            "A"/"B" for the standard layout.
-        row_type : Override the row_type read from row_type.txt.  With
-            None and no sidecar present, it defaults to "steered".
-        cycle : Which cycle directory to read, default 0.  Only
-            cycle_0 exists now.  Multi-cycle steering was removed, and
-            the archived code is in
-            archive/boltz2_iterate_steering_multicycle.py.
-        model_sample : Which Boltz model sample counts as canonical,
-            default 0.  The pipeline's post-hoc canonicalisation picks
-            one of 5 samples.  Taking sample 0 is a reasonable default
-            that avoids re-running that logic here.
-        require_pdb : Has no effect on a seed whose PDB is missing. Both
-            settings skip it, because a ProteinStructurePrediction cannot
-            be built without the file. The parameter is kept because
-            callers pass it. A caller setting it to False to get a loud
-            failure gets a silently shortened seed list instead, so a
-            damaged three-seed run is indistinguishable from a one-seed
-            run and n_pass / n_seeds are computed over the survivors.
+        receptor_chain / effector_chain are the chain labels Boltz
+        emits, "A"/"B" in the standard layout.  row_type overrides
+        row_type.txt, defaulting to "steered".  Only cycle_0 exists now,
+        since multi-cycle steering moved to
+        archive/boltz2_iterate_steering_multicycle.py.  model_sample
+        picks the canonical Boltz sample, default 0, which avoids
+        re-running the pipeline's post-hoc canonicalisation over its 5
+        samples.
+
+        require_pdb has no effect on a seed whose PDB is missing,
+        because both settings skip it.  It is kept because callers pass
+        it.  Setting it False for a loud failure instead gives a
+        silently shortened seed list, so a damaged three-seed run looks
+        like a one-seed run and n_pass / n_seeds count the survivors.
         """
         import re
         from pathlib import Path
@@ -262,7 +239,7 @@ class NegativeSteeringRun:
         if not cycle_dir.is_dir():
             return None
 
-        # ── row_type, read from its sidecar file ─────────────────────
+        # ── row_type sidecar ────────────────────────────────────────
         if row_type is None:
             sidecar = workdir / "row_type.txt"
             if sidecar.is_file():
@@ -326,7 +303,7 @@ class NegativeSteeringRun:
                 if not preds:
                     continue
                 # StageResult requires mutated_positions on a steered
-                # stage.  If mutations.tsv was missing, use an empty
+                # stage, so a missing mutations.tsv gives an empty
                 # designed-frame set rather than dropping the stage.
                 if mut_positions is None:
                     mut_positions = PositionSet(
@@ -347,14 +324,10 @@ class NegativeSteeringRun:
         reversion: Dict[str, StageResult] = {}
         rev_root = cycle_dir / "reversions"
         if rev_root.is_dir():
-            # Reverted-sequence directories are named
-            # rev_design_NN_sS_sR.  NN is the source design, S the
-            # source seed, R the reversion seed.
-            #
-            # The (design_NN, source_seed) pair names the parent
-            # steered slot, and the reversion stage groups its seeds by
-            # that parent.  applies_to_designs records the parent
-            # design_id.
+            # Reverted directories are named rev_design_NN_sS_sR, with
+            # NN the source design, S the source seed and R the
+            # reversion seed.  The (design_NN, S) pair names the parent
+            # steered slot, which applies_to_designs records.
             by_parent: Dict[
                 Tuple[str, int], List[Tuple[int, Path]]
             ] = {}
@@ -412,7 +385,7 @@ class NegativeSteeringRun:
                     applies_to_designs=(parent_design,),
                 )
 
-        # ── Optional run_one_runtime_sec sidecar ────────────────────
+        # ── runtime sidecar ─────────────────────────────────────────
         runtime_sidecar = workdir / "run_one_runtime_sec.txt"
         runtime_sec: Optional[float] = None
         if runtime_sidecar.is_file():
@@ -437,7 +410,7 @@ class NegativeSteeringRun:
 
     def _reversion_for_design(self, design_id: str) -> Optional[StageResult]:
         """Return the reversion stage whose ``applies_to_designs``
-        contains ``design_id``, or None if no stage matches."""
+        contains ``design_id``, else None."""
         for st in self.reversion.values():
             if st.applies_to_designs and design_id in st.applies_to_designs:
                 return st
@@ -449,17 +422,14 @@ class NegativeSteeringRun:
         """Final verdict for every (design, seed) pair, across all
         stages.
 
-        The rule:
-        - If steering never ran, meaning `steered` is empty, use the
-          cold-start stage's per-seed verdicts.  That is the cold-start
-          path, and the outcome will be ``no_reversion``.
-        - Otherwise take each (design, seed) in `steered`.  If
-          reversion ran for that design, matched through
-          applies_to_designs, use the reversion verdict for the same
-          seed_index.  If it did not, keep the steered verdict.
+        With `steered` empty, the cold-start stage's per-seed verdicts
+        apply and the outcome will be ``no_reversion``.  Otherwise each
+        (design, seed) in `steered` takes the reversion verdict for the
+        same seed_index when reversion ran for that design, matched
+        through applies_to_designs, else the steered verdict.
 
-        Returns a list of dicts shaped ``{design_id, seed_index,
-        stage_run, verdict}``.
+        Returns dicts shaped
+        ``{design_id, seed_index, stage_run, verdict}``.
         """
         if self._truth_required():
             self._ensure_truth()
@@ -477,12 +447,11 @@ class NegativeSteeringRun:
                 for si, v in zip(self.cold_start.seed_indices, verdicts)
             ]
 
-        # Normal path, which is steered and possibly reversion.
+        # Normal path, steered and possibly reversion.
         out: List[Dict] = []
         for design_id, steered_stage in self.steered.items():
             rev_stage = self._reversion_for_design(design_id)
             if rev_stage is not None:
-                # Pair the two stages by seed_index.
                 rev_verdicts = rev_stage.per_seed_verdicts(
                     thresholds, self.truth, self.contamination_positions,
                 )
@@ -496,8 +465,6 @@ class NegativeSteeringRun:
                             "verdict": rev_by_seed[si],
                         })
                     else:
-                        # Reversion has no row for this seed, so the
-                        # steered verdict stands.
                         steered_verdicts = steered_stage.per_seed_verdicts(
                             thresholds, self.truth, self.contamination_positions,
                         )
@@ -511,7 +478,6 @@ class NegativeSteeringRun:
                             "verdict": st_by_seed.get(si, "no_data"),
                         })
             else:
-                # No reversion ran, so the steered verdict stands.
                 steered_verdicts = steered_stage.per_seed_verdicts(
                     thresholds, self.truth, self.contamination_positions,
                 )
@@ -551,26 +517,23 @@ class NegativeSteeringRun:
     def n_seeds_total(self) -> int:
         """Total seed count for this MPNN sequence.
 
-        On the cold-start path this is the cold-start stage's
-        num_seeds.  On the steered path it sums num_seeds over every
-        steered design, which matches the per-design times per-seed
-        accounting used elsewhere in the codebase.
+        The cold-start path gives the cold-start stage's num_seeds.
+        The steered path sums num_seeds over every steered design,
+        matching the per-design times per-seed accounting elsewhere.
         """
         if not self.steered:
             return self.cold_start.num_seeds
         return sum(st.num_seeds for st in self.steered.values())
 
     def outcome(self, thresholds) -> str:
-        """Return the aggregate outcome label for this sequence.
+        """Return the aggregate outcome label, one of ``no_reversion``,
+        ``pose_holds``, ``pose_collapses``, ``new_contamination`` or
+        ``singleton``.
 
-        It is one of ``no_reversion``, ``pose_holds``,
-        ``pose_collapses``, ``new_contamination`` or ``singleton``.
-
-        The logic mirrors `_classify_outcome` in
-        negsteer_aggregate.py, using the current label names.
+        The logic mirrors `_classify_outcome` in negsteer_aggregate.py,
+        using the current label names.
         """
         if not self.steered:
-            # No steering ran, so this is the cold-start path.
             return "no_reversion"
         # Steering ran, but no contamination triggered a reversion.
         if not self.reversion:
@@ -581,9 +544,8 @@ class NegativeSteeringRun:
         npc = counts.get("pose_collapses", 0)
         nnc = counts.get("new_contamination", 0)
         ncs = counts.get("clean_steered", 0)
-        # If any seed holds its pose and the failure modes do not
-        # outnumber those, the outcome is pose_holds.  Otherwise the
-        # more common failure mode wins.
+        # pose_holds wins when any seed holds its pose and the failure
+        # modes do not outnumber those, else the commoner failure mode.
         nph_eff = nph + ncs
         if nph_eff > 0 and nph_eff >= max(npc, nnc):
             return "pose_holds"
@@ -592,7 +554,7 @@ class NegativeSteeringRun:
         return "pose_collapses"
 
     def outcome_reason(self, thresholds) -> str:
-        """Return a short explanation of how outcome() decided."""
+        """Explain in one line how outcome() decided."""
         if not self.steered:
             return "cold-start path: no steering ran"
         if not self.reversion:
@@ -605,11 +567,9 @@ class NegativeSteeringRun:
         return "; ".join(parts)
 
     def tier(self, thresholds) -> str:
-        """Classify this sequence as tier A, B, C or none, using
-        n_pass against n_seeds.
-
-        The outcome label plays no part, so there is no
-        ``outcome == 'no_reversion'`` shortcut:
+        """Classify this sequence as tier A, B, C or none from n_pass
+        against n_seeds.  The outcome label plays no part, so there is
+        no ``outcome == 'no_reversion'`` shortcut.
             A: n_pass == n_seeds, such as 3 of 3
             B: 1 < n_pass < n_seeds, such as 2 of 3
             C: n_pass == 1
@@ -618,10 +578,8 @@ class NegativeSteeringRun:
         n_pass = self.n_pass(thresholds)
         n_seeds = self.n_seeds_total()
         if n_seeds <= 0:  # pragma: no cover - StageResult refuses 0 predictions
-            # StageResult raises on an empty prediction tuple, and
-            # num_seeds is that tuple's length.  Every stage therefore
-            # has at least one seed, and n_seeds_total sums over such
-            # stages, so this branch cannot be reached.
+            # StageResult raises on an empty prediction tuple, so
+            # every stage has a seed and this is unreachable.
             return "none"
         if n_pass == n_seeds:
             return "A"

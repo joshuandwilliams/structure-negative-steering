@@ -1,57 +1,38 @@
 #!/usr/bin/env python3
-"""
-derive_true_interface.py
-------------------------
-Extract the receptor residues that contact the effector in an
+"""Extract the receptor residues that contact the effector in an
 RFDiffusion design.  Positions come out as 0-based positional indices,
 which is what ``boltz2_negative_steering.py``'s
 ``--true-interface-indices-file`` flag expects.
 
-Why this script exists
-======================
-``boltz2_negative_steering.py plan`` normally finds the "true
-interface" itself, by running heavy-atom contact detection on the
-ground-truth PDB.  That cannot work for RFDiffusion designs.  The
-designed receptor chain is Cα-only, so there are no heavy atoms to
-measure.  For those inputs the contact set must be computed in advance
-and passed in through ``--true-interface-indices-file``.
+``plan`` in ``boltz2_negative_steering.py`` normally finds the "true
+interface" itself with heavy-atom contact detection on the ground-truth
+PDB.  An RFDiffusion design's receptor chain is Cα-only, so the contact
+set must be computed in advance and passed in through that flag.
 
-The upstream RFDiffusion filtering step, named ``RFDIFFUSION_FILTER``
-and run outside this repo, has already done the contact detection using
-Cα-Cα distances with a tunable cutoff.  It writes each design's contact
-residues into ``rfdiffusion_metrics.json`` under
+The upstream ``RFDIFFUSION_FILTER`` step, run outside this repo, has
+already done the detection with Cα-Cα distances and a tunable cutoff.
+It writes them into ``rfdiffusion_metrics.json`` under
 ``receptor_contact_residues``, next to the ``receptor_position_order``
-list that ``derive_design_region.py`` uses as its index key.  This
-script intersects those two fields the same way
-``derive_design_region.py`` does, so the design region and the true
-interface stay in matching coordinate systems.
+list ``derive_design_region.py`` uses as its index key.  Intersecting
+those two fields the same way keeps the design region and the true
+interface in matching coordinate systems.
 
-Output format
-=============
-One integer per line.  Each is a 0-based positional index on the
-receptor chain, in prediction PDB sequence order.  Beware the
+The output is one integer per line, each a 0-based positional index on
+the receptor chain in prediction PDB sequence order.  Beware the
 difference from ``derive_design_region.py``, which writes 1-based
-positions.
+positions.  The parser also accepts comma- or whitespace-separated
+values and ``#`` line comments, and one per line gives the clearest
+diffs.  A ``#`` provenance header goes at the top.
 
-The ``boltz2_negative_steering.py`` parser also accepts comma- or
-whitespace-separated values and ``#`` line comments.  One per line is
-used here because it produces the clearest diffs.  A provenance header
-goes at the top as ``#`` comment lines.
-
-Usage
-=====
     python3 derive_true_interface.py \\
         --metrics-json /path/to/rfdiffusion_metrics.json \\
         --design design_3 \\
         --output design_3_true_interface.txt
 
-Cross-check
-===========
-Pass ``--cross-check-design-region <file>`` to check that the derived
-interface is a subset of the design-region file.  That should hold for
-receptor-resurfacing designs, where the binding site is engineered
-inside the de novo region.  The check is advisory.  A mismatch prints a
-warning and leaves the output unchanged.
+``--cross-check-design-region <file>`` checks that the derived interface
+is a subset of the design-region file, which should hold for
+receptor-resurfacing designs.  It is advisory, so a mismatch only
+warns.
 """
 
 import argparse
@@ -62,8 +43,8 @@ from pathlib import Path
 
 def normalise_design_id(raw):
     """Accept 'design_3', 'design_3.pdb', or '3'.  Return both the
-    bare and the .pdb form, so the caller can match whichever key
-    rfdiffusion_metrics.json happens to use."""
+    bare and .pdb forms, so the caller matches whichever key
+    rfdiffusion_metrics.json uses."""
     raw = str(raw).strip()
     if raw.endswith(".pdb"):
         stem = raw[:-4]
@@ -77,8 +58,8 @@ def normalise_design_id(raw):
 def find_design_entry(metrics, design_id):
     """Find the record in metrics['designs'] that matches `design_id`.
 
-    Returns the entry dict.  Raises KeyError if there is no match, and
-    the message lists the designs that are present.
+    Raises KeyError if nothing matches, with the present designs listed
+    in the message.
     """
     designs = metrics.get("designs")
     if not isinstance(designs, list):
@@ -90,8 +71,6 @@ def find_design_entry(metrics, design_id):
     for entry in designs:
         key = entry.get("design") or entry.get("name") or ""
         key = str(key).strip()
-        # ids["with_pdb"] is ids["bare"] + ".pdb", so this single test
-        # covers a key written either way.
         if key in (ids["bare"], ids["with_pdb"]):
             return entry
     available = sorted(
@@ -112,10 +91,8 @@ def derive_positional_indices(entry):
     ``receptor_position_order``.  Return 0-based positional indices,
     sorted ascending.
 
-    This mirrors the transform in ``derive_design_region.py``.  The
-    only difference is the source field.  That script reads
-    ``per_design_design_residues``, this one reads
-    ``receptor_contact_residues``.
+    The same transform as ``derive_design_region.py``, which reads
+    ``per_design_design_residues`` instead.
     """
     contact_residues = entry.get("receptor_contact_residues")
     position_order = entry.get("receptor_position_order")
@@ -144,10 +121,8 @@ def derive_positional_indices(entry):
         i for i, rn in enumerate(position_order) if rn in contact_set
     ]
 
-    # Every resnum in receptor_contact_residues must appear in
-    # receptor_position_order.  If any is missing, the two lists
-    # describe different atom walks, so the derivation cannot be
-    # trusted.
+    # A missing resnum means the two lists describe different atom
+    # walks, so the derivation cannot be trusted.
     found_resnums = {position_order[i] for i in indices}
     missing = contact_set - found_resnums
     if missing:
@@ -165,17 +140,16 @@ def derive_positional_indices(entry):
 
 def cross_check_design_region(design_region_path, interface_indices_0based):
     """Check that the derived true interface is a subset of the
-    design-region file.  In the RFDiffusion plus MPNN resurfacing
-    pattern the binding site sits inside the de novo block, so the
-    subset relation should hold.
+    design-region file.  In RFDiffusion plus MPNN resurfacing the
+    binding site sits inside the de novo block, so the subset relation
+    should hold.
 
-    It reads every line that does not start with ``#``.  It accepts
-    comma-separated integers and ``start-end`` ranges, and reads them
-    as 1-based positions, because that is what
+    It reads every non-``#`` line, accepting comma-separated integers
+    and ``start-end`` ranges as 1-based positions, because that is what
     ``derive_design_region.py`` writes.
 
-    The check is advisory.  It prints a warning on a mismatch and does
-    not raise.
+    The check is advisory, printing a warning on a mismatch rather than
+    raising.
     """
     path = Path(design_region_path)
     if not path.exists():
@@ -215,9 +189,7 @@ def cross_check_design_region(design_region_path, interface_indices_0based):
               f"parseable positions; skipping", file=sys.stderr)
         return True
 
-    # The interface indices here are 0-based, while the design-region
-    # file is 1-based.  Shift the interface up by one before
-    # comparing.
+    # The interface is 0-based and the design-region file 1-based.
     interface_1based = {i + 1 for i in interface_indices_0based}
     outside = sorted(interface_1based - region_1based)
     inside = sorted(interface_1based & region_1based)
@@ -302,11 +274,9 @@ def main():
         return 2
 
     if not indices_0based:  # pragma: no cover - unreachable today
-        # derive_positional_indices already raises on empty contacts,
-        # an empty position order, and any contact missing from that
-        # order, so an empty result cannot reach here.  The guard stays
-        # because those three invariants live in that function, not
-        # this one.
+        # derive_positional_indices already raises on every case that
+        # would empty this list.  The guard stays because that
+        # invariant lives there, not here.
         print("ERROR: derivation produced an empty index list",
               file=sys.stderr)
         return 2

@@ -1,39 +1,20 @@
-"""
-protein_structure_prediction.py
--------------------------------
-ProteinStructurePrediction — one prediction's structural payload.
+"""ProteinStructurePrediction — one prediction's structural payload.
 
-Wraps a Boltz PDB or an AF3 mmCIF together with its chain composition.
-It exposes everything derivable from the atom coordinates.  That is
-per-chain sequences, contact residues between chains, RMSDs against
-another prediction, and jaccard overlap of interfaces.
+Wraps a Boltz PDB or an AF3 mmCIF with its chain composition.  What
+the atom coordinates give: per-chain sequences, inter-chain contact
+residues, RMSDs against another prediction, jaccard interface overlap.
 
-Tier 2 type.  It depends on PositionSet, which in turn depends on
-ContigSpec.  It holds no predictor-specific knowledge, because
-confidence metrics live on `BoltzConfidenceMetrics` and
-`AF3ConfidenceAggregate`.
+Tier 2 type, depending on PositionSet and through it ContigSpec.  It
+holds no predictor-specific knowledge, since confidence metrics live on
+`BoltzConfidenceMetrics` and `AF3ConfidenceAggregate`.
 
-This type exists to replace several copies of the same geometry code.
-The table records where each calculation used to live.  Only
-boltz2_negative_steering.py, compute_metrics.py and reversion.py are
-still in the repo.  The rest have been deleted.
-
-| What                    | Earlier copies                               |
-|-------------------------|----------------------------------------------|
-| chain sequence          | boltz2_negative_steering, build_control_     |
-|                         | sequences, extract_survivor_manifest,        |
-|                         | pipeline_correct_sequences                   |
-| Cα reading              | boltz2_negative_steering, rfdiffusion_filter,|
-|                         | parse_af3_output, reversion                  |
-| Heavy-atom contacts     | boltz2_negative_steering, compute_metrics    |
-| Jaccard / weighted      | boltz2_negative_steering, compute_metrics,   |
-|                         | compute_interface_metrics                    |
-| Receptor-aligned effector RMSD | parse_af3_output, binding_rmsds       |
+It replaces copies of the same geometry code, of whose earlier homes
+only boltz2_negative_steering.py, compute_metrics.py and reversion.py
+remain in the repo.
 """
 
 from __future__ import annotations
 
-# Local imports follow, including PositionSet from Tier 1.
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -44,10 +25,8 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
 
-# Three-letter to one-letter amino-acid map.  It lives in
-# contig_utils.py, and is re-exported here only for the
-# tests/characterization tests that reach in for it.  Every other
-# caller should import it from contig_utils directly.
+# Re-exported from contig_utils.py only for the characterization tests
+# that reach in for it.  Other callers import it from contig_utils.
 from contig_utils import THREE_TO_ONE  # noqa: E402, F401
 from position_set import PositionSet  # noqa: E402
 
@@ -55,10 +34,9 @@ from position_set import PositionSet  # noqa: E402
 class ProteinStructurePrediction:
     """One prediction's structural payload.
 
-    Build one with the file path and the two chain roles, receptor and
-    effector.  The path is checked at construction.  The structure
-    itself loads on first access and stays cached for the life of the
-    instance.
+    Build one with the file path and the receptor and effector chain
+    roles.  The path is checked at construction, and the structure
+    loads lazily and stays cached.
     """
 
     def __init__(
@@ -82,15 +60,15 @@ class ProteinStructurePrediction:
             )
         self._receptor_chain = receptor_chain
         self._effector_chain = effector_chain
-        # The predictor tag is optional and diagnostic.  No behaviour
-        # depends on it.
+        # The predictor tag is diagnostic.  No behaviour depends on
+        # it.
         if predictor is not None and predictor not in ("boltz", "af3"):
             raise ValueError(
                 f"predictor must be 'boltz' | 'af3' | None, got {predictor!r}"
             )
         self._predictor = predictor
 
-        # Caches, each filled on first use.
+        # Caches filled on first use.
         self._structure_cache = None
         self._chain_seqs: Dict[str, str] = {}
         self._chain_ca_coords: Dict[str, np.ndarray] = {}
@@ -124,7 +102,7 @@ class ProteinStructurePrediction:
     # ── Lazy structure load ─────────────────────────────────────────
 
     def _structure(self):
-        """Return the loaded gemmi structure, parsing on first call."""
+        """Return the gemmi structure, parsing on first call."""
         if self._structure_cache is None:
             try:
                 import gemmi
@@ -147,9 +125,8 @@ class ProteinStructurePrediction:
     def chain_sequence(self, chain: str) -> str:
         """Return the 1-letter amino-acid sequence of the named chain.
 
-        Residues come back in the order the file lists them.  An
-        unknown residue maps to 'X'.  A chain with no atoms gives an
-        empty string.
+        Residues come in file order.  An unknown residue maps to 'X',
+        and a chain with no atoms gives "".
         """
         if chain in self._chain_seqs:
             return self._chain_seqs[chain]
@@ -161,9 +138,8 @@ class ProteinStructurePrediction:
                 if ch.name != chain:
                     continue
                 for res in ch:
-                    # A residue can appear more than once, as
-                    # alternate conformations.  Deduplicate on
-                    # (residue number, insertion code).
+                    # Alternate conformations repeat a residue, so
+                    # deduplicate on (resnum, insertion code).
                     key = (res.seqid.num, getattr(res.seqid, "icode", ""))
                     if key in seen_resnums:
                         continue
@@ -190,13 +166,11 @@ class ProteinStructurePrediction:
     def chain_ca_coords(self, chain: str) -> np.ndarray:
         """Return ordered Cα coordinates (shape `(N, 3)`) for the chain.
 
-        The coordinates come back in file order, not keyed by residue
-        number.  Pairing by order is deliberate.  AF3 numbers residues
-        1-based within each chain, while Boltz and RFDiffusion use
-        continuous numbering across chains, so residue numbers from the
-        two predictors cannot be matched directly.
-
-        A chain with no atoms gives an empty `(0, 3)` array.
+        Coordinates come in file order, not keyed by residue number.
+        Pairing by order is deliberate, because AF3 numbers residues
+        1-based per chain while Boltz and RFDiffusion number
+        continuously across chains, so residue numbers cannot be
+        matched.  A chain with no atoms gives an empty `(0, 3)` array.
         """
         if chain in self._chain_ca_coords:
             return self._chain_ca_coords[chain]
@@ -229,9 +203,8 @@ class ProteinStructurePrediction:
     def _chain_heavy_atoms_list(
         self, chain: str
     ) -> List[Tuple[int, np.ndarray]]:
-        """Return a (residue_number, xyz) pair for every heavy atom in
-        the chain, meaning every atom that is not hydrogen.  The result
-        is cached."""
+        """Return a (resnum, xyz) pair for every non-hydrogen atom in
+        the chain.  Cached."""
         if chain in self._chain_heavy_atoms:
             return self._chain_heavy_atoms[chain]
         out: List[Tuple[int, np.ndarray]] = []
@@ -257,12 +230,12 @@ class ProteinStructurePrediction:
     # ── Contact analysis ───────────────────────────────────────────
 
     def receptor_contact_residues(self, cutoff: float) -> PositionSet:
-        """Receptor residues whose heavy atoms come within `cutoff` Å
-        of any effector heavy atom.
+        """Receptor residues within `cutoff` Å of any effector heavy
+        atom.
 
-        Returns a PositionSet in the `prediction` frame.  That is the
-        per-chain 1-based numbering the predictor emits, so the values
-        match the residue numbers in the file.
+        Returns a PositionSet in the `prediction` frame, the
+        predictor's per-chain 1-based numbering, so the values match
+        the file.
         """
         rec = self._chain_heavy_atoms_list(self._receptor_chain)
         eff = self._chain_heavy_atoms_list(self._effector_chain)
@@ -270,13 +243,11 @@ class ProteinStructurePrediction:
             return PositionSet(
                 positions=[], chain=self._receptor_chain, frame="prediction"
             )
-        # Pairwise distance check in numpy.  It is O(N*M), but at
-        # negsteer scale, roughly 100 residues and 50 atoms per chain,
-        # the absolute cost is tiny.
+        # O(N*M), but at negsteer scale, roughly 100 residues and 50
+        # atoms per chain, the cost is tiny.
         rec_coords = np.array([xyz for _, xyz in rec])
         eff_coords = np.array([xyz for _, xyz in eff])
-        # Compare squared distances, so |rec[i] - eff[j]|^2 against
-        # cutoff^2.  That avoids a square root per pair.
+        # Squared distances avoid a square root per pair.
         diff = rec_coords[:, None, :] - eff_coords[None, :, :]
         dist_sq = (diff * diff).sum(axis=-1)
         in_contact = (dist_sq < cutoff * cutoff).any(axis=1)
@@ -289,17 +260,14 @@ class ProteinStructurePrediction:
             frame="prediction",
         )
 
-    # ── Pair operations.  These are asymmetric, `self` vs `other`. ──
+    # ── Pair operations, asymmetric `self` vs `other` ──────────────
 
     def ra_eff_vs(self, other: "ProteinStructurePrediction") -> Optional[float]:
         """Return the receptor-aligned effector Cα RMSD.
 
-        It aligns `self`'s receptor onto `other`'s receptor, then
-        measures how far the effector atoms moved.  That isolates
-        binding-pose error from receptor fold error.
-
-        Returns None if either chain has fewer than 3 residues to align
-        on.
+        Aligning `self`'s receptor onto `other`'s and measuring the
+        effector shift isolates binding-pose error from receptor fold
+        error.  Returns None if either chain has under 3 residues.
         """
         return _ra_eff_rmsd(
             self.receptor_ca_coords(),
@@ -329,8 +297,8 @@ class ProteinStructurePrediction:
         other: "ProteinStructurePrediction",
         cutoff: float,
     ) -> float:
-        """Jaccard overlap between this prediction's receptor contact
-        residues and `other`'s, at the given heavy-atom cutoff."""
+        """Jaccard overlap of this prediction's receptor contact
+        residues with `other`'s, at the given heavy-atom cutoff."""
         s_set = set(self.receptor_contact_residues(cutoff).as_sorted_list())
         o_set = set(other.receptor_contact_residues(cutoff).as_sorted_list())
         if not s_set and not o_set:
@@ -346,8 +314,8 @@ class ProteinStructurePrediction:
 def _kabsch_rmsd(
     P: np.ndarray, Q: np.ndarray
 ) -> Optional[float]:
-    """Kabsch-align P onto Q and return the resulting Cα RMSD.
-    Returns None if either array holds fewer than 3 points."""
+    """Kabsch-align P onto Q and return the Cα RMSD.  Returns None if
+    either array holds under 3 points."""
     n = min(len(P), len(Q))
     if n < 3:
         return None
@@ -374,11 +342,9 @@ def _ra_eff_rmsd(
 ) -> Optional[float]:
     """Receptor-aligned effector RMSD.
 
-    It aligns pred_rec onto ref_rec, applies that same transform to
-    pred_eff, then measures pred_eff against ref_eff.
-
-    Atoms are paired by order, up to the shorter of the two arrays on
-    each chain.
+    It aligns pred_rec onto ref_rec, applies that transform to
+    pred_eff, then measures pred_eff against ref_eff.  Atoms pair by
+    order, up to the shorter of the two arrays on each chain.
     """
     rec_n = min(len(pred_rec), len(ref_rec))
     eff_n = min(len(pred_eff), len(ref_eff))

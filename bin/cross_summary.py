@@ -8,28 +8,17 @@ single cross-sequence ranked table.
 Context
 =======
 The NextFlow negative-steering pipeline runs one full single-cycle
-negative-steering experiment per MPNN sequence.  Each experiment
-produces its own ``passing_summary.csv`` containing one row per
-unique (re-)folded sequence ranked by ``rank_by_composite_score``
-within that experiment.
+negative-steering experiment per MPNN sequence.  Each produces its
+own ``passing_summary.csv``, one row per unique (re-)folded sequence
+ranked by ``rank_by_composite_score`` within that experiment.
 
 Cross-sequence triage needs one representative row PER MPNN SEQUENCE.
-It is picked by tier first, then by median ra_eff.  An earlier version
-ranked within a tier by composite score.  That was changed so that
-ranking inside a tier depends only on pose accuracy, not partly on
-interface Jaccard overlap.  See _pick_representative.
-
-The aggregator emits n_pass directly.  It is the number of seeds
-classified pose_holds or clean_steered, both of which count as a pass.
-Tiering uses n_pass and n_seeds only, with no outcome shortcut.  Tier
-A is 3/3, tier B is 2/3, tier C is 1/3, and everything else is
-"none".  See _tier_for_row for the exact rule.
-
-Within each sequence the best non-empty tier wins.  The top-ranked
-row from that tier, meaning the lowest ``ra_eff_vs_truth_median``, is
-that sequence's representative.  Reliability (tier) comes first and
-accuracy (median) second.  That stops a design with a slightly better
-interface overlap from outranking one with a meaningfully better pose.
+Within each sequence the best non-empty tier wins, and within that tier
+the lowest ``ra_eff_vs_truth_median``.  Reliability (tier) comes first
+and accuracy (median) second, so a design with a slightly better
+interface overlap cannot outrank one with a meaningfully better pose.
+See _pick_representative.  Tiering uses n_pass and n_seeds only, with
+no outcome shortcut.  See _tier_for_row.
 
 Representatives are then stacked across sequences and re-ranked two
 ways.  ``cross_rank_by_composite`` uses the jaccard-weighted
@@ -46,47 +35,36 @@ Each input path must yield the MPNN sequence name, such as
 ``design_12_seq_3``.  In precedence order: an explicit
 ``--passing-summary NAME=PATH`` pair, then the parent directory's
 name, then the grandparent's.  The parent-directory default matches
-the NextFlow layout, where each sequence's experiment root is named
-after the sequence, as in ``runs/design_12_seq_3/passing_summary.csv``.
+the NextFlow layout, as in ``runs/design_12_seq_3/passing_summary.csv``.
 
 Outputs
 =======
-``cross_sequence_summary.csv`` holds one row per MPNN sequence, with
-the representative pick and the cross-sequence rank.  It is written to
-``--output``.
-
-Columns:
-  * mpnn_sequence              — the MPNN sequence name
-  * row_type                   — 'steered' for production rows, or
-                                 'control_scrambled' or
-                                 'control_polyA' for the negative
-                                 controls.  Defaults to 'steered' when
-                                 the per-sequence workdir has no
-                                 row_type.txt sidecar.  Only 'steered'
-                                 rows take part in the cross-rank
-                                 ranking.  Controls are excluded from
-                                 it by design and appear at the bottom
-                                 of the table with every cross_rank
-                                 column blank.
-  * cross_rank_by_composite    — rank across all sequences, 1 = best.
-                                 Only populated for tier A/B/C
-                                 steered rows.
+``cross_sequence_summary.csv``, written to ``--output``, with one row
+per MPNN sequence.  Columns:
+  * mpnn_sequence              — MPNN sequence name
+  * row_type                   — 'steered', 'control_scrambled' or
+                                 'control_polyA'.  Controls are
+                                 excluded from the cross-rank by
+                                 design and appear at the bottom with
+                                 every cross_rank column blank.
+                                 Defaults to 'steered' when the
+                                 workdir has no row_type.txt sidecar.
+  * cross_rank_by_composite    — rank across sequences, 1 = best,
+                                 tier A/B/C steered rows only
   * cross_rank_by_ra_eff       — parallel rank using raw ra_eff
   * cross_tier                 — A / B / C / none
   * cross_composite_score      — recomputed composite for ranking
-  * within_sequence_rank       — row's rank_by_composite_score inside
-                                 its own passing_summary.csv
-  * passing_rows_in_sequence   — how many rows that sequence's
-                                 passing_summary had
-  * n_tier_A_in_sequence,      — how many of those rows landed in
-    n_tier_B_in_sequence,        each tier
+  * within_sequence_rank       — rank_by_composite_score inside the
+                                 sequence's own passing_summary.csv
+  * passing_rows_in_sequence   — rows in that passing_summary
+  * n_tier_A_in_sequence,      — how many landed in each tier
+    n_tier_B_in_sequence,
     n_tier_C_in_sequence
-  * (then every column from passing_summary.csv, prefixed with
-    ``rep_``, for the picked row).
+  * every passing_summary.csv column for the picked row, prefixed
+    ``rep_``
 
-A sequence whose passing_summary.csv is empty still appears in the
-output, with ``cross_tier = none`` and the rep_* and cross-rank
-columns blank.
+A sequence with an empty passing_summary.csv still appears, with
+``cross_tier = none`` and the rep_* and cross-rank columns blank.
 """
 
 import argparse
@@ -96,11 +74,9 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# Make sibling scripts in the same bin/ directory importable.  This
-# mirrors the pattern negsteer_aggregate.py uses.  The tier-none
-# representative fallback below needs it, because that fallback calls
-# extract_passing.extract_row to turn one aggregated_results row into
-# a passing_summary-shaped dict.
+# Make sibling scripts in bin/ importable, as negsteer_aggregate.py does.
+# The tier-none fallback below calls extract_passing.extract_row to turn one
+# aggregated_results row into a passing_summary-shaped dict.
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
@@ -115,45 +91,37 @@ def _rewrite_workdir_path_to_published(
 ) -> str:
     """Rewrite an in-work-dir absolute path to its published equivalent.
 
-    NEGSTEER_RUN_ONE writes per-prediction PDBs into Nextflow's
-    per-task ``work/<hash>/<seq_name>/...`` directory and stamps that
-    absolute path into the aggregated CSV's ``canonical_pdb`` columns.
-    Those paths are fragile.  The work/ tree is scratch by design and
-    ``nextflow clean`` deletes it.  A downstream task that does not
-    bind that exact work-dir path into its container cannot read the
-    file even while it still exists on the host.
-
-    NEGSTEER_RUN_ONE also publishes the whole per-sequence workdir to
-    ``${params.outdir}/negative_steering/runs/<seq_name>/``, so the
-    same file always exists at a stable path.  This helper points the
-    value there.
-
       in:  /…/work/b6/afc…/design_7_seq_3/cycle_0/steered/<…>.pdb
       out: <published_runs_dir>/design_7_seq_3/cycle_0/steered/<…>.pdb
 
-    Three cases return ``raw_path`` unchanged.  ``published_runs_dir``
-    is None, which happens outside Nextflow and for older callers.
-    ``raw_path`` has no seq_name segment, meaning an unexpected
-    layout.  Or ``raw_path`` is blank.  So the helper is safe to call
-    on every row without checking first.
+    NEGSTEER_RUN_ONE stamps the per-prediction PDB's path in Nextflow's
+    per-task ``work/<hash>/<seq_name>/...`` directory into the aggregated
+    CSV's ``canonical_pdb`` columns.  Those paths are fragile.  The work/
+    tree is scratch by design and ``nextflow clean`` deletes it, and a
+    downstream task that does not bind that exact path into its container
+    cannot read the file even while it exists on the host.  NEGSTEER_RUN_ONE
+    also publishes the whole per-sequence workdir to
+    ``${params.outdir}/negative_steering/runs/<seq_name>/``, a stable path,
+    which is where this helper points the value.
+
+    ``raw_path`` comes back unchanged when ``published_runs_dir`` is None
+    (outside Nextflow and for older callers), when it has no seq_name segment
+    (an unexpected layout), and when it is blank.  So the helper is safe to
+    call on every row.
     """
     if not raw_path or published_runs_dir is None or not seq_name:
         return raw_path
-    # Find /<seq_name>/ as a path segment (not a substring match,
-    # to avoid mangling unrelated paths that happen to contain the
-    # sequence name as a substring).
+    # Match /<seq_name>/ as a path segment, not a substring, so unrelated
+    # paths containing the sequence name are left alone.
     parts = Path(raw_path).parts
     try:
         idx = parts.index(seq_name)
     except ValueError:
-        # No matching segment, so leave the path alone.  That is the
-        # safe default.  The rewrite is a best-effort improvement, not
-        # a hard requirement.
+        # The rewrite is best-effort, so leaving the path alone is safe.
         return raw_path
     suffix_parts = parts[idx + 1:]
     if not suffix_parts:
-        # The path ended at <seq_name>/ with nothing after it, so
-        # there is nothing meaningful to rewrite.
+        # The path ended at <seq_name>/ with nothing to rewrite.
         return raw_path
     return str(published_runs_dir / seq_name / Path(*suffix_parts))
 
@@ -172,7 +140,6 @@ def _try_float(v) -> Optional[float]:
             f = float(s)
         except ValueError:
             return None
-    # NaN and +/-inf are not valid ranking values.
     if f != f or f == float("inf") or f == float("-inf"):
         return None
     return f
@@ -190,7 +157,7 @@ def _try_int(v) -> Optional[int]:
     try:
         return int(s)
     except ValueError:
-        # Could be "3.0", so tolerate that too.
+        # Tolerate "3.0".
         try:
             return int(float(s))
         except ValueError:
@@ -200,31 +167,29 @@ def _try_int(v) -> Optional[int]:
 def _tier_for_row(row: Dict) -> str:
     """Determine tier from a passing_summary.csv row.
 
-    Tier comes from n_pass and n_seeds only.  The aggregator emits
-    n_pass as pose_holds plus clean_steered, because both verdicts
-    count as a pass.  A clean_steered seed had zero contamination on
-    its mutated positions and also passed the structural check, so
-    reversion was correctly skipped and the steered structure is the
-    final answer.
-
     Tier A: n_pass == n_seeds   (e.g. 3/3 pass-equivalent)
     Tier B: 1 < n_pass < n_seeds (e.g. 2/3)
     Tier C: n_pass == 1
     else:   "none"
 
-    outcome=='no_reversion' is NOT a tier shortcut.  A group whose
-    seeds all show wrong placement with no contamination carries
-    outcome=='no_reversion' but n_pass==0, because those seeds are
-    no_data or pose_collapses rather than clean_steered.  It correctly
-    lands in tier none.  A cold-start group where every seed passed
-    also carries outcome=='no_reversion', but with n_pass==n_seeds, so
-    it lands in tier A.
+    Tier comes from n_pass and n_seeds only.  The aggregator emits n_pass as
+    pose_holds plus clean_steered, because both count as a pass.  A
+    clean_steered seed had zero contamination on its mutated positions and
+    passed the structural check, so reversion was correctly skipped and its
+    steered structure is final.
+
+    outcome=='no_reversion' is NOT a tier shortcut.  A group whose seeds all
+    show wrong placement with no contamination carries it with n_pass==0,
+    because those seeds are no_data or pose_collapses rather than
+    clean_steered, and correctly lands in tier none.  A cold-start group
+    where every seed passed carries it with n_pass==n_seeds, landing in
+    tier A.
     """
     n_pass = _try_int(row.get("n_pass"))
     n_seeds = _try_int(row.get("n_seeds"))
     if n_pass is None or n_seeds is None or n_seeds <= 0:
-        # Insufficient data to place in any tier.  Treat as "none"
-        # so cross-ranking ignores it rather than guessing.
+        # Too little data to place, so "none" keeps cross-ranking from
+        # guessing.
         return "none"
     if n_pass == n_seeds:
         return "A"
@@ -239,18 +204,15 @@ _TIER_ORDER = {"A": 0, "B": 1, "C": 2, "none": 3}
 
 
 def _composite_score(row: Dict) -> Optional[float]:
-    """Recompute composite score from a passing_summary.csv row.
-
-    The formula matches ``_ranking_composite`` in
-    negsteer_aggregate.py:
+    """Recompute composite score from a passing_summary.csv row, matching
+    ``_ranking_composite`` in negsteer_aggregate.py:
 
         composite = true_jaccard_median − 0.05 × ra_eff_vs_truth_median
 
-    One angstrom of pose error therefore costs 0.05 of Jaccard.
-    Higher is better.  Returns None when either component is missing
-    or unparseable.  Everything here is a median, because
-    passing_summary.csv columns are already medians after the
-    per-sequence aggregation.
+    One angstrom of pose error therefore costs 0.05 of Jaccard, and higher is
+    better.  Returns None when either component is missing.  Both are
+    medians, because passing_summary.csv columns are already medians after
+    the per-sequence aggregation.
     """
     ra = _try_float(row.get("ra_eff_vs_truth_median"))
     tj = _try_float(row.get("true_jaccard_median"))
@@ -260,8 +222,8 @@ def _composite_score(row: Dict) -> Optional[float]:
 
 
 def _within_sequence_rank(row: Dict) -> int:
-    """Return the row's rank_by_composite_score (ascending: 1 = best).
-    Missing/unparseable -> large sentinel so bad rows sort last."""
+    """Return the row's rank_by_composite_score, 1 = best.  A missing value
+    becomes a large sentinel, sorting such rows last."""
     v = _try_int(row.get("rank_by_composite_score"))
     if v is None:
         return 10**9
@@ -269,13 +231,12 @@ def _within_sequence_rank(row: Dict) -> int:
 
 
 def _median_ra_eff(row: Dict) -> float:
-    """The row's ra_eff_vs_truth_median (ascending: lower = better).
+    """The row's ra_eff_vs_truth_median, where lower is better.
 
-    The column is already stage-aware.  extract_passing.extract_row
-    sources it from reverted_* for rows where reversion was attempted
-    and from steered_* otherwise, so no correction is needed here.
-    A missing or unparseable value becomes +inf, so such rows sort
-    last.
+    The column is already stage-aware.  extract_passing.extract_row sources it
+    from reverted_* where reversion was attempted and steered_* otherwise, so
+    no correction is needed here.  A missing or unparseable value becomes
+    +inf, sorting such rows last.
     """
     v = _try_float(row.get("ra_eff_vs_truth_median"))
     return v if v is not None else float("inf")
@@ -289,9 +250,7 @@ _SEQ_NAME_RE = re.compile(r"^[A-Za-z0-9_.+\-]+$")
 def _infer_seq_name(path: Path, mode: str) -> str:
     """Derive the MPNN sequence name from a passing_summary.csv path.
 
-    mode:
-      - "parent":       parent directory name  (default)
-      - "grandparent":  parent of parent directory name
+    mode: "parent" (default) or "grandparent".
     """
     path = path.resolve()
     if mode == "parent":
@@ -315,19 +274,14 @@ def _parse_passing_summary_arg(arg: str, seq_name_mode: str
 
     Accepts either "NAME=PATH" or bare "PATH" (name inferred).
     """
-    # Split on the FIRST '=' only.  HPC paths occasionally contain
-    # '=' in unexpected places.
+    # Split on the FIRST '=' only, since HPC paths sometimes contain '='.
     if "=" in arg:
         head, sep, rest = arg.partition("=")
-        # If head looks like a plausible seq name and rest is a real
-        # path, treat as explicit pair.  Otherwise fall through to
-        # bare-path handling.
         candidate_path = Path(rest)
         if _SEQ_NAME_RE.match(head) and candidate_path.exists():
             return head, candidate_path
-        # When head does not look like a seq name, because it
-        # contains '/' or similar, fall through and treat the whole
-        # argument as a path.
+        # A head containing '/' or similar is not a seq name, so the whole
+        # argument is treated as a path.
     path = Path(arg)
     name = _infer_seq_name(path, seq_name_mode)
     return name, path
@@ -336,27 +290,22 @@ def _parse_passing_summary_arg(arg: str, seq_name_mode: str
 # ── Core aggregation ─────────────────────────────────────────────────
 
 def _pick_representative(rows: List[Dict]) -> Optional[Dict]:
-    """Tier-then-median pick for a single sequence's passing_summary.csv
-    rows.  Returns None for an empty input (sequence had no passing
-    designs).
+    """Tier-then-median pick for one sequence's passing_summary.csv rows.
+    Returns None for empty input, meaning no passing designs.
 
-    Reliability comes first.  A design where more seeds independently
-    land the same correct pose outranks one that merely has a lower
-    median by chance.  The tier order is A (all seeds pass), then B
-    (some), then C (one), then none.
+    Reliability comes first, in tier order A (all seeds pass), B (some), C
+    (one), none.  A design where more seeds independently land the same
+    correct pose outranks one that merely has a lower median by chance.
 
-    Within a tier, rank by median ra_eff ascending.  The composite
-    score (true_jaccard - 0.05*ra_eff) was used here before, but it
-    can let a design with a slightly better interface overlap outrank
-    one with a meaningfully better pose.  Cross-sequence ranking
-    downstream still offers both cross_rank_by_composite and
-    cross_rank_by_ra_eff, so this choice only affects which single
-    design represents a sequence.  See _assign_cross_ranks.
+    Within a tier, rank by median ra_eff ascending.  The composite score
+    (true_jaccard - 0.05*ra_eff) was used here before, but it can let a
+    design with a slightly better interface overlap outrank one with a
+    meaningfully better pose.  Downstream cross-ranking still offers both
+    cross_rank_by_composite and cross_rank_by_ra_eff, so this choice only
+    affects which single design represents a sequence.
     """
     if not rows:
         return None
-    # Tag every row with its tier and median ra_eff, then pick the
-    # row that minimises (tier_order, median_ra_eff).
     tagged = []
     for r in rows:
         tier = _tier_for_row(r)
@@ -366,14 +315,11 @@ def _pick_representative(rows: List[Dict]) -> Optional[Dict]:
                        r))
     tagged.sort(key=lambda t: (t[0], t[1]))
     best_tier_order, _, best_tier, best_row = tagged[0]
-    # A best tier of "none" means every row is ineligible, so there
-    # is no representative.  That should never happen for a non-empty
-    # passing_summary.csv, because any row in one is at least
-    # clean_steered or pose_holds, and both imply tier A/B/C.  Guard
-    # for it anyway.
+    # A best tier of "none" means every row is ineligible.  That should
+    # never happen for a non-empty passing_summary.csv, where every row is at
+    # least clean_steered or pose_holds and so tier A/B/C.  Guard anyway.
     if best_tier == "none":
         return None
-    # Return a copy annotated with its tier for downstream use.
     out = dict(best_row)
     out["_picked_tier"] = best_tier
     return out
@@ -382,35 +328,31 @@ def _pick_representative(rows: List[Dict]) -> Optional[Dict]:
 def _pick_rep_from_aggregated(
     passing_summary_path: Path,
 ) -> Optional[Dict]:
-    """Tier-none fallback for a sequence with an empty
-    ``passing_summary.csv``.
+    """Tier-none fallback for a sequence with an empty ``passing_summary.csv``.
 
     Empty means every prediction failed the eligibility gate in
-    ``_compute_unified_ranks`` (negsteer_aggregate.py), usually
-    because steered ra_eff was far above the 5 Å threshold.  The
-    cohort plot still needs something for that sequence, so read the
-    sibling ``aggregated_results.csv``, score every row raw, take the
-    best, and pass it through extract_passing.extract_row to get a
-    passing_summary-shaped dict.  Returns None when that file is
-    missing or no row has both composite components.
+    ``_compute_unified_ranks`` (negsteer_aggregate.py), usually because
+    steered ra_eff was far above the 5 Å threshold.  The cohort plot still
+    needs something, so score every row of the sibling
+    ``aggregated_results.csv`` raw and pass the best through
+    extract_passing.extract_row.  Returns None when that file is missing or
+    no row has both composite components.
 
-    The returned dict carries ``_picked_tier="none"`` and the raw
-    composite as ``_fallback_composite``, so the caller can stamp
-    ``cross_composite_score`` onto the record.  The tier stays "none",
-    so ``aggregate``'s tier gate still keeps the row out of the
-    cross-rank.
+    The returned dict carries ``_picked_tier="none"``, keeping the row out of
+    ``aggregate``'s cross-rank, and the raw composite as
+    ``_fallback_composite`` for the caller to stamp onto
+    ``cross_composite_score``.
 
     Scoring is stage-aware, matching ``_ranking_metric`` and
-    ``_ranking_composite`` in negsteer_aggregate.py.
-      - ``true_jaccard`` always comes from
-        ``steered_true_jaccard_median``.  Interface identity belongs
-        to the steered prediction, not the reverted pose.
-      - ``ra_eff`` comes from ``reverted_*`` for ``pose_holds`` rows
-        and ``steered_*`` otherwise.
+    ``_ranking_composite`` in negsteer_aggregate.py.  ``true_jaccard`` always
+    comes from ``steered_true_jaccard_median``, because interface identity
+    belongs to the steered prediction rather than the reverted pose.
+    ``ra_eff`` comes from ``reverted_*`` for ``pose_holds`` rows and
+    ``steered_*`` otherwise.
 
-    Skipping the eligibility gate is deliberate.  A best-of-bad-
-    attempts view beats grey-hatched cells everywhere, and the tier
-    stripe already tells the reader these are not passing designs.
+    Skipping the eligibility gate is deliberate.  A best-of-bad-attempts view
+    beats grey-hatched cells everywhere, and the tier stripe already tells the
+    reader these are not passing designs.
     """
     agg_path = passing_summary_path.parent / "aggregated_results.csv"
     if not agg_path.is_file():
@@ -425,13 +367,10 @@ def _pick_rep_from_aggregated(
     if not rows:
         return None
 
-    # Find the best row by composite (true_jaccard - 0.05 * ra_eff).
-    # Both components must parse as finite floats, and a row missing
-    # either is skipped.  The stage-aware key choice mirrors the
-    # struct_prefix logic in extract_passing.extract_row and
-    # _ranking_metric in negsteer_aggregate.py: steered_*_median for
-    # anything other than pose_holds, and the _median-suffixed
-    # reverted_* columns for pose_holds.
+    # Best row by composite, skipping any row where a component does not
+    # parse as a finite float.  The stage-aware key choice mirrors the
+    # struct_prefix logic in extract_passing.extract_row and _ranking_metric
+    # in negsteer_aggregate.py.
     best_row = None
     best_composite = None
     for r in rows:
@@ -439,10 +378,6 @@ def _pick_rep_from_aggregated(
         ra_key = ("reverted_ra_eff_vs_truth_median"
                   if is_pose_holds
                   else "steered_ra_eff_vs_truth_median")
-        # true_jaccard always comes from steered_.  Interface
-        # identity is a property of the steered (cold-start)
-        # prediction, not of the reverted pose.  This mirrors
-        # _ranking_composite in negsteer_aggregate.py.
         tj_key = "steered_true_jaccard_median"
         ra = _try_float(r.get(ra_key, ""))
         tj = _try_float(r.get(tj_key, ""))
@@ -456,11 +391,8 @@ def _pick_rep_from_aggregated(
     if best_row is None:
         return None
 
-    # Reuse extract_passing.extract_row to translate the aggregated
-    # row into a passing_summary-shaped dict.  per_seed_rows=None
-    # leaves the mutation columns blank.  That is fine for a tier-none
-    # fallback, because the mutation set is informational and does not
-    # gate anything.
+    # per_seed_rows=None leaves the mutation columns blank, which is fine
+    # here because the mutation set is informational and gates nothing.
     rep = _extract_passing_row(best_row, per_seed_rows=None)
     rep["_picked_tier"] = "none"
     rep["_fallback_composite"] = best_composite
@@ -475,7 +407,8 @@ def _read_passing_summary_inputs(
     sequences: List[Tuple[str, Path]],
     strict: bool,
 ) -> Tuple[Dict[str, List[Dict]], Dict[str, Path], List[str]]:
-    """Read every passing_summary.csv; return rows / paths / canonical fieldnames."""
+    """Read every passing_summary.csv. Returns the rows, their paths and the
+    canonical fieldname order."""
     per_seq_rows: Dict[str, List[Dict]] = {}
     source_paths: Dict[str, Path] = {}
     passing_summary_fieldnames: List[str] = []
@@ -509,9 +442,8 @@ def _read_passing_summary_inputs(
             continue
         per_seq_rows[seq_name] = rows
         source_paths[seq_name] = path
-        # Adopt the first non-empty fieldnames seen as the canonical
-        # list for the rep_* columns.  A mismatch across files would
-        # mean pipeline version drift, so warn but do not abort.
+        # The first non-empty fieldnames become the canonical rep_* column
+        # list.  A mismatch means pipeline version drift, so warn only.
         if fieldnames and not seen_fieldnames:
             passing_summary_fieldnames = list(fieldnames)
             seen_fieldnames = True
@@ -530,7 +462,8 @@ def _pick_or_fallback_representative(
     rows: List[Dict],
     source_path: Path,
 ) -> Tuple[Optional[Dict], bool]:
-    """Pick representative; on empty-rows fall back to aggregated_results."""
+    """Pick the representative row. A sequence with no passing rows falls back
+    to its aggregated_results.csv."""
     rep = _pick_representative(rows)
     if rep is not None:
         return rep, False
@@ -560,7 +493,8 @@ def _resolve_run_one_runtime_sec(
 
 
 def _read_row_type_sidecar(source_path: Path) -> str:
-    """Read row_type.txt sidecar; default 'steered' when absent or unreadable."""
+    """Read the row_type.txt sidecar. Absent or unreadable defaults to
+    'steered'."""
     row_type = "steered"
     row_type_file = source_path.parent / "row_type.txt"
     if row_type_file.exists():
@@ -586,9 +520,7 @@ def _assign_cross_ranks(records: List[Dict]) -> None:
             "true_jaccard_median":
                 rec.get("rep_true_jaccard_median", ""),
         }
-        # Only score sequences that have a placed tier AND both
-        # components present.  This keeps the "none"-tier stubs out
-        # of the ranking.
+        # Requiring a placed tier keeps the "none"-tier stubs out.
         if rec["cross_tier"] in ("A", "B", "C"):
             comp = _composite_score(rep_cols)
             if comp is not None:
@@ -598,24 +530,20 @@ def _assign_cross_ranks(records: List[Dict]) -> None:
             if ra is not None:
                 scored_ra.append((ra, rec))
 
-    # Assign cross-composite ranks by tier first (A before B before
-    # C), then by descending score, since higher is better.  So a tier
-    # B record with a slightly higher raw composite still ranks below
-    # every tier A record.  Tier is a reliability measure and the
-    # composite is not, so reliability wins.
+    # Tier first, then descending score.  A tier B record with a slightly
+    # higher raw composite still ranks below every tier A record, because
+    # tier is a reliability measure and the composite is not.
     def _composite_rank_key(item):
         comp, rec = item
         tier_order = _TIER_ORDER[rec["cross_tier"]]
-        # Negate the composite so higher ones come first within a
-        # tier.  id() breaks ties deterministically, the same stable
-        # way Python's own sort would.
+        # Negated so higher composites come first within a tier.  id()
+        # breaks ties as stably as Python's own sort would.
         return (tier_order, -comp, id(rec))
     scored_composite.sort(key=_composite_rank_key)
     for rank_idx, (_, rec) in enumerate(scored_composite, start=1):
         rec["cross_rank_by_composite"] = rank_idx
 
-    # Assign cross-ra-eff ranks by tier first, then ra_eff ascending,
-    # since lower is better.
+    # Tier first, then ra_eff ascending, since lower is better.
     def _ra_rank_key(item):
         ra, rec = item
         tier_order = _TIER_ORDER[rec["cross_tier"]]
@@ -630,11 +558,9 @@ def _emit_aggregate_summary(records: List[Dict], output_path: Path) -> None:
     n_total = len(records)
     n_ranked = sum(1 for r in records
                    if r.get("cross_rank_by_composite") != "")
-    # Steered rows only, as the printed line below says.
-    # _assign_cross_ranks applies the same filter.  An unfiltered count
-    # here would disagree with n_ranked above, because a tier-A control
-    # would be counted under A while its cross_rank_by_composite stayed
-    # blank.
+    # Steered rows only, the same filter _assign_cross_ranks applies.  An
+    # unfiltered count would disagree with n_ranked above, counting a tier-A
+    # control under A while its cross_rank_by_composite stayed blank.
     by_tier = {"A": 0, "B": 0, "C": 0, "none": 0}
     for r in records:
         if (r.get("row_type") or "steered") != "steered":
@@ -660,13 +586,10 @@ def _emit_aggregate_summary(records: List[Dict], output_path: Path) -> None:
 def _load_scored_metadata(path: Optional[Path]) -> Dict[str, Dict]:
     """Load scored_metadata.csv into a {mpnn_sequence: row} lookup.
 
-    The join key is f"design_{row['design']}_seq_{row['seq']}".  That
-    matches the mpnn_sequence convention used elsewhere in the
-    pipeline, in FASTA headers and per-sequence workdir names.
-
-    Returns an empty dict when `path` is None or the file is missing.
-    The joined columns then come out blank in the output, which is the
-    intended no-op.
+    The join key is f"design_{row['design']}_seq_{row['seq']}", matching the
+    mpnn_sequence convention used in FASTA headers and per-sequence workdir
+    names.  Returns an empty dict when `path` is None or the file is missing,
+    and the joined columns then come out blank as the intended no-op.
     """
     if path is None:
         return {}
@@ -698,9 +621,8 @@ def aggregate(
     """Read every (seq_name, passing_summary.csv) pair, pick a
     representative, and write a ranked cross-sequence CSV.
 
-    strict: True aborts on a missing or unreadable
-            passing_summary.csv.  False, the default, writes a
-            diagnostic stub row and continues.
+    strict: True aborts on a missing or unreadable passing_summary.csv.
+            False, the default, writes a diagnostic stub row and continues.
     published_runs_dir: see _rewrite_workdir_path_to_published.
     scored_metadata_path: see _load_scored_metadata.
     """
@@ -708,8 +630,6 @@ def aggregate(
         print("ERROR: no inputs supplied", file=sys.stderr)
         return 2
 
-    # First pass.  Read every file, gathering per-sequence row lists,
-    # tier counts and eventually the representative row.
     try:
         per_seq_rows, source_paths, passing_summary_fieldnames = (
             _read_passing_summary_inputs(sequences, strict)
@@ -718,60 +638,42 @@ def aggregate(
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    # Optional MPNN-sequence join, adding corrected_receptor,
-    # designed_residues and native_residues.  The dict is empty when
-    # --scored-metadata was not supplied.
     scored_metadata = _load_scored_metadata(scored_metadata_path)
 
-    # Build per-sequence records.
     records = []
     for seq_name, rows in per_seq_rows.items():
-        # Tier-none fallback.  An empty passing_summary.csv usually
-        # means every prediction's steered_ra_eff exceeded the 5 Å
-        # eligibility gate in _compute_unified_ranks
-        # (negsteer_aggregate.py).  Then pick the best row from
-        # aggregated_results.csv directly.  That stamps real metric
-        # values onto tier-none rows, so they appear in the cohort
-        # summary plot instead of showing as grey-hatched cells.  See
-        # _pick_rep_from_aggregated for the reasoning.
+        # The tier-none fallback stamps real metric values onto tier-none
+        # rows, so they appear in the cohort summary plot instead of showing
+        # as grey-hatched cells.  See _pick_rep_from_aggregated.
         rep, rep_is_fallback = _pick_or_fallback_representative(
             rows, source_paths[seq_name]
         )
         if rep_is_fallback and rep is not None:
-            # extract_passing.extract_row can return columns the
-            # current passing_summary fieldname union lacks.  Add them
-            # so the CSV writer does not silently drop the values.
+            # extract_passing.extract_row can return columns the fieldname
+            # union lacks, which the CSV writer would silently drop.
             for col in rep.keys():
                 if col.startswith("_"):
                     continue
                 if col not in passing_summary_fieldnames:
                     passing_summary_fieldnames.append(col)
 
-        # Tier counts inside this one sequence, kept as context.
         tier_counts = {"A": 0, "B": 0, "C": 0, "none": 0}
         for r in rows:
             tier_counts[_tier_for_row(r)] += 1
 
-        # Cumulative wall-clock for this sequence.  When the run
-        # finishes, extract_passing.py stamps it onto every
-        # passing_summary row and writes it as a sidecar in the
-        # sequence's workdir.  Prefer the representative row's
-        # run_one_runtime_sec column, which is canonical and matches
-        # what wet-lab users see.  Fall back to
-        # run_one_runtime_sec.txt beside passing_summary.csv, which
-        # covers tier-none sequences whose passing_summary.csv is
-        # empty and so has no representative row.
+        # Cumulative wall-clock.  extract_passing.py stamps it onto every
+        # passing_summary row and writes it as a sidecar in the sequence's
+        # workdir.  The representative row's column is canonical and matches
+        # what wet-lab users see.  The sidecar fallback covers tier-none
+        # sequences whose empty passing_summary.csv has no representative.
         run_one_runtime_sec = _resolve_run_one_runtime_sec(
             rep, source_paths[seq_name]
         )
 
-        # row_type for the negative controls.  It defaults to
-        # 'steered' when no sidecar is present, which keeps workdirs
-        # made before controls existed readable.  NEGSTEER_CONTROLS
-        # writes 'control_scrambled' or 'control_polyA' next to its
-        # passing_summary.csv, so this loop reads it off without any
-        # column changes to extract_passing.py or
-        # negative_steering_run_one.sh.
+        # NEGSTEER_CONTROLS writes 'control_scrambled' or 'control_polyA'
+        # next to its passing_summary.csv, so this needs no column changes to
+        # extract_passing.py or negative_steering_run_one.sh.  Defaulting to
+        # 'steered' keeps workdirs made before controls existed readable.
         row_type = _read_row_type_sidecar(source_paths[seq_name])
 
         rec = {
@@ -792,18 +694,14 @@ def aggregate(
             "cross_composite_score": "",   # filled below
             "cross_rank_by_composite": "",
             "cross_rank_by_ra_eff": "",
-            # Top-level runtime column, so triage can read
-            # sequence-level throughput without unpacking the rep_*
-            # columns.  Blank when neither the sidecar nor the
-            # representative row is available, as in very old
-            # workdirs.
+            # Top-level, so triage can read sequence-level throughput
+            # without unpacking the rep_* columns.  Blank when neither the
+            # sidecar nor the representative row exists, as in old workdirs.
             "run_one_runtime_sec": run_one_runtime_sec,
         }
-        # Attach the representative row's columns with a rep_ prefix.
-        # canonical_pdb is rewritten from the in-work-dir absolute path
-        # NEGSTEER_RUN_ONE writes to the published equivalent under
-        # <published_runs_dir>/<seq_name>/...  See
-        # _rewrite_workdir_path_to_published for the reasoning.
+        # canonical_pdb is rewritten from the in-work-dir absolute path to
+        # the published equivalent.  See
+        # _rewrite_workdir_path_to_published.
         for col in passing_summary_fieldnames:
             val = rep.get(col, "") if rep else ""
             if col == "canonical_pdb":
@@ -812,25 +710,20 @@ def aggregate(
                 )
             rec[f"rep_{col}"] = val
 
-        # Tier-none fallback.  Stamp the composite score computed in
-        # _pick_rep_from_aggregated straight onto the record.  The
-        # cross-rank pass below rightly skips tier-none rows, because
-        # they should not compete with tier A/B/C.  But the cohort
-        # summary plot reads cross_composite_score as its first
-        # column, and tier-none rows should still show a score.  So
-        # only the score is populated.  cross_rank_by_composite and
-        # cross_rank_by_ra_eff stay blank.
+        # The cross-rank pass below rightly skips tier-none rows, since they
+        # should not compete with tier A/B/C.  But the cohort summary plot
+        # reads cross_composite_score as its first column, so the score from
+        # _pick_rep_from_aggregated is stamped on while
+        # cross_rank_by_composite and cross_rank_by_ra_eff stay blank.
         if rep_is_fallback and rep is not None:
             comp = rep.get("_fallback_composite")
             if comp is not None:
                 rec["cross_composite_score"] = f"{comp:.6f}"
 
-        # MPNN-sequence join.  With --scored-metadata supplied, put
-        # the receptor sequence MPNN designed for this mpnn_sequence,
-        # plus the native residues it replaced at the design
-        # positions, straight into cross_sequence_summary.csv.  Then
-        # downstream consumers need not re-parse
-        # mpnn_corrected.fasta.
+        # With --scored-metadata supplied, the designed receptor sequence
+        # and the native residues it replaced go straight into
+        # cross_sequence_summary.csv, so downstream consumers need not
+        # re-parse mpnn_corrected.fasta.
         meta = scored_metadata.get(seq_name)
         if meta is not None:
             rec["corrected_receptor"] = meta.get("corrected_receptor", "")
@@ -843,18 +736,14 @@ def aggregate(
 
         records.append(rec)
 
-    # Score and cross-rank.  The score comes from the representative
-    # row's median columns, and a sequence with no representative gets
-    # None.  Control rows (row_type != 'steered') are excluded from the
-    # ranking by design, because they are diagnostic output rather
-    # than promotable designs.  They still appear in the output with
-    # every cross_rank_* column blank.  The onComplete miscalibration
-    # check reads them back from the final CSV.
+    # The score comes from the representative row's median columns, and a
+    # sequence with no representative gets None.  Controls are excluded from
+    # the ranking by design, being diagnostic rather than promotable, and
+    # still appear with every cross_rank_* column blank.  The onComplete
+    # miscalibration check reads them back from the final CSV.
     _assign_cross_ranks(records)
 
-    # Final output ordering.  Sort by cross_rank_by_composite
-    # ascending, then cross_tier, then mpnn_sequence name so the order
-    # is deterministic.
+    # cross_rank_by_composite, then cross_tier, then name for determinism.
     def _final_sort_key(rec):
         rc = rec.get("cross_rank_by_composite", "")
         try:
@@ -866,8 +755,7 @@ def aggregate(
     records.sort(key=_final_sort_key)
 
     # ─── Write CSV ─────────────────────────────────────────────────
-    # Column order.  Metadata first, then the rep_* columns in the
-    # order they appeared in passing_summary.csv.
+    # Metadata first, then the rep_* columns in passing_summary.csv order.
     meta_cols = [
         "mpnn_sequence",
         "row_type",
@@ -882,11 +770,11 @@ def aggregate(
         "n_tier_C_in_sequence",
         "run_one_runtime_sec",
         "source_passing_summary",
-        # MPNN-sequence join (blank when --scored-metadata not supplied).
-        # corrected_receptor: full receptor sequence (native at fixed +
-        #                     MPNN at design positions)
-        # designed_residues:  MPNN AA slice at design positions only
-        #                     (pipe-joined per de novo segment)
+        # Blank when --scored-metadata is not supplied.
+        # corrected_receptor: full receptor, native at fixed positions and
+        #                     MPNN at design positions
+        # designed_residues:  MPNN AA slice at design positions only,
+        #                     pipe-joined per de novo segment
         # native_residues:    native AA slice at the same positions
         "corrected_receptor",
         "designed_residues",
@@ -990,17 +878,14 @@ def main():
 
     args = parser.parse_args()
 
-    # Resolve --published-runs-dir to an absolute path.  A relative
-    # path would be stamped verbatim into rep_canonical_pdb, then
-    # resolve against the wrong directory downstream, because each
-    # container task runs in its own work dir rather than the launch
-    # dir.  main.nf already normalises params.outdir to absolute, so
-    # this is a second guard for standalone or other-workflow callers.
-    # An unconditional .resolve() costs nothing.
+    # A relative --published-runs-dir would be stamped verbatim into
+    # rep_canonical_pdb, then resolve against the wrong directory
+    # downstream, because each container task runs in its own work dir.
+    # main.nf already normalises params.outdir to absolute, so this is a
+    # second guard for standalone or other-workflow callers.
     if args.published_runs_dir is not None:
         args.published_runs_dir = args.published_runs_dir.resolve()
 
-    # Build the (seq_name, path) list.
     sequences: List[Tuple[str, Path]] = []
     seen_names = set()
 
@@ -1024,8 +909,8 @@ def main():
         if not d.is_dir():
             print(f"ERROR: not a directory: {d}", file=sys.stderr)
             return 2
-        # Enumerate sequence subdirectories, each expected to contain
-        # a passing_summary.csv.  Missing files are handled downstream.
+        # Each sequence subdirectory should hold a passing_summary.csv.
+        # Missing files are handled downstream.
         for sub in sorted(d.iterdir()):
             if not sub.is_dir():
                 continue
@@ -1036,7 +921,7 @@ def main():
                       f"sequence identifier)", file=sys.stderr)
                 continue
             if seq_name in seen_names:
-                # Already added via --passing-summary, so skip it.
+                # Already added via --passing-summary.
                 continue
             seen_names.add(seq_name)
             sequences.append((seq_name, path))

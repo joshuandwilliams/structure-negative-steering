@@ -1,28 +1,20 @@
-"""
-position_set.py
----------------
-PositionSet — an immutable set of receptor residue positions, tagged
-with the numbering frame the integers refer to.
+"""PositionSet — an immutable set of receptor residue positions, tagged
+with the numbering frame they refer to.
 
-A "frame" is the numbering scheme the integers are counted in.  Three
-frames are in use across the codebase:
-- ``native``     : input PDB's residue numbers (may have gaps).
+A "frame" is the numbering scheme the integers count in:
+- ``native``     : input PDB residue numbers, possibly with gaps.
 - ``designed``   : RFDiffusion's 1-based contiguous renumbering.
-- ``prediction`` : Boltz / AF3's 1-based per-chain numbering.  For
-                    the receptor chain this matches the designed frame,
-                    because the receptor PDB went straight into Boltz.
+- ``prediction`` : Boltz / AF3's 1-based per-chain numbering, which
+                    matches the designed frame on the receptor chain,
+                    the receptor PDB having gone straight into Boltz.
 
 **All three frames count from 1.**  A PositionSet never holds 0-based
-indices.  This matters because ``derive_true_interface.py`` writes
-0-based positional indices into the receptor chain, while
-``derive_design_region.py`` writes 1-based ones.  Any value crossing
-that boundary needs a +1 or -1 shift, and getting it wrong is the
-off-by-one risk that runs through everything downstream.  Convert to
-1-based before building a PositionSet.
+indices.  ``derive_true_interface.py`` writes 0-based positional
+indices while ``derive_design_region.py`` writes 1-based ones, so
+convert before building a PositionSet.
 
-Cross-frame operations raise.  Conversion is explicit via
-``in_frame(target)``.  It needs a `ContigSpec` reference, which the
-PositionSet may optionally carry from construction.
+Cross-frame operations raise.  ``in_frame(target)`` converts
+explicitly, needing the `ContigSpec` the PositionSet may carry.
 
 Tier 1 type — depends on ContigSpec (Tier 0).
 """
@@ -39,22 +31,19 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from contig_spec import ContigSpec  # noqa: E402
 
-# The frames allowed today.  This is a fixed list rather than a
-# free-form string so a typo at construction raises a clear error.
-# Otherwise it would silently switch off the cross-frame checks
-# downstream.
+# A fixed list rather than free-form, so a typo at construction raises
+# instead of silently switching off the cross-frame checks downstream.
 _VALID_FRAMES = frozenset(("native", "designed", "prediction"))
 
 
 class FrameMismatchError(ValueError):
-    """Raised when a set operation mixes two different frames, or two
-    different chains."""
+    """Raised when a set operation mixes frames or chains."""
 
 
 class FrameConversionError(ValueError):
-    """Raised when in_frame() is asked to convert without a ContigSpec.
-    Also raised, when strict=True, if some positions have no counterpart
-    in the target frame."""
+    """Raised when in_frame() converts without a ContigSpec, or when
+    strict=True and some positions have no counterpart in the target
+    frame."""
 
 
 class PositionSet:
@@ -75,7 +64,6 @@ class PositionSet:
             )
         if not isinstance(chain, str) or not chain:
             raise ValueError(f"chain must be a non-empty string, got {chain!r}")
-        # Deduplicate and normalise to a frozen, sorted tuple.
         self._positions: FrozenSet[int] = frozenset(int(p) for p in positions)
         self._chain: str = chain
         self._frame: str = frame
@@ -143,13 +131,12 @@ class PositionSet:
     ) -> "PositionSet":
         """Return a new PositionSet in the target frame.
 
-        ``self.contig`` must not be None.  Without the contig there is
-        no source of truth for the translation, so the call raises
-        FrameConversionError.
+        Without ``self.contig`` there is no source of truth, so the
+        call raises FrameConversionError.
 
-        Some positions have no counterpart in the target frame.  A de
-        novo position has no native residue, for example.  These are
-        dropped by default.  Pass ``strict=True`` to raise instead.
+        Positions with no counterpart, such as a de novo position with
+        no native residue, are dropped by default.
+        Pass ``strict=True`` to raise.
         """
         if target_frame not in _VALID_FRAMES:
             raise ValueError(
@@ -187,15 +174,15 @@ class PositionSet:
         )
 
     def _select_mapper(self, target_frame: str):
-        """Return the per-position mapper function for the requested
-        conversion direction."""
+        """Return the per-position mapper for this conversion
+        direction."""
         src, dst = self._frame, target_frame
         if src == "designed" and dst == "native":
             return self._contig.designed_to_native
         if src == "native" and dst == "designed":
             return self._contig.native_to_designed
         if src == "prediction" and dst == "designed":
-            # Identity for the receptor chain, so effectively a no-op.
+            # Identity for the receptor chain.
             return lambda p, c: self._contig.prediction_to_designed(p, c)
         if src == "designed" and dst == "prediction":
             return lambda p, c: p
@@ -222,8 +209,8 @@ class PositionSet:
         return sorted(self._positions)
 
     def __eq__(self, other: object) -> bool:
-        """Equal only if the positions, chain and frame all match.  The
-        ContigSpec reference is informational and is ignored here."""
+        """Equal only if positions, chain and frame all match.  The
+        ContigSpec reference is ignored."""
         if not isinstance(other, PositionSet):
             return NotImplemented
         return (
@@ -250,8 +237,8 @@ class PositionSet:
     # ── I/O ──────────────────────────────────────────────────────────
 
     def to_chimerax_string(self) -> str:
-        """Render as the ``/A:5,7,22`` ChimeraX selection format used
-        across the codebase.  An empty set gives an empty string."""
+        """Render as the ``/A:5,7,22`` ChimeraX selection format.  An
+        empty set gives an empty string."""
         if not self._positions:
             return ""
         joined = ",".join(str(p) for p in sorted(self._positions))
@@ -266,8 +253,8 @@ class PositionSet:
     ) -> "PositionSet":
         """Parse a ChimeraX selection string.
 
-        An empty string gives an empty PositionSet on chain 'A'.  For an
-        empty set on a different chain, build the PositionSet directly.
+        An empty string gives an empty PositionSet on chain 'A'.  Build
+        directly for an empty set on another chain.
         """
         s = s.strip()
         if not s:
@@ -295,11 +282,11 @@ class PositionSet:
         )
 
     def to_text_file(self, path: Path) -> None:
-        """Write the integers sorted, one per line.  This matches the
+        """Write the integers sorted, one per line, matching the
         ``*_design_region.txt`` and ``*_true_interface.txt`` files.
 
-        The chain and frame are not written to the file.  The caller
-        must supply both when reading it back.
+        The chain and frame are not written, so the caller supplies both
+        when reading back.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
