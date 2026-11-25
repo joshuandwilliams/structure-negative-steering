@@ -719,6 +719,8 @@ def main():
     )
     ap.add_argument("--bench", type=Path, default=DEFAULT_BENCH,
                     help=f"benchmarking tree to scan (default: {DEFAULT_BENCH})")
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="write even if a column already in the summary is missing here")
     ap.add_argument("--outdir", type=Path,
                     default=Path(__file__).resolve().parent,
                     help="where to write benchmark_summary.csv and figures/")
@@ -741,7 +743,26 @@ def main():
 
     df = collect(args.bench)
 
+    # The constrained arm's run outputs are HPC-only, so on a laptop its two
+    # columns come back empty. Writing that over the committed summary drops
+    # the reference-restrained series from every figure built on it, and the
+    # run still reports success. Refuse instead.
     summary_path = args.outdir / "benchmark_summary.csv"
+    if summary_path.is_file() and not args.allow_partial:
+        prev = pd.read_csv(summary_path)
+        lost = [c for c in prev.columns
+                if c in df.columns
+                and prev[c].notna().sum() > df[c].notna().sum()]
+        if lost:
+            raise SystemExit(
+                f"ERROR: {summary_path.name} already holds columns this run "
+                f"could not rebuild:\n"
+                + "\n".join(f"         {c}: {prev[c].notna().sum()} values -> "
+                             f"{df[c].notna().sum()}" for c in lost)
+                + "\n       The constrained arm's run outputs live on the HPC. "
+                  "Point --bench at a tree\n"
+                  "       that carries them, or pass --allow-partial to "
+                  "overwrite anyway.")
     df.to_csv(summary_path, index=False)
 
     plot_ra_eff_hist(df, suppdir / "steered_ra_eff_distribution.png")
