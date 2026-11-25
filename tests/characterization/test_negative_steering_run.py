@@ -303,3 +303,114 @@ class TestImmutability:
             cold_start=cs, truth=truth)
         with pytest.raises((AttributeError, Exception)):
             run.mpnn_sequence_id = "new"  # type: ignore
+
+
+# ── locating Boltz output on disk ────────────────────────────────────────────
+#
+# The pipeline has written two layouts. Returning (None, None) rather than a
+# half-built pair is what keeps a seed out of the run entirely, instead of
+# putting a prediction in with no confidence beside it.
+
+def _boltz_tree(root: Path, *, flat=False, conf=True, sample=0):
+    pred = root / "boltz_results_input" / "predictions" / "input"
+    pdb_dir = pred if flat else pred / "pdb"
+    pdb_dir.mkdir(parents=True, exist_ok=True)
+    (pdb_dir / f"input_model_{sample}.pdb").write_text("ATOM\n")
+    if conf:
+        (pred / f"confidence_input_model_{sample}.json").write_text("{}")
+    return pred
+
+
+@pytest.mark.logic
+def test_the_nested_pdb_layout_is_found(tmp_path):
+    _boltz_tree(tmp_path)
+    pdb, conf = nsr._find_boltz_outputs(tmp_path)
+    assert pdb is not None and pdb.name == "input_model_0.pdb"
+    assert conf is not None
+
+
+@pytest.mark.logic
+def test_the_flat_pdb_layout_is_found_too(tmp_path):
+    """Some pipeline versions wrote the PDB without the pdb/ subdirectory."""
+    _boltz_tree(tmp_path, flat=True)
+    pdb, _ = nsr._find_boltz_outputs(tmp_path)
+    assert pdb is not None
+
+
+@pytest.mark.logic
+def test_a_missing_prediction_root_is_none(tmp_path):
+    assert nsr._find_boltz_outputs(tmp_path) == (None, None)
+
+
+@pytest.mark.logic
+def test_a_missing_confidence_file_yields_none_for_it(tmp_path):
+    _boltz_tree(tmp_path, conf=False)
+    pdb, conf = nsr._find_boltz_outputs(tmp_path)
+    assert pdb is not None and conf is None
+
+
+@pytest.mark.logic
+def test_a_different_model_sample_is_selected(tmp_path):
+    _boltz_tree(tmp_path, sample=3)
+    assert nsr._find_boltz_outputs(tmp_path, model_sample=3)[0] is not None
+    assert nsr._find_boltz_outputs(tmp_path, model_sample=0)[0] is None
+
+
+# ── mutations.tsv ────────────────────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_mutations_are_read_as_a_designed_frame_position_set(tmp_path):
+    f = tmp_path / "mutations.tsv"
+    f.write_text("pos1\twt\tmut\n12\tA\tK\n30\tG\tW\n")
+    got = nsr._read_mutations_positionset(f, chain="A")
+    assert list(got) == [12, 30]
+    assert got.frame == "designed"
+
+
+@pytest.mark.logic
+def test_a_missing_mutations_file_is_none(tmp_path):
+    assert nsr._read_mutations_positionset(tmp_path / "no.tsv", "A") is None
+
+
+@pytest.mark.logic
+def test_unparseable_mutation_rows_are_skipped(tmp_path):
+    f = tmp_path / "mutations.tsv"
+    f.write_text("pos1\twt\tmut\nxx\tA\tK\n30\tG\tW\n")
+    assert list(nsr._read_mutations_positionset(f, "A")) == [30]
+
+
+# ── walking the seed directories ─────────────────────────────────────────────
+
+@pytest.mark.logic
+def test_seed_zero_is_initial_and_the_rest_are_suffixed(tmp_path):
+    """Seed 0 lives in initial/ and seed n in initial_s<n>/. Reading the wrong
+    directory would pair a seed index with another seed's structure."""
+    for name in ("initial", "initial_s1", "initial_s2"):
+        _boltz_tree(tmp_path / name)
+    preds, confs, idx = nsr._read_seed_stage_dirs(
+        tmp_path, num_seeds=3, receptor_chain="A", effector_chain="B",
+        model_sample=0, require_pdb=True)
+    assert idx == [0, 1, 2]
+    assert len(preds) == len(confs) == 3
+
+
+@pytest.mark.logic
+def test_a_seed_directory_that_is_absent_is_skipped(tmp_path):
+    for name in ("initial", "initial_s2"):
+        _boltz_tree(tmp_path / name)
+    _, _, idx = nsr._read_seed_stage_dirs(
+        tmp_path, num_seeds=3, receptor_chain="A", effector_chain="B",
+        model_sample=0, require_pdb=True)
+    assert idx == [0, 2]
+
+
+@pytest.mark.logic
+def test_a_seed_missing_its_confidence_is_skipped(tmp_path):
+    """A prediction with no confidence beside it cannot be scored, so it must
+    not enter the run as a seed that merely has blank metrics."""
+    _boltz_tree(tmp_path / "initial")
+    _boltz_tree(tmp_path / "initial_s1", conf=False)
+    _, _, idx = nsr._read_seed_stage_dirs(
+        tmp_path, num_seeds=2, receptor_chain="A", effector_chain="B",
+        model_sample=0, require_pdb=True)
+    assert idx == [0]
