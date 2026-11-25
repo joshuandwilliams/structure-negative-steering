@@ -192,3 +192,116 @@ def test_seed_stage_dirs_of_an_empty_cycle_are_empty(tmp_path):
     cycle.mkdir()
     a, b, seeds = nsr._read_seed_stage_dirs(cycle, 3, "A", "B", 0, False)
     assert seeds == [] or all(isinstance(s, int) for s in seeds)
+
+
+# ── the confidence flag ──────────────────────────────────────────────────────
+#
+# Computed on medians, so a single rogue seed does not flag a sequence whose
+# typical prediction is fine. Every threshold is a separate trigger, and an
+# unparseable value must not fire one: a blank metric is missing data, not a
+# failing one, and flagging it would discard a sequence for having no
+# measurement.
+
+@pytest.mark.logic
+class TestConfidenceFlag:
+    def test_everything_within_threshold_is_ok(self):
+        assert ep._compute_confidence_flag({
+            "pae_pass_frac_median": 0.9, "iptm_median": 0.9,
+            "complex_plddt_median": 0.9, "ipae_median": 1.0}) == "ok"
+
+    @pytest.mark.parametrize("field,value,trigger", [
+        ("pae_pass_frac_median", 0.0, "low_pass_frac"),
+        ("iptm_median", 0.0, "low_iptm"),
+        ("complex_plddt_median", 0.0, "low_plddt"),
+        ("ipae_median", 999.0, "high_ipae"),
+    ])
+    def test_each_threshold_names_its_own_trigger(self, field, value, trigger):
+        row = {"pae_pass_frac_median": 0.9, "iptm_median": 0.9,
+               "complex_plddt_median": 0.9, "ipae_median": 1.0}
+        row[field] = value
+        assert ep._compute_confidence_flag(row) == trigger
+
+    def test_two_failures_report_as_multiple(self):
+        assert ep._compute_confidence_flag({
+            "pae_pass_frac_median": 0.0, "iptm_median": 0.0,
+            "complex_plddt_median": 0.9, "ipae_median": 1.0}) == "multiple"
+
+    @pytest.mark.parametrize("bad", ["", "n/a", None])
+    def test_an_unparseable_metric_does_not_fire_a_trigger(self, bad):
+        """A missing measurement is not a failing one."""
+        assert ep._compute_confidence_flag({
+            "pae_pass_frac_median": bad, "iptm_median": bad,
+            "complex_plddt_median": bad, "ipae_median": bad}) == "ok"
+
+    def test_explicit_thresholds_override_the_catalogue(self):
+        row = {"pae_pass_frac_median": 0.5, "iptm_median": 0.9,
+               "complex_plddt_median": 0.9, "ipae_median": 1.0}
+        assert ep._compute_confidence_flag(row) == "ok"
+        assert ep._compute_confidence_flag(row, pass_frac_min=0.8) == \
+            "low_pass_frac"
+
+    def test_the_defaults_match_the_thresholds_catalogue(self):
+        """The literals in the ImportError fallback must not drift from the
+        catalogue they stand in for."""
+        import pipeline_thresholds as pt
+        t = pt.PipelineInternalThresholds.default()
+        assert (t.pae_pass_frac_min, t.iptm_min, t.complex_plddt_min,
+                t.ipae_max) == (0.10, 0.30, 0.70, 15.0)
+
+
+# ── the CLI ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.logic
+class TestCli:
+    def _aggregated(self, path, rows=()):
+        cols = ["cycle", "pathway", "sequence_group", "design", "outcome",
+                "n_pass", "n_seeds", "steered_ra_eff_vs_truth_median",
+                "rank_by_composite_score"]
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+            w.writeheader()
+            for r in rows:
+                w.writerow(r)
+        return path
+
+    def test_a_missing_input_is_refused(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["extract_passing.py", "--input",
+                                          str(tmp_path / "nope.csv")])
+        assert ep.main() == 2
+        assert "not found" in capsys.readouterr().err
+
+    def test_a_missing_per_seed_file_warns_and_blanks_the_columns(
+            self, tmp_path, capsys, monkeypatch):
+        inp = self._aggregated(tmp_path / "aggregated_results.csv")
+        monkeypatch.setattr(sys, "argv", ["extract_passing.py",
+                                          "--input", str(inp)])
+        assert ep.main() == 0
+        assert "will be blank" in capsys.readouterr().out
+
+    def test_the_output_defaults_beside_the_input(self, tmp_path, monkeypatch):
+        inp = self._aggregated(tmp_path / "aggregated_results.csv")
+        monkeypatch.setattr(sys, "argv", ["extract_passing.py",
+                                          "--input", str(inp)])
+        assert ep.main() == 0
+        assert (tmp_path / "passing_summary.csv").exists()
+
+    def test_an_explicit_output_path_is_used(self, tmp_path, monkeypatch):
+        inp = self._aggregated(tmp_path / "aggregated_results.csv")
+        out = tmp_path / "elsewhere.csv"
+        monkeypatch.setattr(sys, "argv", ["extract_passing.py",
+                                          "--input", str(inp),
+                                          "--output", str(out)])
+        assert ep.main() == 0
+        assert out.exists()
+
+    def test_a_corrupt_runtime_file_is_blanked_not_propagated(
+            self, tmp_path, monkeypatch):
+        """Passing a non-numeric runtime downstream would land in a cost
+        table as a value."""
+        inp = self._aggregated(tmp_path / "aggregated_results.csv")
+        (tmp_path / "run_one_runtime_sec.txt").write_text("not-a-number\n")
+        monkeypatch.setattr(sys, "argv", ["extract_passing.py",
+                                          "--input", str(inp)])
+        assert ep.main() == 0
+        rows = list(csv.DictReader(open(tmp_path / "passing_summary.csv")))
+        assert all(r.get("run_one_runtime_sec", "") == "" for r in rows)
