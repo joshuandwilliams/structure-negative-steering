@@ -363,3 +363,379 @@ def test_main_dispatches_to_the_named_stage(cs, monkeypatch, tmp_path):
                         ["negsteer_coldstart.py", "kickoff-prefilter",
                          "--experiment-root", str(tmp_path)])
     assert cs.main() == 2        # no cycle_0, so the stage refuses
+
+
+# ── kickoff-finalize ─────────────────────────────────────────────────────────
+#
+# Verdict routing. Every design that was flagged contaminated has to end up
+# either kept with its reverted sequence in place, or dropped with a verdict
+# recorded. The failure this guards against is a contaminated design with no
+# verdict being kept, which puts an unvalidated sequence into the passing set
+# and nothing downstream can tell it apart from a validated one.
+
+def _finalize_args(root, **kw):
+    base = dict(experiment_root=root, novelty_cutoff=0.0, max_passing=10,
+                max_cycles=0)
+    base.update(kw)
+    return Args(**base)
+
+
+def _prefilter(c0: Path, candidates, **extra):
+    doc = {"cycle": 0, "parent_pathway": None, "n_generated": len(candidates),
+           "n_intact": len(candidates), "intact_candidates": candidates}
+    doc.update(extra)
+    (c0 / "prefilter.json").write_text(json.dumps(doc))
+
+
+def _icand(c0: Path, name, *, ra=2.0, dist=5.0):
+    d = c0 / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "prediction.pdb").write_text("ATOM\n")
+    return {"design": name, "pdb": str(d / "prediction.pdb"),
+            "receptor_aligned_effector_rmsd_vs_truth": ra,
+            "independent_receptor_rmsd": 1.0, "independent_effector_rmsd": 1.0,
+            "min_dist_to_upstream": dist}
+
+
+@pytest.mark.logic
+def test_finalize_refuses_without_a_cycle_zero(cs, tmp_path, capsys):
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 2
+    assert "no cycle_0" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_finalize_refuses_without_a_prefilter(cs, tmp_path, capsys):
+    (tmp_path / "cycle_0").mkdir()
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 1
+    assert "kickoff-prefilter first" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("flag", ["exhausted", "skip_steering"])
+def test_an_exhausted_cycle_stops_without_writing_passing(cs, tmp_path, flag):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [], **{flag: True})
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    assert not (c0 / "passing.json").exists()
+
+
+@pytest.mark.logic
+def test_an_uncontaminated_design_passes_straight_through(cs, tmp_path):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert [c["design"] for c in doc["selected"]] == ["design_00"]
+    assert doc["dropped_labels"] == []
+
+
+@pytest.mark.logic
+def test_a_contaminated_design_with_no_verdict_is_dropped(cs, tmp_path, capsys):
+    """Keeping it would put an unvalidated sequence into the passing set."""
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    (c0 / "contaminated.json").write_text(
+        json.dumps({"contaminated": [{"label": "design_00"}]}))
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert doc["selected"] == []
+    assert doc["dropped_labels"] == ["design_00"]
+    assert doc["all_candidates"][0]["reversion_verdict"] == "missing_verdict"
+    assert "no verdict" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_pose_holds_rewrites_the_receptor_and_keeps_the_design(cs, tmp_path):
+    """The kept design must carry the reverted sequence, not the steered one."""
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    cand = _icand(c0, "design_00")
+    _prefilter(c0, [cand])
+    fasta = c0 / "reverted.fasta"
+    fasta.write_text(">x\nMKVL\nAAGG\n")
+    (c0 / "reversion_plan.json").write_text(json.dumps(
+        {"entries": [{"label": "design_00",
+                      "reverted_receptor_fasta": str(fasta)}]}))
+    (c0 / "reversion_results.json").write_text(json.dumps(
+        {"design_00": {"verdict": "pose_holds",
+                       "reverted_ra_eff_vs_truth": 1.5,
+                       "reverted_independent_receptor_rmsd": 1.0,
+                       "reverted_independent_effector_rmsd": 1.0}}))
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+
+    design_dir = Path(cand["pdb"]).parent
+    assert (design_dir / "receptor.fasta").read_text() == \
+        ">receptor_reverted\nMKVLAAGG\n"
+    applied = json.loads((design_dir / "reversion_applied.json").read_text())
+    assert applied["reverted_sequence"] == "MKVLAAGG"
+
+    doc = json.loads((c0 / "passing.json").read_text())
+    kept = doc["selected"][0]
+    assert kept["reversion_verdict"] == "pose_holds"
+    assert kept["reverted_ra_eff_vs_truth"] == 1.5
+    # The steered value stays in the base column; selection uses the reverted.
+    assert kept["receptor_aligned_effector_rmsd_vs_truth"] == 2.0
+    assert kept["_active_ra_eff_for_selection"] == 1.5
+
+
+@pytest.mark.logic
+def test_pose_holds_whose_reverted_prediction_misfolded_is_dropped(cs, tmp_path):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    (c0 / "reversion_results.json").write_text(json.dumps(
+        {"design_00": {"verdict": "pose_holds",
+                       "reverted_ra_eff_vs_truth": 1.5,
+                       "reverted_independent_receptor_rmsd": 9.0,
+                       "reverted_independent_effector_rmsd": 1.0}}))
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert doc["selected"] == []
+    assert doc["all_candidates"][0]["reversion_verdict"] == "pose_holds_not_intact"
+
+
+@pytest.mark.logic
+def test_a_missing_reverted_fasta_warns_but_still_routes(cs, tmp_path, capsys):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    (c0 / "reversion_results.json").write_text(json.dumps(
+        {"design_00": {"verdict": "pose_holds",
+                       "reverted_ra_eff_vs_truth": 1.5,
+                       "reverted_independent_receptor_rmsd": 1.0,
+                       "reverted_independent_effector_rmsd": 1.0}}))
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    assert "reverted FASTA not found" in capsys.readouterr().err
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert [c["design"] for c in doc["selected"]] == ["design_00"]
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("verdict", ["pose_collapses", "new_contamination"])
+def test_a_failing_verdict_drops_the_design_and_keeps_its_numbers(
+        cs, tmp_path, verdict):
+    """The row survives into all_candidates so the aggregator can show it."""
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    (c0 / "reversion_results.json").write_text(json.dumps(
+        {"design_00": {"verdict": verdict, "reason": "because",
+                       "reverted_ra_eff_vs_truth": 8.0,
+                       "reverted_independent_receptor_rmsd": 2.0,
+                       "reverted_independent_effector_rmsd": 3.0}}))
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert doc["selected"] == []
+    row = doc["all_candidates"][0]
+    assert row["reversion_verdict"] == verdict and row["reversion_dropped"] == 1
+    assert row["reverted_ra_eff_vs_truth"] == 8.0
+    assert doc[f"{verdict}_count"] == 1
+
+
+@pytest.mark.logic
+def test_an_unknown_verdict_is_dropped_rather_than_kept(cs, tmp_path, capsys):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    (c0 / "reversion_results.json").write_text(json.dumps(
+        {"design_00": {"verdict": "something_new"}}))
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert doc["selected"] == []
+    assert doc["all_candidates"][0]["reversion_verdict"] == "something_new"
+    assert "unknown verdict" in capsys.readouterr().out
+
+
+@pytest.mark.logic
+def test_a_blank_verdict_is_recorded_as_unknown(cs, tmp_path):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    (c0 / "reversion_results.json").write_text(json.dumps({"design_00": {}}))
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert doc["all_candidates"][0]["reversion_verdict"] == "unknown"
+
+
+@pytest.mark.logic
+def test_the_novelty_cutoff_excludes_poses_too_close_to_the_cold_start(
+        cs, tmp_path):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "near", dist=0.5), _icand(c0, "far", dist=9.0)])
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path, novelty_cutoff=1.0)) == 0
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert doc["n_novel"] == 1
+    assert [c["design"] for c in doc["selected"]] == ["far"]
+
+
+@pytest.mark.logic
+def test_a_candidate_with_no_distance_is_not_novel(cs, tmp_path):
+    """A failed pose distance must not count as maximally novel."""
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    cand = _icand(c0, "design_00")
+    cand["min_dist_to_upstream"] = None
+    _prefilter(c0, [cand])
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path, novelty_cutoff=1.0)) == 0
+    assert json.loads((c0 / "passing.json").read_text())["n_novel"] == 0
+
+
+@pytest.mark.logic
+def test_max_passing_caps_what_is_selected(cs, tmp_path):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, f"design_{i:02d}", dist=float(i))
+                    for i in range(5)])
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path, max_passing=2)) == 0
+    doc = json.loads((c0 / "passing.json").read_text())
+    assert doc["n_selected"] == 2
+    assert [c["design"] for c in doc["selected"]] == ["design_04", "design_03"]
+
+
+@pytest.mark.logic
+def test_finalize_appends_a_statistics_row(cs, tmp_path):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    rows = (tmp_path / "cycle_statistics.csv").read_text().splitlines()
+    assert len(rows) == 2 and rows[1].startswith("0,cycle_0,1,1,1,1")
+
+
+@pytest.mark.logic
+def test_nothing_selected_still_exits_zero(cs, tmp_path, capsys):
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [])
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    assert "nothing to iterate" in capsys.readouterr().out
+
+
+@pytest.mark.logic
+def test_asking_for_follow_up_cycles_says_they_are_not_implemented(
+        cs, tmp_path, capsys):
+    """--max-cycles is kept because callers pass it, and any value means 0."""
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    _prefilter(c0, [_icand(c0, "design_00")])
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path, max_cycles=3)) == 0
+    assert "not implemented" in capsys.readouterr().err
+
+
+# ── the container-only seam, and the last refusal ────────────────────────────
+
+@pytest.mark.logic
+def test_a_rewrite_that_fails_warns_and_keeps_going(cs, tmp_path, capsys,
+                                                    monkeypatch):
+    """One unwritable design directory must not abandon the other verdicts."""
+    c0 = tmp_path / "cycle_0"
+    c0.mkdir()
+    cand = _icand(c0, "design_00")
+    _prefilter(c0, [cand])
+    fasta = c0 / "reverted.fasta"
+    fasta.write_text(">x\nMKVL\n")
+    (c0 / "reversion_plan.json").write_text(json.dumps(
+        {"entries": [{"label": "design_00",
+                      "reverted_receptor_fasta": str(fasta)}]}))
+    (c0 / "reversion_results.json").write_text(json.dumps(
+        {"design_00": {"verdict": "pose_holds",
+                       "reverted_ra_eff_vs_truth": 1.5,
+                       "reverted_independent_receptor_rmsd": 1.0,
+                       "reverted_independent_effector_rmsd": 1.0}}))
+
+    real = Path.write_text
+
+    def refuse(self, *a, **k):
+        if self.name == "receptor.fasta":
+            raise OSError("read-only")
+        return real(self, *a, **k)
+    monkeypatch.setattr(Path, "write_text", refuse)
+
+    assert cs.cmd_kickoff_finalize(_finalize_args(tmp_path)) == 0
+    assert "failed to rewrite" in capsys.readouterr().err
+
+
+@pytest.mark.logic
+def test_the_intact_threshold_falls_back_when_the_catalogue_is_absent(cs):
+    """The module keeps a literal so it stays importable without the
+    thresholds catalogue, and the two must agree."""
+    sys.path.insert(0, str(REPO_ROOT / "bin"))
+    from pipeline_thresholds import PipelineInternalThresholds
+    assert cs._INTACT_THRESHOLD == PipelineInternalThresholds.default().intact_threshold
+    assert cs._INTACT_THRESHOLD == 5.0
+
+
+@pytest.mark.logic
+def test_the_boltz_module_is_imported_once_and_cached(cs, monkeypatch):
+    """_lazy_bns defers a numpy and Bio.Align import to call time, so the
+    stdlib-only stages can run outside the container."""
+    monkeypatch.setattr(cs, "_BNS_MODULE", None)
+    first = cs._lazy_bns()
+    assert first is cs._lazy_bns()
+    assert hasattr(first, "compute_binding_rmsds")
+
+
+@pytest.mark.logic
+def test_pose_distance_reads_the_receptor_aligned_effector_rmsd(cs, monkeypatch,
+                                                                tmp_path):
+    seen = {}
+
+    class FakeBns:
+        @staticmethod
+        def compute_binding_rmsds(cand, ref, **kw):
+            seen.update(kw, cand=cand, ref=ref)
+            return {"receptor_aligned_effector_rmsd": 3.5}
+
+    monkeypatch.setattr(cs, "_lazy_bns", lambda: FakeBns)
+    got = cs.compute_pose_distance(tmp_path / "c.pdb", tmp_path / "r.pdb",
+                                   "A", "B")
+    assert got == 3.5
+    # Both sides are predictions, so every chain argument is the same pair.
+    assert seen["rec_chain"] == seen["des_rec_chain"] == "A"
+    assert seen["eff_chain"] == seen["des_eff_chain"] == "B"
+
+
+@pytest.mark.logic
+def test_a_missing_rmsd_becomes_nan(cs, monkeypatch, tmp_path):
+    class FakeBns:
+        @staticmethod
+        def compute_binding_rmsds(*a, **k):
+            return {}
+    monkeypatch.setattr(cs, "_lazy_bns", lambda: FakeBns)
+    assert cs._is_nan(cs.compute_pose_distance(
+        tmp_path / "c.pdb", tmp_path / "r.pdb", "A", "B"))
+
+
+@pytest.mark.logic
+def test_the_module_still_imports_without_the_thresholds_catalogue(tmp_path):
+    """The fallback exists so this module can be imported outside the
+    container. Loading it with pipeline_thresholds blocked proves the literal
+    is reached, and that it agrees with the catalogue's value."""
+    import builtins
+    real_import = builtins.__import__
+
+    def blocked(name, *a, **k):
+        if name == "pipeline_thresholds":
+            raise ImportError("blocked for this test")
+        return real_import(name, *a, **k)
+
+    saved = sys.modules.pop("pipeline_thresholds", None)
+    saved_self = sys.modules.pop("negsteer_coldstart", None)
+    builtins.__import__ = blocked
+    try:
+        spec = importlib.util.spec_from_file_location("negsteer_coldstart_nopt",
+                                                      MODULE)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert mod._INTACT_THRESHOLD == 5.0
+    finally:
+        builtins.__import__ = real_import
+        sys.modules.pop("negsteer_coldstart_nopt", None)
+        if saved is not None:
+            sys.modules["pipeline_thresholds"] = saved
+        if saved_self is not None:
+            sys.modules["negsteer_coldstart"] = saved_self
