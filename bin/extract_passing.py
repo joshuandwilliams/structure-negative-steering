@@ -293,12 +293,12 @@ def _summarize_mutations_across_seeds(
         for p in s:
             counter[p] += 1
 
-    threshold = max(1, int(n * threshold_majority_frac) + 1
-                    if n * threshold_majority_frac
-                    == int(n * threshold_majority_frac)
-                    else int(n * threshold_majority_frac) + 1)
-    # Above is "strictly greater than half" — for n=3, threshold=2;
-    # for n=2, threshold=2; for n=1, threshold=1.  Equivalently:
+    # "Strictly greater than half" — for n=3, threshold=2; for n=2,
+    # threshold=2; for n=1, threshold=1.  threshold_majority_frac is kept in
+    # the signature because callers pass it, but this expression is the only
+    # rule applied: a four-line conditional on the fraction used to sit here
+    # and was unconditionally overwritten by this line, so it never had an
+    # effect.
     threshold = (n // 2) + 1
 
     majority = sorted(p for p, c in counter.items() if c >= threshold)

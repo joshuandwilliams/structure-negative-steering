@@ -427,10 +427,11 @@ def test_a_control_is_kept_out_of_the_cross_rank_ranking(cs, tmp_path, capsys):
     err = capsys.readouterr().err
     assert "row_type breakdown: control_polyA=1, steered=1" in err
     assert "2 sequences, 1 placed in tiers A/B/C" in err
-    # Current behaviour, and a defect. The tier line is labelled "steered
-    # only" but the counts are taken over every record, so the control is
-    # counted as a tier A steered design. One steered design is in tier A.
-    assert "tier breakdown (steered only): A=2 B=0 C=0 none=0" in err
+    # The tier line is labelled "steered only" and counts only steered
+    # records, so it agrees with the n_ranked count on the line above it.
+    # It used to count every record, which put this tier-A control into the
+    # A total while its cross_rank_by_composite stayed blank.
+    assert "tier breakdown (steered only): A=1 B=0 C=0 none=0" in err
 
 
 @pytest.mark.logic

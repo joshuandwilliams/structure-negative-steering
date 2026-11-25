@@ -535,7 +535,13 @@ def plot_dispersion_grid(rep_seeds, all_seeds, tiers, composites, out_path):
             if s["tj_final"] is not None:
                 all_tj.append(s["tj_final"])
     if not all_ra:
-        return
+        # The grid takes its x bound from the cohort's RMSDs, so there is
+        # nothing to scale. Write the placeholder rather than returning
+        # without a file: Nextflow publishes a fixed figure list and a
+        # missing path fails the stage with nothing in the log to explain
+        # it. This is what the cohort module's figures already do.
+        _make_empty_plot("No per-seed RMSD data", out_path)
+        return False
     x_max = max(all_ra) * 1.05
     y_min = min(0.0, min(all_tj) - 0.05) if all_tj else 0.0
     y_max = max(1.0, max(all_tj) * 1.05) if all_tj else 1.0
@@ -672,7 +678,10 @@ def plot_stage_trajectories(all_seeds, tiers, cold_baseline, out_path):
                 if v is not None:
                     all_ra.append(v)
     if not all_ra:
-        return
+        # Same cause as the dispersion grid: the y axis is the RMSD and
+        # there is no bound for it.
+        _make_empty_plot("No per-seed RMSD data", out_path)
+        return False
     y_max = max(all_ra) * 1.05
 
     for i, ax in enumerate(axes_flat):
@@ -953,23 +962,23 @@ def main() -> int:
     plots = [
         ("Per-seed dispersion overview (single scatter)",
          "negsteer_per_seed_dispersion_overview.png",
-         lambda p: (plot_dispersion_overview(rep_seeds, tiers, p) or True)),
+         lambda p: plot_dispersion_overview(rep_seeds, tiers, p)),
         ("Per-seed dispersion grid (panel per MPNN sequence)",
          "negsteer_per_seed_dispersion_grid.png",
-         lambda p: (plot_dispersion_grid(
-             rep_seeds, all_seeds, tiers, composites, p) or True)),
+         lambda p: plot_dispersion_grid(
+             rep_seeds, all_seeds, tiers, composites, p)),
         ("Per-design stage trajectories",
          "negsteer_per_design_stage_trajectories.png",
-         lambda p: (plot_stage_trajectories(
-             all_seeds, tiers, cold_baseline, p) or True)),
+         lambda p: plot_stage_trajectories(
+             all_seeds, tiers, cold_baseline, p)),
         ("Weighted vs True Jaccard",
          "negsteer_weighted_vs_true_jaccard.png",
-         lambda p: (plot_weighted_vs_true_jaccard(
-             rep_seeds, tiers, p) or True)),
+         lambda p: plot_weighted_vs_true_jaccard(
+             rep_seeds, tiers, p)),
         ("Composite vs confidence metrics (multi-panel)",
          "negsteer_composite_vs_confidence.png",
-         lambda p: (plot_composite_vs_confidence(
-             rep_seeds, composites, tiers, p) or True)),
+         lambda p: plot_composite_vs_confidence(
+             rep_seeds, composites, tiers, p)),
     ]
 
     for desc, fname, fn in plots:

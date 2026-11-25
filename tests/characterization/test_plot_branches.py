@@ -750,18 +750,23 @@ def test_a_seed_with_no_final_metrics_is_absent_from_the_dispersion_scatter(
 
 
 @pytest.mark.logic
-def test_the_dispersion_grid_writes_nothing_when_no_seed_has_an_rmsd(nwp,
-                                                                      tmp_path):
-    """The grid needs an x-axis bound and takes it from the cohort's RMSDs.
-    With none it returns before saving, so no file is written at all. main
-    still prints the path as though it had been, which is pinned here as the
-    current behaviour because the publish step is what fails next."""
+def test_the_dispersion_grid_writes_a_placeholder_with_no_rmsd(nwp, tmp_path):
+    """The grid takes its x-axis bound from the cohort's RMSDs, so with none
+    there is nothing to scale. It writes the placeholder and returns False.
+
+    It used to return before saving, so no file was written, while main's
+    `or True` wrapper printed the path as a success. Nextflow publishes a
+    fixed figure list, so the stage then failed on a missing path with
+    nothing in the log to explain it."""
     out = tmp_path / "grid.png"
     seeds = {"design_0_seq_1": [_seed_rec(ra=None, tj=None)]}
     assert nwp.plot_dispersion_grid(
         seeds, seeds, {"design_0_seq_1": "A"},
-        {"design_0_seq_1": 0.7}, str(out)) is None
-    assert not out.exists()
+        {"design_0_seq_1": 0.7}, str(out)) is False
+    assert out.is_file()
+    expected = tmp_path / "expected.png"
+    nwp._make_empty_plot("No per-seed RMSD data", str(expected))
+    assert out.read_bytes() == expected.read_bytes()
 
 
 @pytest.mark.logic
@@ -790,16 +795,16 @@ def test_the_dispersion_grid_blanks_the_cells_it_does_not_fill(nwp, tmp_path):
 
 
 @pytest.mark.logic
-def test_the_trajectory_plot_writes_nothing_without_a_single_rmsd(nwp,
-                                                                   tmp_path):
-    """Same early return as the grid, from the same cause. The y-axis is the
-    RMSD and there is no bound for it."""
+def test_the_trajectory_plot_writes_a_placeholder_without_an_rmsd(nwp,
+                                                                  tmp_path):
+    """Same cause as the grid. The y axis is the RMSD and there is no bound
+    for it, so the placeholder goes out instead of nothing."""
     out = tmp_path / "traj.png"
     seeds = {"design_0_seq_1": [_seed_rec(ra=None, tj=None,
                                           steered_ra_raw=None)]}
     assert nwp.plot_stage_trajectories(
-        seeds, {"design_0_seq_1": "A"}, {}, str(out)) is None
-    assert not out.exists()
+        seeds, {"design_0_seq_1": "A"}, {}, str(out)) is False
+    assert out.is_file()
 
 
 @pytest.mark.logic
