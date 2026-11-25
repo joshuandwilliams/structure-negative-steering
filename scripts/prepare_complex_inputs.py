@@ -14,6 +14,12 @@ Outputs (written into --outdir), in the exact formats the engine expects:
                        interface to steer AWAY from
   design_region.txt    1-based positional indices on the receptor chain — the
                        residues negative steering is allowed to mutate
+  interface_ablation.txt  only under --ablate, the native and ablated residue at
+                       every interface position
+
+Under --ablate the sequence in receptor.fasta is no longer the one in the
+complex. The engine takes it as an equal-length override and still scores
+against the untouched complex, which is what makes it a control.
 
 Interface residues come from one of two modes:
   --derive                 heavy-atom contacts within --contact-cutoff of the
@@ -32,6 +38,8 @@ convention); override with --receptor-chain / --effector-chain.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import random
 import sys
 from pathlib import Path
 from typing import List
@@ -70,6 +78,62 @@ def _parse_index_file(path: Path) -> List[int]:
 
 def _write_fasta(path: Path, header: str, seq: str) -> None:
     path.write_text(f">{header}\n{seq}\n")
+
+
+def ablate_alanine(seq: str, idx0: List[int]) -> str:
+    """Every selected position set to alanine. Positions outside idx0 are kept."""
+    chars = list(seq)
+    for i in idx0:
+        chars[i] = "A"
+    return "".join(chars)
+
+
+def ablate_scramble(seq: str, idx0: List[int], seed: int) -> str:
+    """Seeded permutation of the residues at the selected positions.
+
+    Length and amino-acid composition are both preserved, and positions
+    outside idx0 are kept verbatim. Where the selected residues are not all
+    identical the permutation is redrawn until it differs from the input, so
+    the ablation cannot silently return the native sequence.
+    """
+    if not idx0:
+        return seq
+    pool = [seq[i] for i in idx0]
+    rng = random.Random(seed)
+    distinct = len(set(pool)) > 1
+    for _ in range(64):
+        shuffled = pool[:]
+        rng.shuffle(shuffled)
+        if not distinct or shuffled != pool:
+            break
+    chars = list(seq)
+    for i, residue in zip(idx0, shuffled):
+        chars[i] = residue
+    return "".join(chars)
+
+
+def default_ablation_seed(complex_pdb: Path) -> int:
+    """Deterministic per-target seed, so a re-run reproduces the permutation."""
+    digest = hashlib.sha256(complex_pdb.stem.encode()).hexdigest()
+    return int(digest[:8], 16)
+
+
+def _write_ablation_record(path: Path, *, mode: str, seed: int, idx0: List[int],
+                           before: str, after: str, complex_pdb: Path) -> None:
+    """What was changed, so the run carries its own provenance."""
+    moved = [i for i in idx0 if before[i] != after[i]]
+    with path.open("w") as f:
+        f.write(f"# receptor interface ablation applied by {Path(__file__).name}\n")
+        f.write(f"# complex: {complex_pdb}\n")
+        f.write(f"# mode: {mode}\n")
+        f.write(f"# seed: {seed if mode == 'scrambled' else 'n/a'}\n")
+        f.write(f"# positions ablated: {len(idx0)}\n")
+        f.write(f"# positions changed: {len(moved)}\n")
+        f.write("# coordinate system: 1-based positional indices on the receptor "
+                "chain, PDB walk order\n")
+        f.write("# pos\tnative\tablated\n")
+        for i in idx0:
+            f.write(f"{i + 1}\t{before[i]}\t{after[i]}\n")
 
 
 def _write_true_interface(path: Path, idx0: List[int], *, complex_pdb: Path,
@@ -128,6 +192,16 @@ def main(argv: List[str]) -> int:
                          "--design-region-file.")
     ap.add_argument("--design-region-file", type=Path, default=None,
                     help="Explicit 1-based design-region indices file (overrides --design-region).")
+
+    ap.add_argument("--ablate", choices=["none", "alanine", "scrambled"], default="none",
+                    help="Destroy the receptor's true interface before the run. 'alanine' "
+                         "sets every interface position to A, 'scrambled' permutes the "
+                         "residues already there at fixed composition. The ground truth "
+                         "PDB is untouched, so restraints and RMSD still reference the "
+                         "solved pose (default none).")
+    ap.add_argument("--ablate-seed", type=int, default=None,
+                    help="Seed for --ablate scrambled. Defaults to a hash of the complex "
+                         "stem, so a re-run reproduces the same permutation.")
     args = ap.parse_args(argv)
 
     if not args.complex.is_file():
@@ -153,7 +227,6 @@ def main(argv: List[str]) -> int:
               file=sys.stderr)
         return 2
     stem = args.complex.stem
-    _write_fasta(args.outdir / "receptor.fasta", f"{stem}_receptor", rec_seq)
     _write_fasta(args.outdir / "effector.fasta", f"{stem}_effector", eff_seq)
     print(f"Receptor chain {args.receptor_chain}: {len(rec_seq)} residues")
     print(f"Effector chain {args.effector_chain}: {len(eff_seq)} residues")
@@ -183,6 +256,39 @@ def main(argv: List[str]) -> int:
         complex_pdb=args.complex, receptor_chain=args.receptor_chain,
         effector_chain=args.effector_chain, source=iface_source,
     )
+
+    # --- Interface ablation (control) --------------------------------------
+    # The receptor FASTA is written here rather than with the effector above,
+    # because the ablation needs the interface indices.
+    ablation_record = args.outdir / "interface_ablation.txt"
+    if args.ablate == "none":
+        if ablation_record.exists():
+            ablation_record.unlink()
+        _write_fasta(args.outdir / "receptor.fasta", f"{stem}_receptor", rec_seq)
+    else:
+        if not iface0:
+            print("ERROR: --ablate needs a non-empty true interface.", file=sys.stderr)
+            return 2
+        seed = (args.ablate_seed if args.ablate_seed is not None
+                else default_ablation_seed(args.complex))
+        if args.ablate == "alanine":
+            ablated = ablate_alanine(rec_seq, iface0)
+        else:
+            ablated = ablate_scramble(rec_seq, iface0, seed)
+        changed = sum(1 for i in iface0 if rec_seq[i] != ablated[i])
+        print(f"Interface ablation: {args.ablate}, {len(iface0)} positions, "
+              f"{changed} changed"
+              + (f", seed {seed}" if args.ablate == "scrambled" else ""))
+        if changed == 0:
+            print("ERROR: ablation changed nothing, so the control is not a control.",
+                  file=sys.stderr)
+            return 2
+        _write_fasta(args.outdir / "receptor.fasta",
+                     f"{stem}_receptor_ablate_{args.ablate}", ablated)
+        _write_ablation_record(
+            ablation_record, mode=args.ablate, seed=seed, idx0=iface0,
+            before=rec_seq, after=ablated, complex_pdb=args.complex,
+        )
 
     # --- Design region (1-based) ------------------------------------------
     if args.design_region_file is not None:

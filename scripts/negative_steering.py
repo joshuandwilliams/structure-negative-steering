@@ -91,6 +91,15 @@ def _build_prepare_cmd(cfg: Dict[str, Any], cfg_dir: Path, inputs_dir: Path) -> 
         cmd += ["--design-region", dr.lower()]
     else:
         cmd += ["--design-region-file", str(_resolve(cfg_dir, str(dr)))]
+
+    ablate = str(cfg.get("interface_ablation", "none")).lower()
+    if ablate not in ("none", "alanine", "scrambled"):
+        raise SystemExit(
+            f"ERROR: interface_ablation must be none, alanine or scrambled (got: {ablate})")
+    if ablate != "none":
+        cmd += ["--ablate", ablate]
+        if cfg.get("ablation_seed") is not None:
+            cmd += ["--ablate-seed", str(cfg["ablation_seed"])]
     return cmd
 
 
