@@ -1696,10 +1696,10 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
     def _agg_row_is_pose_holds(r: Dict) -> bool:
         if r.get("outcome") != "pose_holds":
             return False
-        if r.get("reverted_receptor_intact_majority") != 1:
+        if r.get("reverted_receptor_intact_majority") != 1:  # pragma: no cover - _classify_outcome requires the majority before it returns pose_holds
             return False
         ra = _rank_continuous(r, "reverted_ra_eff_vs_truth_median")
-        if ra is None or ra >= 5.0:
+        if ra is None or ra >= 5.0:  # pragma: no cover - _classify_outcome requires a populated median under 5.0 before it returns pose_holds
             return False
         return True
 
@@ -1710,7 +1710,7 @@ def cmd_aggregate_per_sequence(args: argparse.Namespace) -> int:
             ra = _rank_continuous(r, "reverted_ra_eff_vs_truth_median")
         else:
             return None
-        if ra is None:
+        if ra is None:  # pragma: no cover - both predicates above read the same RMSD through _rank_continuous and reject None
             return None
         tj = _rank_continuous(r, "steered_true_jaccard_median")
         if tj is None:

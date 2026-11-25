@@ -300,7 +300,7 @@ def main():
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    if not indices_0based:  # pragma: no cover - unreachable today
+    if not indices_0based:  # pragma: no cover - derive_positional_indices raises on every input that would empty this list
         # derive_positional_indices already raises on every case that
         # would empty this list.  The guard stays because that
         # invariant lives there, not here.

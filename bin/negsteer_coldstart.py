@@ -24,7 +24,7 @@ from typing import Dict, List
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))  # pragma: no cover - import order
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 # The reverted-confidence column set lives in reversion.py, next to the
 # per_seed_records dict it must stay in sync with.

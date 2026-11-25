@@ -183,7 +183,7 @@ def transform(text: str, target: str, variant: str, spec: dict) -> str:
     if stray:  # pragma: no cover - guards a future edit
         raise SystemExit(f"ERROR: {variant}/{target} changed lines it should not:\n"
                          + "\n".join(f"  {s}" for s in stray))
-    if len(text.splitlines()) != len(out.splitlines()):  # pragma: no cover
+    if len(text.splitlines()) != len(out.splitlines()):  # pragma: no cover - the substitutions above rewrite values in place and never add or drop a line
         raise SystemExit(f"ERROR: {variant}/{target} line count changed.")
 
     # The constraints toggle is never set here, staying whatever the source

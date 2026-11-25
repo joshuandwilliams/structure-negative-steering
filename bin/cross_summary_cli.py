@@ -23,7 +23,7 @@ from typing import List, Tuple
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))  # pragma: no cover - import order
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 from design_cohort import DesignCohort  # noqa: E402
 
@@ -97,7 +97,7 @@ def main() -> int:
             explicit_pairs.append(
                 _parse_passing_summary_arg(raw, args.seq_name_mode)
             )
-        except ValueError as e:  # pragma: no cover - no input reaches it
+        except ValueError as e:  # pragma: no cover - _parse_passing_summary_arg only splits a string and builds a Path, neither of which raises ValueError
             print(f"ERROR: {e}", file=sys.stderr)
             return 2
 

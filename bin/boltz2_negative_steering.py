@@ -265,7 +265,17 @@ def compute_binding_rmsds(pred_pdb, design_pdb,
 
 
 def extract_sequences_gemmi(path):
-    """Preferred reader, since gemmi handles PDB and mmCIF."""
+    """Preferred reader, since gemmi handles PDB and mmCIF.
+
+    Known limit on mmCIF input. When one auth_asym_id spans two polymer
+    label_asym_id subchains, gemmi merges them into one chain but
+    get_polymer() returns only the first subchain, so the sequence comes back
+    short with no warning. Every index downstream is positional, so a short
+    receptor shifts the protected set and the candidate pool. No caller hits
+    it today, because the only mmCIF this pipeline writes is the single-chain
+    effector template, and the PDB path is unaffected. test_engine_guards.py
+    pins the current result.
+    """
     import gemmi
     st = gemmi.read_structure(path)
     st.setup_entities()
@@ -541,14 +551,14 @@ def extract_effector_template_cif(
     text = out_path.read_text()
 
     if "_entity_poly_seq.entity_id" not in text:
-        raise RuntimeError(
+        raise RuntimeError(  # pragma: no cover - Entity.full_sequence was set above, so only a gemmi writer regression drops this block
             f"_entity_poly_seq block missing from generated CIF "
             f"{out_path} — AF3's template parser will reject this. "
             f"This indicates Entity.full_sequence was not populated."
         )
 
     if "_pdbx_audit_revision_history.revision_date" not in text:
-        raise RuntimeError(
+        raise RuntimeError(  # pragma: no cover - the loop was added to this document above, so only a gemmi writer regression drops it
             f"_pdbx_audit_revision_history.revision_date missing from "
             f"generated CIF {out_path} — AF3 will fail with "
             f"`ValueError: The structure must have a release date.`"
@@ -564,12 +574,12 @@ def extract_effector_template_cif(
         check_vals = list(check_block.find_values(
             "_pdbx_audit_revision_history.revision_date"
         ))
-    except Exception as e:
+    except Exception as e:  # pragma: no cover - gemmi wrote this file four lines above, so only a gemmi regression makes it unparseable
         raise RuntimeError(
             f"Generated CIF {out_path} fails to re-parse cleanly: {e}"
         )
     if not check_vals:
-        raise RuntimeError(
+        raise RuntimeError(  # pragma: no cover - the text check above passed, so only a gemmi writer/reader disagreement hides the key
             f"_pdbx_audit_revision_history.revision_date is in the "
             f"text of {out_path} but the mmCIF parser does not "
             f"discover it under that key — AF3 will fail with "
@@ -587,7 +597,7 @@ def extract_effector_template_cif(
                     break
             break
     if not one_letter or one_letter in ("?", "."):
-        raise RuntimeError(
+        raise RuntimeError(  # pragma: no cover - Entity.full_sequence was set above, so the writer always emits the sequence here
             f"_entity_poly.pdbx_seq_one_letter_code is empty in "
             f"{out_path}: {one_letter!r} — AF3 requires this field. "
             f"This indicates Entity.full_sequence was not populated."
@@ -1716,7 +1726,7 @@ def pick_mutant_residue(
     if mode == "conservative":
         mut = CONSERVATIVE_SUBSTITUTIONS.get(wt, "A")
         if mut == wt:
-            mut = "A"
+            mut = "A"  # pragma: no cover - no CONSERVATIVE_SUBSTITUTIONS entry maps a residue to itself
         return mut
 
     if mode == "alanine":
@@ -1759,7 +1769,7 @@ def make_steered_sequence(
         wt = seq_list[i]
         mut = pick_mutant_residue(wt, mode, rng)
         if mut == wt:
-            continue   # Defensive. Should not happen. Never self-mutate.
+            continue   # Defensive. Should not happen. Never self-mutate.  # pragma: no cover - every mode returns a residue other than wt, and no CONSERVATIVE_SUBSTITUTIONS entry maps a residue to itself
         seq_list[i] = mut
         mutations.append((i + 1, wt, mut))  # 1-based for output
     return "".join(seq_list), mutations
@@ -2134,7 +2144,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     surface_flags: Dict[int, bool] = {}
     for i in predicted_wrong_idx:
         r = pred_rec_by_idx.get(i)
-        if r is None:
+        if r is None:  # pragma: no cover - predicted_wrong_idx and pred_rec_by_idx both come from read_residue_heavy_atoms(pred_pdb), so every index is in the map
             surface_flags[i] = False
             continue
         surface_flags[i] = is_surface_exposed(r, pred_rec_residues)
