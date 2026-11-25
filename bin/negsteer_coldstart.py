@@ -623,8 +623,9 @@ def build_parser() -> argparse.ArgumentParser:
         "kickoff-finalize",
         help="Host, cycle-0 phase 2c: read cycle_0/prefilter.json + "
              "(optional) cycle_0/reversion_results.json, route "
-             "verdicts, run novelty/maximin, write cycle_0/passing.json, "
-             "submit cycle-1 chains",
+             "verdicts, run novelty/maximin, write cycle_0/passing.json. "
+             "Finalises cycle 0 and stops: follow-up cycles were removed "
+             "with the multi-cycle harness, so --max-cycles is inert.",
     )
     pkf.add_argument("--experiment-root", type=Path, required=True)
     pkf.add_argument("--max-cycles", type=int, required=True)

@@ -24,8 +24,6 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from pathway_labels import (  # noqa: E402
     _locate_boltz_sidecar_pdb,
-    make_pathway_label,
-    read_cumulative_mutations,
     read_mutations_tsv_full,
 )
 from reversion import _REVERTED_CONFIDENCE_FIELDS  # noqa: E402
@@ -389,22 +387,16 @@ def _populate_reverted_mutations(rows: List[Dict],
                     )
                     break
 
-        # Cumulative mutation history.  For cycle-0 rows the leaf_label
-        # is "design_NN" which parse_pathway_label cannot parse, so
-        # read_cumulative_mutations would crash.  Read mutations.tsv
-        # directly from the design's workdir instead.
+        # Cumulative mutation history.  A cycle-0 design's own
+        # mutations.tsv IS its full history — there are no ancestors to
+        # walk — and the run is single-cycle, so that is the only case.
+        # Cycle 1+ walked the lineage with read_cumulative_mutations
+        # instead; see archive/cycle1plus_aggregation.py.
         cum_muts: List[Tuple[int, str, str]] = []
-        if cycle == 0:
-            pdb_col = r.get("pdb", "")
-            if pdb_col:
-                mut_tsv = Path(pdb_col).parent / "mutations.tsv"
-                cum_muts = read_mutations_tsv_full(mut_tsv)
-        else:
-            try:
-                cum_muts = read_cumulative_mutations(
-                    experiment_root, leaf_label)
-            except Exception:
-                cum_muts = []
+        pdb_col = r.get("pdb", "")
+        if pdb_col:
+            mut_tsv = Path(pdb_col).parent / "mutations.tsv"
+            cum_muts = read_mutations_tsv_full(mut_tsv)
 
         # Filter out reverted positions; for positions touched twice
         # (rare) keep the most recent edit
@@ -1244,38 +1236,36 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
         "n_designs": len(plan0.get("designs", [])),
     })
 
-    # Cycles 1+ — pathway_<label> subdirs under cycle_N/
-    for cycle_dir in sorted(experiment_root.glob("cycle_*")):
-        if not cycle_dir.is_dir():
-            continue   # skip e.g. cycle_statistics.csv which the glob also matches
-        if cycle_dir.name == "cycle_0":
-            continue
-        cycle_num = int(cycle_dir.name.split("_")[1])
-        for pdir in sorted(cycle_dir.glob("pathway_*")):
-            label = pdir.name[len("pathway_"):]
-            pj = pdir / "plan.json"
-            if not pj.exists():
-                continue
-            pl = json.loads(pj.read_text())
-            pathways.append({
-                "label": label,
-                "cycle": cycle_num,
-                "workdir": str(pdir),
-                "parent_pathway": pl.get("parent_pathway"),
-                "n_designs": len(pl.get("designs", [])),
-                "exhausted": pl.get("exhausted", False),
-            })
+    # Cycles 1+ are gone.  A cycle was a second round of steering on the
+    # first round's survivors, mutating on top of their already-mutated
+    # sequences, so the mutation count compounded per cycle.  The harness
+    # went to archive/boltz2_iterate_steering_multicycle.py and the reader
+    # for its output — the pathway_<label> discovery that stood here and the
+    # row builder that followed — went to archive/cycle1plus_aggregation.py.
+    #
+    # This refuses rather than ignoring a cycle_N directory, because
+    # skipping it would write an all_results_multicycle.csv that looks
+    # complete while omitting every row of that cycle.
+    stray_cycles = [d.name for d in sorted(experiment_root.glob("cycle_*"))
+                    if d.is_dir() and d.name != "cycle_0"]
+    if stray_cycles:
+        print(f"ERROR: follow-up cycle directories under {experiment_root}: "
+              f"{', '.join(stray_cycles)}\n"
+              f"  This aggregator is single-cycle.  The cycle-1+ reader was "
+              f"archived to archive/cycle1plus_aggregation.py; aggregating "
+              f"this root would silently drop those rows.",
+              file=sys.stderr)
+        return 2
 
     (experiment_root / "pathways.json").write_text(
         json.dumps(pathways, indent=2)
     )
 
-    # Look up the wild-type baseline ra_eff so we can compute a
-    # consistent delta_receptor_aligned_effector_rmsd column for
-    # cycle 1+ rows (cycle 0 already has it from steered_results.csv,
-    # using the same baseline).
+    # The wild-type baseline ra_eff was read here so cycle-1+ rows could
+    # carry a delta_receptor_aligned_effector_rmsd on the same baseline as
+    # cycle 0.  Cycle 0 gets that column from steered_results.csv already,
+    # so with the cycle-1+ reader archived there is nothing to compute.
     cycle0_plan = json.loads((cycle_0_dir / "plan.json").read_text())
-    wt_ra_eff = cycle0_plan.get("initial_receptor_aligned_effector_rmsd")
     # Prediction receptor chain ID, used to build the
     # mutations_chimerax column.  Default "A" if the plan doesn't
     # record it (old runs).
@@ -1448,102 +1438,11 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
                     rows.append(r)
             continue
 
-        # Cycles 1+: read passing.json (which contains all candidates with metrics)
-        passing_path = wd / "passing.json"
-        if not passing_path.exists():
-            continue
-        passing = json.loads(passing_path.read_text())
-        sel_idxs = {s["design_idx"] for s in passing.get("selected", [])}
-        # p["label"] is the PARENT pathway (e.g. "c0d05"); each candidate
-        # in this directory becomes a LEAF pathway by appending its
-        # (cycle, design_idx) to the parent.
-        parent_label = p["label"]
-        for c in passing.get("all_candidates", []):
-            leaf_label = make_pathway_label(parent_label, p["cycle"], c["design_idx"])
-            ra_eff = c["receptor_aligned_effector_rmsd_vs_truth"]
-            # delta vs the wild-type baseline (positive = improvement,
-            # i.e. effector pulled closer to the true site)
-            delta = (wt_ra_eff - ra_eff) if wt_ra_eff is not None else ""
-
-            # The full result.json content from compute-distances —
-            # contains every per-design metric we want to surface.
-            # Older runs (pre-result-passthrough fix) won't have this
-            # embedded; fall back to reading result.json directly from
-            # the design directory so the aggregator is self-healing.
-            result_full = c.get("result")
-            if not result_full:
-                rj_path = Path(c["pdb"]).parent / "result.json"
-                if rj_path.exists():
-                    try:
-                        result_full = json.loads(rj_path.read_text())
-                    except Exception:
-                        result_full = {}
-                else:
-                    result_full = {}
-
-            row = {
-                "pathway": leaf_label,
-                "parent_pathway": parent_label,
-                "cycle": p["cycle"],
-                "design": c["design"],
-                # P0 audit (multi-seed): expose sequence_group +
-                # seed_index in the per-seed CSV so the per-sequence
-                # aggregator can group on them without parsing the
-                # _sN suffix in the design name.
-                "sequence_group": c.get("sequence_group", ""),
-                "seed_index": c.get("seed_index", ""),
-                # Prefer total_mutations; fall back to legacy
-                # n_mutations key for old runs (where it meant
-                # per-cycle mutation count, not cumulative).
-                "total_mutations": result_full.get(
-                    "total_mutations",
-                    result_full.get("n_mutations", ""),
-                ),
-                "receptor_aligned_effector_rmsd": ra_eff,
-                "delta_receptor_aligned_effector_rmsd": delta,
-                "independent_receptor_rmsd": c["independent_receptor_rmsd"],
-                "independent_effector_rmsd": c["independent_effector_rmsd"],
-                "receptor_intact": 1 if c["receptor_intact"] else 0,
-                "wrong_jaccard": result_full.get("wrong_jaccard", ""),
-                "n_shared_wrong": result_full.get("n_shared_wrong", ""),
-                "true_jaccard": result_full.get("true_jaccard", ""),
-                "n_shared_true": result_full.get("n_shared_true", ""),
-                "n_design_interface_residues": result_full.get(
-                    "n_design_interface_residues", ""),
-                "min_dist_to_upstream": c["min_dist_to_upstream"],
-                "selected_for_next_cycle": 1 if c["design_idx"] in sel_idxs else 0,
-                "status": result_full.get("status", ""),
-                "pdb": c["pdb"],
-                # Reversion columns — populated when iterate-collect-
-                # finalize ran a reversion pass over this design.  Rows
-                # that were never reverted (non-contaminated) leave
-                # these blank.  Rows that were dropped
-                # (pose_collapses, new_contamination) carry
-                # reversion_dropped=1 and DO NOT flow to next cycle.
-                # The base columns above hold the steered values
-                # untouched; reverted values live ONLY in the
-                # reverted_* keys.
-                "reversion_verdict": c.get("reversion_verdict", ""),
-                "reversion_dropped": c.get("reversion_dropped", ""),
-                "reverted_sequence_used_as_parent": c.get(
-                    "reverted_sequence_used_as_parent", ""
-                ),
-                "reverted_ra_eff_vs_truth": c.get("reverted_ra_eff_vs_truth", ""),
-                "reverted_independent_receptor_rmsd": c.get(
-                    "reverted_independent_receptor_rmsd", ""
-                ),
-                "reverted_independent_effector_rmsd": c.get(
-                    "reverted_independent_effector_rmsd", ""
-                ),                **{k: c.get(k, "") for k in _REVERTED_CONFIDENCE_FIELDS},
-            }
-            # Cumulative mutations walked up the ancestry chain.
-            cum_muts = read_cumulative_mutations(experiment_root, leaf_label)
-            cx, aa = format_mutation_strings(
-                cum_muts, chain_id=pred_rec_chain_for_spec,
-            )
-            row["mutations_chimerax"] = cx
-            row["mutations_aa"] = aa
-            rows.append(row)
+        # Cycles 1+ reached here and built one row per candidate out of the
+        # pathway's passing.json, labelling each with its lineage. That
+        # reader is in archive/cycle1plus_aggregation.py. `pathways` now
+        # only ever holds cycle_0, because the discovery loop above refuses
+        # any other cycle_N directory, so nothing falls through to here.
 
     out_csv = experiment_root / "all_results_multicycle.csv"
     if not rows:

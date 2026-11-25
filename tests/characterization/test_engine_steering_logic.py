@@ -27,7 +27,6 @@ import negsteer_aggregate as agg  # noqa: E402
 import negsteer_coldstart as cold  # noqa: E402
 import negsteer_plots as npl  # noqa: E402
 import negsteer_within_sequence_plots as nwp  # noqa: E402
-import pathway_labels as pl  # noqa: E402
 
 # ── jaccard: how interface overlap is measured everywhere ────────────────────
 
@@ -184,39 +183,6 @@ def test_single_sequence_a3m_is_written_in_the_expected_shape(tmp_path):
 
 
 # ── pathway labels: how the cycle tree is addressed ──────────────────────────
-
-@pytest.mark.logic
-def test_pathway_labels_round_trip():
-    label = pl.make_pathway_label(None, 0, 3)
-    assert pl.parse_pathway_label(label) == [(0, 3)]
-    deeper = pl.make_pathway_label(label, 1, 7)
-    assert pl.parse_pathway_label(deeper) == [(0, 3), (1, 7)]
-
-
-@pytest.mark.logic
-def test_parent_of_a_cycle_zero_label_is_none():
-    leaf = pl.make_pathway_label(None, 0, 3)
-    assert pl.parent_pathway_label(leaf) is None
-
-
-@pytest.mark.logic
-def test_parent_drops_exactly_one_segment():
-    a = pl.make_pathway_label(None, 0, 3)
-    b = pl.make_pathway_label(a, 1, 7)
-    c = pl.make_pathway_label(b, 2, 1)
-    assert pl.parent_pathway_label(c) == b
-    assert pl.parent_pathway_label(b) == a
-
-
-# ── mutation bookkeeping ─────────────────────────────────────────────────────
-
-@pytest.mark.logic
-def test_mutation_strings_carry_position_and_both_residues():
-    chimerax, aa = agg.format_mutation_strings([(5, "K", "E"), (7, "V", "D")], "A")
-    assert "5" in chimerax and "7" in chimerax
-    assert "A" in chimerax
-    for token in ("K5E", "V7D"):
-        assert token in aa, f"{token} missing from {aa!r}"
 
 
 @pytest.mark.logic

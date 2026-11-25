@@ -54,10 +54,11 @@ Coordinate conventions
   the 1↔0 conversion at the sequence-building boundary and keeps
   everything else in 1-based.
 - The "cumulative mutation history" is a list of (pos1, wt, mut)
-  tuples in chronological order (cycle-0 first), as produced by
-  pathway_labels.read_cumulative_mutations.  If the same
-  position was touched twice across cycles the earliest wt is the
-  true wild-type.
+  tuples in chronological order, read from the design's own
+  mutations.tsv by pathway_labels.read_mutations_tsv_full.  A
+  single-cycle design has no ancestors, so its own file is the whole
+  history.  If the same position was touched twice the earliest wt is
+  the true wild-type.
 
 This module does NOT import numpy or Bio at module level, so it can
 be imported safely from host-side code that needs build_reverted_sequence
@@ -155,17 +156,16 @@ def build_reverted_sequence(
     steered_seq
         The full steered receptor sequence as it was fed into Boltz
         for the rescued pose (i.e. the sequence AFTER all steering
-        mutations across all cycles have been applied).  Read this
+        every steering mutation has been applied).  Read this
         from `<design_workdir>/receptor.fasta` — the steering
         pipeline writes it there at plan time.
 
     cumulative_mutations
-        Full chronological mutation history for the design's pathway,
-        as `(pos1, wt, mut)` tuples.  Obtained from
-        pathway_labels.read_cumulative_mutations(experiment_root,
-        leaf_label).  Cycle-0 mutations come first.  If the same
-        position was edited twice across cycles, the earliest wt is
-        the true wild-type and is used for the reversion.
+        Full chronological mutation history for the design, as
+        `(pos1, wt, mut)` tuples, read from its own mutations.tsv by
+        pathway_labels.read_mutations_tsv_full.  If the same position
+        was edited twice, the earliest wt is the true wild-type and is
+        the one used for the reversion.
 
     positions_to_revert
         List of 1-based positions to revert.  Typically this is the
@@ -1324,8 +1324,6 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from pathway_labels import (  # noqa: E402
     _locate_boltz_sidecar_pdb,
-    make_pathway_label,
-    read_cumulative_mutations,
     read_mutations_tsv_full,
 )
 
@@ -1368,36 +1366,16 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
         }, indent=2))
         return 0
 
-    # Resolve experiment_root + cycle_0 plan in a way that works for
-    # both cycle 0 (workdir = <root>/cycle_0/, plan IS cycle0_plan)
-    # and cycle 1+ (workdir = <root>/cycle_N/pathway_<label>/, cycle_0
-    # plan must be loaded from <root>/cycle_0/plan.json).
+    # The workdir is cycle 0's, so the plan it holds IS the cycle-0 plan.
+    # Cycle 1+ ran from <root>/cycle_N/pathway_<label>/ and had to load
+    # <root>/cycle_0/plan.json separately, keyed off an "experiment_root"
+    # field that only cmd_iterate_plan wrote; both that stage and the
+    # reader for its output are archived (see
+    # archive/boltz2_iterate_steering_multicycle.py and
+    # archive/cycle1plus_aggregation.py).
     #
-    # The cycle-N+1 plan.json (written by cmd_iterate_plan) carries an
-    # "experiment_root" field explicitly.  The cycle-0 plan.json (written
-    # by boltz2_negative_steering.cmd_plan) does NOT — so we detect the
-    # cycle-0 case and derive experiment_root from the workdir's parent.
-    plan_cycle = int(plan.get("cycle", 0))
-    if "experiment_root" in plan:
-        experiment_root = Path(plan["experiment_root"])
-    else:
-        # Cycle 0: workdir = <root>/cycle_0/ (nested layout) or <root>/
-        # (flat layout).  We assume nested here because that's what the
-        # kickoff chain uses; the flat-layout single-cycle submit script
-        # never invokes build-contaminated.
-        experiment_root = workdir.parent
-
-    if plan_cycle == 0:
-        # The current plan IS cycle 0 — no need to re-read from disk.
-        cycle0_plan = plan
-        cycle0_plan_path = plan_path
-    else:
-        cycle0_plan_path = experiment_root / "cycle_0" / "plan.json"
-        if not cycle0_plan_path.exists():
-            print(f"ERROR: {cycle0_plan_path} not found — cannot resolve "
-                  f"chain info", file=sys.stderr)
-            return 2
-        cycle0_plan = json.loads(cycle0_plan_path.read_text())
+    cycle0_plan = plan
+    cycle0_plan_path = plan_path
 
     pred_rec_chain = cycle0_plan.get("pred_receptor_chain", "A")
     pred_eff_chain = cycle0_plan.get("pred_effector_chain", "B")
@@ -1464,45 +1442,28 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
             continue
         design_workdir = pdb.parent
 
-        # Build label: cycle 0 labels are "design_NN", cycle-N+1 are
-        # "parent.cNdMM".  We can reconstruct from plan + design_idx.
-        # Note: prefilter["cycle"] is the CHILD cycle (the cycle that
-        # just finished predicting), so pass it directly to
-        # make_pathway_label — do NOT subtract 1.  This matches the
-        # convention used by cmd_iterate_collect, cmd_iterate_plan's
-        # resubmit, and cmd_aggregate.
-        cycle = int(prefilter.get("cycle", 0))
-        parent_label = prefilter.get("parent_pathway")
-        is_cycle_zero = (parent_label is None and cycle == 0)
-        if is_cycle_zero:
-            label = label_suffix  # "design_NN"
-        else:
-            label = make_pathway_label(parent_label, cycle, design_idx)
+        # The label is the flat cycle-0 "design_NN".  Cycle 1+ built a
+        # dotted lineage label instead ("parent.cNdMM"); that scheme is in
+        # archive/cycle1plus_aggregation.py and the harness that would
+        # have produced such a run is in
+        # archive/boltz2_iterate_steering_multicycle.py.
+        label = label_suffix
 
         # Walk the cumulative mutation history for this design so we
         # can pass --mutated-positions to compute_metrics.py and (for
         # contaminated outcomes) stash the full [(pos1, wt, mut)] list
         # in contaminated.json for the reversion pass.
         #
-        # Cycle-0 designs use a flat "design_NN" label which
-        # parse_pathway_label cannot parse, so read_cumulative_mutations
-        # would fail.  For cycle 0 the design's own mutations.tsv is
-        # the full history — no ancestors to walk — so just read it
-        # directly from the design workdir.
+        # A cycle-0 design's own mutations.tsv IS its full history, because
+        # it has no ancestors.  Cycle 1+ walked the lineage with
+        # read_cumulative_mutations.
         cumulative: List[Tuple[int, str, str]] = []
-        if is_cycle_zero:
-            mut_path = design_workdir / "mutations.tsv"
-            if mut_path.exists():
-                try:
-                    cumulative = read_mutations_tsv_full(mut_path)
-                except Exception as e:
-                    print(f"  WARN {label}: read_mutations_tsv_full failed: {e}",
-                          file=sys.stderr)
-        else:
+        mut_path = design_workdir / "mutations.tsv"
+        if mut_path.exists():
             try:
-                cumulative = read_cumulative_mutations(experiment_root, label)
+                cumulative = read_mutations_tsv_full(mut_path)
             except Exception as e:
-                print(f"  WARN {label}: read_cumulative_mutations failed: {e}",
+                print(f"  WARN {label}: read_mutations_tsv_full failed: {e}",
                       file=sys.stderr)
 
         mutated_positions_1 = sorted(set(pos for pos, _, _ in cumulative))

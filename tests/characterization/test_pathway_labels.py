@@ -1,17 +1,18 @@
 """Tests for bin/pathway_labels.py.
 
-Two jobs live here. Pathway labels encode which design in which cycle produced
-a sequence, and the cumulative-mutation walk reads the edits back out of every
-ancestor. A label that parses wrongly mislabels a mutation set, and a walk that
-silently returns [] reports a steered design as unmutated, which reads as the
-cold start rather than as a missing file.
+Two readers live there. read_mutations_tsv_full reads one design's mutation
+record; a walk that silently returns [] reports a steered design as unmutated,
+which reads as the cold start rather than as a missing file.
 
-The sidecar locator is the other half. The pipeline copies Boltz's chosen PDB
-out to `<design>/prediction.pdb`, but the confidence and PAE files keep Boltz's
-own nested layout and are keyed off the original stem. Pointing a metrics
-parser at `prediction.pdb` therefore finds no confidence at all. Every layout
-the engine writes is exercised here on a built tree, because the bug this
-guards against is silent.
+The sidecar locator is the other. The pipeline copies Boltz's chosen PDB out to
+`<design>/prediction.pdb`, but the confidence and PAE files keep Boltz's own
+nested layout and are keyed off the original stem. Pointing a metrics parser at
+`prediction.pdb` therefore finds no confidence at all, and the metrics come back
+as ptm=0, iptm=0 and pae=0 with only pLDDT surviving through the B-factor
+fallback. Every layout the locator has to recognise is built here.
+
+The dotted pathway-label scheme and the ancestry walk that indexed it were
+removed with the cycle-1+ reader; see archive/cycle1plus_aggregation.py.
 """
 
 from __future__ import annotations
@@ -33,49 +34,6 @@ def pl():
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
-
-
-# ── labels ───────────────────────────────────────────────────────────────────
-
-@pytest.mark.logic
-@pytest.mark.parametrize("parent,cycle,idx,want", [
-    (None, 0, 0, "c0d00"),
-    ("", 0, 7, "c0d07"),
-    ("c0d03", 1, 12, "c0d03.c1d12"),
-    ("c0d03.c1d12", 2, 5, "c0d03.c1d12.c2d05"),
-])
-def test_make_pathway_label(pl, parent, cycle, idx, want):
-    assert pl.make_pathway_label(parent, cycle, idx) == want
-
-
-@pytest.mark.logic
-def test_label_round_trips(pl):
-    label = pl.make_pathway_label(pl.make_pathway_label(None, 0, 3), 1, 12)
-    assert pl.parse_pathway_label(label) == [(0, 3), (1, 12)]
-
-
-@pytest.mark.logic
-def test_design_index_is_zero_padded_but_parses_as_an_int(pl):
-    """The label pads to two digits, so a 3 and an 03 must not become
-    different pathways."""
-    assert pl.make_pathway_label(None, 0, 3) == "c0d03"
-    assert pl.parse_pathway_label("c0d03") == [(0, 3)]
-    assert pl.parse_pathway_label("c0d3") == [(0, 3)]
-
-
-@pytest.mark.logic
-@pytest.mark.parametrize("bad", ["", "x0d01", "c0x01", "nonsense"])
-def test_a_malformed_segment_raises(pl, bad):
-    """Returning a default here would attribute mutations to the wrong design."""
-    with pytest.raises(ValueError):
-        pl.parse_pathway_label(bad)
-
-
-@pytest.mark.logic
-def test_parent_of_a_leaf_is_none(pl):
-    assert pl.parent_pathway_label("c0d03") is None
-    assert pl.parent_pathway_label("c0d03.c1d12") == "c0d03"
-    assert pl.parent_pathway_label("c0d03.c1d12.c2d05") == "c0d03.c1d12"
 
 
 # ── mutations.tsv ────────────────────────────────────────────────────────────
@@ -104,60 +62,6 @@ def test_unparseable_rows_are_dropped_not_guessed(pl, tmp_path):
                  "7\tA\t\n"        # no mutant
                  "8\tA\tK\n")      # the only good row
     assert pl.read_mutations_tsv_full(f) == [(8, "A", "K")]
-
-
-# ── the cumulative walk ──────────────────────────────────────────────────────
-
-def _design(root: Path, cycle: int, pathway: str | None, idx: int,
-            muts: list[tuple[int, str, str]], flat: bool = False) -> None:
-    """Write a plan.json and a mutations.tsv the way the engine lays them out."""
-    import json
-    wd = root if flat else (root / f"cycle_{cycle}" if pathway is None
-                            else root / f"cycle_{cycle}" / f"pathway_{pathway}")
-    d_dir = wd / f"design_{idx:02d}"
-    d_dir.mkdir(parents=True, exist_ok=True)
-    rows = "pos1\twt\tmut\n" + "".join(f"{p}\t{w}\t{m}\n" for p, w, m in muts)
-    (d_dir / "mutations.tsv").write_text(rows)
-    plan = wd / "plan.json"
-    designs = json.loads(plan.read_text())["designs"] if plan.exists() else []
-    while len(designs) <= idx:
-        designs.append({"dir": str(d_dir)})
-    designs[idx] = {"dir": str(d_dir)}
-    plan.write_text(json.dumps({"designs": designs}))
-
-
-@pytest.mark.logic
-def test_cycle_zero_walk_returns_that_design_only(pl, tmp_path):
-    _design(tmp_path, 0, None, 3, [(10, "A", "K")])
-    assert pl.read_cumulative_mutations(tmp_path, "c0d03") == [(10, "A", "K")]
-
-
-@pytest.mark.logic
-def test_walk_collects_ancestors_oldest_first(pl, tmp_path):
-    """A cycle-1 design carries its parent's edits as well as its own."""
-    _design(tmp_path, 0, None, 3, [(10, "A", "K")])
-    _design(tmp_path, 1, "c0d03", 7, [(44, "S", "D")])
-    assert pl.read_cumulative_mutations(tmp_path, "c0d03.c1d07") == [
-        (10, "A", "K"), (44, "S", "D")]
-
-
-@pytest.mark.logic
-def test_walk_falls_back_to_a_flat_cycle_zero_layout(pl, tmp_path):
-    """Older runs wrote plan.json at the experiment root, not under cycle_0."""
-    _design(tmp_path, 0, None, 1, [(5, "V", "E")], flat=True)
-    assert pl.read_cumulative_mutations(tmp_path, "c0d01") == [(5, "V", "E")]
-
-
-@pytest.mark.logic
-def test_a_missing_plan_contributes_nothing_rather_than_raising(pl, tmp_path):
-    assert pl.read_cumulative_mutations(tmp_path, "c0d00") == []
-
-
-@pytest.mark.logic
-def test_a_design_index_the_plan_does_not_have_is_skipped(pl, tmp_path):
-    _design(tmp_path, 0, None, 0, [(1, "A", "K")])
-    # Index 9 is not in that plan, so the walk yields nothing for it.
-    assert pl.read_cumulative_mutations(tmp_path, "c0d09") == []
 
 
 # ── the Boltz sidecar locator ────────────────────────────────────────────────
