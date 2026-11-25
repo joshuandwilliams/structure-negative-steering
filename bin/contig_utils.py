@@ -91,8 +91,9 @@ def parse_block_segments(block, rec_chain=None, pdb_path=None):
         spec = ContigSpec.from_string(block)
     except ValueError as e:
         raise ValueError(f"contig block {block!r} parse failed: {e}")
-    if not spec.chains:
-        return [], None
+    # No `if not spec.chains` guard: from_string raises on empty input and
+    # appends one ContigChain per whitespace-separated block, so a successful
+    # parse always carries at least one chain.
     chain = spec.chains[0]
     block_chain = chain.chain_id
 

@@ -83,9 +83,9 @@ def find_design_entry(metrics, design_id):
     for entry in designs:
         key = entry.get("design") or entry.get("name") or ""
         key = str(key).strip()
+        # ids["with_pdb"] is ids["bare"] + ".pdb", so this one test covers
+        # a key written either way.
         if key in (ids["bare"], ids["with_pdb"]):
-            return entry
-        if key.endswith(".pdb") and key[:-4] == ids["bare"]:
             return entry
     available = sorted(
         str(e.get("design") or e.get("name") or "?") for e in designs
@@ -184,9 +184,6 @@ def cross_check_design_region(design_region_path, interface_indices_0based):
         if not line or line.startswith("#"):
             continue
         for token in line.replace(",", " ").split():
-            token = token.strip()
-            if not token:
-                continue
             if "-" in token:
                 try:
                     lo, hi = token.split("-", 1)
@@ -290,7 +287,11 @@ def main():
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    if not indices_0based:
+    if not indices_0based:  # pragma: no cover - unreachable today
+        # derive_positional_indices raises on empty contacts, on an empty
+        # position order, and on any contact missing from that order, so an
+        # empty result would have raised already. Kept because that is three
+        # invariants in another function rather than a property of this one.
         print("ERROR: derivation produced an empty index list",
               file=sys.stderr)
         return 2
