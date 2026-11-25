@@ -215,6 +215,19 @@ def test_both_kinds_of_contact_report_both_but_fail(rev):
 
 
 @pytest.mark.logic
+def test_the_structural_filter_runs_before_the_contamination_check(rev):
+    """A collapsed pose is reported as collapsed even when it also has a
+    mutated contact. Reporting it as new_contamination instead would suggest
+    the pose survived and was merely contaminated, which is a rescue that
+    could be recovered by another reversion rather than one that failed."""
+    verdict, _ = rev.classify_reversion_verdict(
+        {}, _reverted(reverted_ra_eff_vs_truth=40.0,
+                      reverted_mutated_contact_positions=[12]), 5.0,
+        contamination_gating_positions={12})
+    assert verdict == "pose_collapses"
+
+
+@pytest.mark.logic
 def test_without_a_gate_any_mutated_contact_is_contamination(rev):
     """The pre-gating behaviour, kept for legacy callers."""
     verdict, _ = rev.classify_reversion_verdict(
