@@ -25,7 +25,7 @@ Each stage writes its elapsed seconds to its own file under `run/.stage_times.d/
 
 **`bin/` and `modules/` are owned here.** They started as a copy of the pipeline's negative-steering entry points and their import closure. They have since diverged and are no longer kept in step with it. Changes made here do not flow back to the pipeline, and pipeline changes do not flow in.
 
-**Follow-up cycles are structurally absent, not just switched off.** `boltz2_iterate_steering.py` can submit its own next cycle with `sbatch`. This repo always ran it at `--max-cycles 0`, so that never fired here. The workflow keeps that setting and adds no path back to it. Re-enabling cycles means wiring them as channels in `main.nf`, not letting Python call the scheduler from inside a task.
+**Follow-up cycles are gone, not switched off.** A cycle was a second round of negative steering on the first round's survivors: cycle N+1 started from a parent's already-mutated receptor sequence and added more mutations at positions earlier cycles had not touched, so `total_mutations` — the Hamming distance from the wild type — compounded per cycle. That is why they were abandoned; a design carrying several cycles of edits is no longer a plausible construct. The harness that submitted the next cycle with `sbatch` is in `archive/boltz2_iterate_steering_multicycle.py`, and the code that read such a run — the pathway discovery and row builder in `cmd_aggregate`, the ancestry walk in `_populate_reverted_mutations`, and the dotted label scheme in `pathway_labels.py` — is in `archive/cycle1plus_aggregation.py`. No run ever produced a cycle-1 row: all 110 `all_results_multicycle.csv` files on disk carry `cycle=0` across 4,644 rows, and every one of the 108 cycle directories under `experiments/` is `cycle_0`. `negsteer_aggregate.py` now refuses an experiment root containing a `cycle_N` directory rather than writing a table that omits its rows. Re-enabling cycles means wiring them as channels in `main.nf`, not letting Python call the scheduler from inside a task.
 
 **Every process declares a `path` output, including the ones whose result is a value.** Nextflow hashes file content to decide what `-resume` may skip. A process that emits only `val` gives it nothing to hash, and a resumed run silently repeats hours of GPU work. Each stage therefore copies its artefact into the task directory and declares it.
 
@@ -284,10 +284,11 @@ sbatch tests/test_run.slurm.sh   # produce a fresh run, then assert on it
 ### The single-run test
 
 `tests/test_run.slurm.sh` runs the engine end to end on a GPU
-node and then asserts on what it produced. This is the only test that reaches
-the plan and collect stages of `boltz2_negative_steering`, the per-cycle loop in
-`boltz2_iterate_steering`, and the contamination and reversion harvest in
-`reversion`. None of those can run without the Boltz image.
+node and then asserts on what it produced. It is the only test that runs the
+plan and collect stages of `boltz2_negative_steering`, and the contamination
+and reversion harvest in `reversion`, against a real Boltz prediction. The
+laptop tier reaches the same code with the prediction stubbed, which is why
+those modules are no longer the coverage gap they once were.
 
 `tests/test_run/config.yml` is the shipped 6G10 benchmark configuration with
 one knob turned down, `negsteer_n_designs` at 3 rather than 20. The fan-out is

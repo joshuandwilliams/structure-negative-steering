@@ -1679,11 +1679,16 @@ def _load_input_design_region(
     derive_input_design_region.py and published to
     .../negative_steering/controls_inputs/).
 
-    Returns (positions_set, pdb_length) — either may be None if file
-    missing or unreadable.  pdb_length is unknown from this file alone
-    (it lists only the design-region positions; the file has no record
-    of the receptor length), so callers should derive pdb_length from
-    elsewhere if it's needed.
+    Returns (positions_set, highest_position) — either is None when the
+    file is missing, unreadable or parses to nothing.
+
+    The second element is NOT the receptor length.  The file lists only
+    the design-region positions and carries no record of how long the
+    receptor is, so the highest position in it is a lower bound.  main()
+    takes it as `dr_max` and uses it as the mutation-impact plot's
+    x-axis extent only when --pdb-length was not supplied, which is why
+    a run that wants the full receptor on that axis has to pass
+    --pdb-length explicitly.
 
     File format:
         # comments lines starting with #

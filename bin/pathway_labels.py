@@ -1,13 +1,23 @@
-"""Pathway labels and the cumulative-mutation history they index.
+"""The two readers the aggregation and reversion stages share.
 
-Split out of boltz2_iterate_steering.py, which no longer exists. These six
-helpers are the only code the aggregation and reversion stages share, so they
-live here rather than being duplicated into both.
+Split out of boltz2_iterate_steering.py, which no longer exists.
+
+read_mutations_tsv_full reads one design's mutation record. A single-cycle
+design has no ancestors, so its own mutations.tsv is its whole history.
+
+_locate_boltz_sidecar_pdb finds the nested model PDB that Boltz's confidence
+JSON, PAE and pLDDT arrays sit beside. prediction.pdb is a copy with none of
+them next to it, so pointing a metrics call at its parent returns ptm=0,
+iptm=0 and pae=0 with only pLDDT surviving through the B-factor fallback.
+
+The dotted pathway-label scheme that used to live here indexed a design's
+lineage across cycles. Cycles were a second round of steering on the first
+round's survivors and no longer exist; the scheme is in
+archive/cycle1plus_aggregation.py.
 """
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -15,34 +25,6 @@ from typing import List, Optional, Tuple
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))  # pragma: no cover - import order
-
-
-def make_pathway_label(parent_label: Optional[str], cycle: int, design_idx: int) -> str:
-    """Append a (cycle, design) pair to a parent pathway label."""
-    seg = f"c{cycle}d{design_idx:02d}"
-    if parent_label is None or parent_label == "":
-        return seg
-    return f"{parent_label}.{seg}"
-
-
-def parse_pathway_label(label: str) -> List[Tuple[int, int]]:
-    """Inverse of make_pathway_label.  Returns list of (cycle, design)."""
-    out = []
-    for seg in label.split("."):
-        # seg is "cNdMM"
-        if not seg.startswith("c") or "d" not in seg:
-            raise ValueError(f"Bad pathway segment: {seg}")
-        cyc, _, dsg = seg[1:].partition("d")
-        out.append((int(cyc), int(dsg)))
-    return out
-
-
-def parent_pathway_label(label: str) -> Optional[str]:
-    """Drop the last segment.  Returns None for cycle-0 leaves."""
-    segs = label.split(".")
-    if len(segs) <= 1:
-        return None
-    return ".".join(segs[:-1])
 
 
 def read_mutations_tsv_full(tsv_path: Path) -> List[Tuple[int, str, str]]:
@@ -67,60 +49,6 @@ def read_mutations_tsv_full(tsv_path: Path) -> List[Tuple[int, str, str]]:
             if not wt or not mut:
                 continue
             out.append((pos, wt, mut))
-    return out
-
-
-def read_cumulative_mutations(
-    experiment_root: Path,
-    leaf_label: str,
-) -> List[Tuple[int, str, str]]:
-    """Walk from a leaf pathway up to cycle 0 and collect every
-    (pos1, wt, mut) tuple from every ancestor's mutations.tsv.
-    Returns them in oldest-first order (cycle 0 edits first).
-    Used by cmd_aggregate to build the mutations_chimerax and
-    mutations_aa columns for cycle-1+ rows, where the set of edits
-    that produced the design is the union of its ancestors' edits.
-
-    Note: this is a thinner variant of read_upstream_chain that
-    bypasses the per-entry sequence/pdb loading and just pulls
-    mutations.tsv from each ancestor's design directory.  Kept
-    separate so it can be called without triggering the heavier
-    chain-walking machinery.
-    """
-    out: List[Tuple[int, str, str]] = []
-    label = leaf_label
-    # Walk up from leaf to root.  We collect in leaf-first order,
-    # then reverse.
-    rev_accum: List[List[Tuple[int, str, str]]] = []
-    while label is not None:
-        segs = parse_pathway_label(label)
-        cycle, design_idx = segs[-1]
-        if cycle == 0:
-            wd = experiment_root / "cycle_0"
-            # Flat-layout fallback
-            if not (wd / "plan.json").exists() and (experiment_root / "plan.json").exists():
-                wd = experiment_root
-        else:
-            wd = (
-                experiment_root / f"cycle_{cycle}"
-                / f"pathway_{parent_pathway_label(label)}"
-            )
-        plan_path = wd / "plan.json"
-        if plan_path.exists():
-            try:
-                plan = json.loads(plan_path.read_text())
-                design_meta = plan["designs"][design_idx]
-                d_dir = Path(design_meta["dir"])
-                mut_path = d_dir / "mutations.tsv"
-                rev_accum.append(read_mutations_tsv_full(mut_path))
-            except Exception:
-                rev_accum.append([])
-        else:
-            rev_accum.append([])
-        label = parent_pathway_label(label)
-    # Reverse so cycle-0 mutations come first
-    for lst in reversed(rev_accum):
-        out.extend(lst)
     return out
 
 

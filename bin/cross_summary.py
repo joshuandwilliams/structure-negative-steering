@@ -634,8 +634,14 @@ def _emit_aggregate_summary(records: List[Dict], output_path: Path) -> None:
     n_total = len(records)
     n_ranked = sum(1 for r in records
                    if r.get("cross_rank_by_composite") != "")
+    # Steered only, as the line below says. _assign_cross_ranks applies the
+    # same filter, so an unfiltered count here would disagree with n_ranked
+    # on the previous line: a tier-A control would be counted in A while
+    # carrying a blank cross_rank_by_composite.
     by_tier = {"A": 0, "B": 0, "C": 0, "none": 0}
     for r in records:
+        if (r.get("row_type") or "steered") != "steered":
+            continue
         by_tier[r["cross_tier"]] += 1
     by_row_type: Dict[str, int] = {}
     for r in records:

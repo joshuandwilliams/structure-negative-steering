@@ -235,8 +235,13 @@ class NegativeSteeringRun:
             (default 0).  The pipeline's post-hoc canonicalisation
             chooses one of 5; choosing 0 is a defensible default
             without re-running canonicalisation logic.
-        require_pdb : If True (default) skip seeds whose PDB file is
-            missing.  If False, allow PSP construction to raise.
+        require_pdb : Has no effect on a seed whose PDB is missing. Both
+            settings skip it, because a ProteinStructurePrediction cannot
+            be built without the file. The parameter is kept because
+            callers pass it. A caller setting it to False to get a loud
+            failure gets a silently shortened seed list instead, so a
+            damaged three-seed run is indistinguishable from a one-seed
+            run and n_pass / n_seeds are computed over the survivors.
         """
         import re
         from pathlib import Path
@@ -594,7 +599,10 @@ class NegativeSteeringRun:
         """
         n_pass = self.n_pass(thresholds)
         n_seeds = self.n_seeds_total()
-        if n_seeds <= 0:
+        if n_seeds <= 0:  # pragma: no cover - StageResult refuses 0 predictions
+            # stage_result.py:82 raises on an empty prediction tuple and
+            # num_seeds is its length, so every stage has at least one seed
+            # and n_seeds_total sums over stages that each have one.
             return "none"
         if n_pass == n_seeds:
             return "A"

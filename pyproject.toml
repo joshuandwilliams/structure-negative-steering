@@ -91,9 +91,9 @@ skip_covered = true
 # A ratchet over bin/ + scripts/ combined. It may only ever go up. Raise it to
 # whatever a run reports once new tests land, so coverage cannot quietly fall.
 #
-# The remaining gap is concentrated in two files. boltz2_iterate_steering.py's
-# multi-cycle loop never runs here, because this repo has always driven it at
-# --max-cycles 0, and reversion.py's harvest needs real predictions on disk.
-# Both are reached by the single-run test in tests/test_run.slurm.sh,
-# which is the hpc tier and cannot run on a laptop or in CI.
-fail_under = 90.2
+# What is left is the drawing half of the two plot modules and the degenerate-
+# data guards inside each figure. Both plot modules are standalone diagnostic
+# CLIs: nothing in main.nf, modules/, scripts/ or analysis/ invokes either, and
+# neither writes a committed figure. The run stages themselves are covered on
+# the laptop tier with the Boltz call stubbed, so they are no longer the gap.
+fail_under = 98.4

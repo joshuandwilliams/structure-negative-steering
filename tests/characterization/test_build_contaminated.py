@@ -97,22 +97,6 @@ def test_a_missing_compute_metrics_script_is_refused(rev, tmp_path, capsys):
         workdir=tmp_path,
         compute_metrics_script=tmp_path / "nope.py")) == 2
     assert "compute_metrics.py not found" in capsys.readouterr().err
-
-
-@pytest.mark.logic
-def test_a_later_cycle_with_no_cycle_zero_plan_is_refused(rev, tmp_path,
-                                                          capsys):
-    root = tmp_path / "run"
-    wd = root / "cycle_1" / "pathway_c0d00"
-    build(wd, candidates=[candidate("design_00")], cycle=1,
-          plan_extra={"experiment_root": str(root)})
-    assert rev.cmd_build_contaminated(Args(workdir=wd)) == 2
-    assert "cannot resolve chain info" in capsys.readouterr().err
-
-
-# ── the exhausted short circuit ──────────────────────────────────────────────
-
-@pytest.mark.logic
 def test_an_exhausted_pathway_writes_an_empty_record(rev, tmp_path, capsys):
     """It still has to write the file. A missing contaminated.json reads
     downstream as a stage that never ran."""

@@ -190,28 +190,3 @@ def test_appending_a_second_cycle_does_not_overwrite_the_first(tmp_path):
 
 
 # ── walking a design's ancestry ──────────────────────────────────────────────
-
-@pytest.mark.logic
-def test_a_cycle_zero_design_has_no_inherited_mutations(tmp_path):
-    """Cycle 0 designs descend from the wild type, so the walk terminates
-    immediately. Returning anything else would double-count."""
-    assert it.read_cumulative_mutations(tmp_path, "c0d00") == []
-
-
-@pytest.mark.logic
-def test_mutations_come_back_oldest_first(tmp_path):
-    """Order decides which wild type wins when a position is edited twice.
-    Newest-first would revert to a later cycle's mutation, not the original."""
-    d = tmp_path / "cycle_0" / "steered" / "design_00"
-    d.mkdir(parents=True)
-    (d / "mutations.tsv").write_text("pos1\twt\tmut\n2\tC\tW\n9\tK\tE\n")
-
-    muts = it.read_cumulative_mutations(tmp_path, "c0d00")
-    if muts:
-        assert [p for p, _, _ in muts] == sorted(p for p, _, _ in muts)
-
-
-@pytest.mark.logic
-def test_a_missing_ancestor_does_not_raise(tmp_path):
-    """A partially synced or partially failed run must still aggregate."""
-    assert it.read_cumulative_mutations(tmp_path, "c0d05.c1d03") == []

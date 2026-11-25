@@ -1,13 +1,16 @@
-"""boltz2_iterate_steering's post-prediction stages, on a real run.
+"""The post-prediction aggregation stages, on a real run.
 
-The aggregate stages read a finished run directory and rebuild the tables the
-tiering and the analyses consume. They call no predictor, so a committed run
-drives them exactly as the cluster does.
+These read a finished run directory and rebuild the tables the tiering and the
+analyses consume. They call no predictor, so a committed run drives them
+exactly as the cluster does.
 
 The fixture is 6G10's real run, 540 KB, copied into a temp directory per test
 so nothing writes back into the fixture. Regenerating from it must reproduce
 the committed tables, which is the strongest available check that the
 aggregation still means what the published numbers mean.
+
+The stages used to live in boltz2_iterate_steering.py, which commit af63ba3
+split into negsteer_aggregate, negsteer_coldstart and reversion.
 """
 
 from __future__ import annotations
@@ -26,7 +29,6 @@ sys.path.insert(0, str(_REPO_ROOT / "bin"))
 
 import negsteer_aggregate as _agg  # noqa: E402
 import negsteer_coldstart as _cold  # noqa: E402
-import pathway_labels as pl  # noqa: E402
 import reversion as _rev  # noqa: E402
 
 _STAGE_MODULE = {
@@ -203,25 +205,55 @@ def test_the_fixture_cold_start_failed_so_steering_ran():
 
 
 # ── pathway bookkeeping against the real tree ────────────────────────────────
-
-@pytest.mark.logic
-@needs_run
-def test_recorded_pathways_parse_back_to_cycle_and_design(run_dir):
-    _main("aggregate", "--experiment-root", str(run_dir))
-    data = json.loads((run_dir / "pathways.json").read_text())
-    labels = data if isinstance(data, list) else list(data)
-    for label in labels:
-        if not isinstance(label, str):
-            continue
-        parsed = pl.parse_pathway_label(label)
-        assert isinstance(parsed, list), f"{label!r} did not parse"
-
-
-@pytest.mark.logic
-@needs_run
 def test_the_multicycle_table_carries_the_columns_downstream_reads(run_dir):
     _main("aggregate", "--experiment-root", str(run_dir))
     rows = _read(run_dir / "all_results_multicycle.csv")
     assert rows, "the multicycle table is empty"
     for col in ("cycle", "design", "seed_index"):
         assert col in rows[0], f"the multicycle table lacks {col}"
+
+
+# ── the single-cycle refusal ─────────────────────────────────────────────────
+#
+# A cycle was a second round of steering on the first round's survivors,
+# mutating on top of their already-mutated sequences, so the mutation count
+# compounded per cycle. The harness is in
+# archive/boltz2_iterate_steering_multicycle.py and the reader for its output
+# in archive/cycle1plus_aggregation.py.
+#
+# What matters here is that aggregate refuses a root containing one rather
+# than ignoring it. Ignoring it would write an all_results_multicycle.csv that
+# looks complete while omitting every row of that cycle, and the tiering
+# downstream would rank a partial run against a whole one.
+
+@pytest.mark.logic
+@needs_run
+def test_a_follow_up_cycle_directory_is_refused(run_dir, capsys):
+    (run_dir / "cycle_1" / "pathway_c0d00").mkdir(parents=True)
+    (run_dir / "cycle_1" / "pathway_c0d00" / "plan.json").write_text(
+        json.dumps({"cycle": 1, "parent_pathway": "c0d00", "designs": []}))
+    assert _main("aggregate", "--experiment-root", str(run_dir)) == 2
+    err = capsys.readouterr().err
+    assert "follow-up cycle directories" in err
+    assert "cycle_1" in err
+    assert "archive/cycle1plus_aggregation.py" in err
+
+
+@pytest.mark.logic
+@needs_run
+def test_the_committed_table_is_left_alone_when_it_refuses(run_dir):
+    """A refusal that had already truncated the table would be worse than
+    the silent skip it replaces."""
+    before = (run_dir / "all_results_multicycle.csv").read_bytes()
+    (run_dir / "cycle_2").mkdir()
+    assert _main("aggregate", "--experiment-root", str(run_dir)) == 2
+    assert (run_dir / "all_results_multicycle.csv").read_bytes() == before
+
+
+@pytest.mark.logic
+@needs_run
+def test_cycle_statistics_is_not_mistaken_for_a_cycle_directory(run_dir):
+    """The glob that finds cycle_* also matches cycle_statistics.csv, which
+    the kickoff stage writes next to the cycle directories."""
+    (run_dir / "cycle_statistics.csv").write_text("cycle,n\n0,1\n")
+    assert _main("aggregate", "--experiment-root", str(run_dir)) == 0
