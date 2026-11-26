@@ -30,7 +30,7 @@ ENTRY_POINTS = [
     "bin/negsteer_coldstart.py",
     "bin/negsteer_aggregate.py",
     "bin/pathway_labels.py",
-    "bin/cross_summary_cli.py",
+    "bin/cross_summary.py",
     "bin/extract_passing.py",
     "bin/sum_stage_times.py",
     "scripts/negative_steering.py",

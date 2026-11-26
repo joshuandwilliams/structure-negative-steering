@@ -23,7 +23,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "bin"))
 
 import extract_passing as ep  # noqa: E402
-import negative_steering_run as nsr  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "full_run" / "6G10"
 needs_run = pytest.mark.skipif(
@@ -152,46 +151,6 @@ def test_extract_row_is_stage_aware_about_reversion():
 def test_extract_row_of_an_empty_row_does_not_raise():
     got = ep.extract_row({}, None)
     assert got is None or isinstance(got, dict)
-
-
-# ── negative_steering_run: locating Boltz outputs ────────────────────────────
-
-@pytest.mark.logic
-def test_boltz_outputs_are_not_found_in_an_empty_directory(tmp_path):
-    pdb, conf = nsr._find_boltz_outputs(tmp_path)
-    assert pdb is None and conf is None
-
-
-@pytest.mark.logic
-def test_boltz_outputs_are_located_by_shape(tmp_path):
-    """The canonical layout is boltz_results_*/predictions/*/ with a pdb."""
-    pred = tmp_path / "boltz_results_input" / "predictions" / "input"
-    pred.mkdir(parents=True)
-    (pred / "input_model_0.pdb").write_text("ATOM\n")
-    (pred / "confidence_input_model_0.json").write_text("{}")
-    pdb, conf = nsr._find_boltz_outputs(tmp_path)
-    assert pdb is None or pdb.suffix == ".pdb"
-
-
-@pytest.mark.logic
-def test_mutations_tsv_reads_into_a_position_set(tmp_path):
-    tsv = tmp_path / "mutations.tsv"
-    tsv.write_text("pos1\twt\tmut\n5\tA\tK\n7\tC\tW\n")
-    got = nsr._read_mutations_positionset(tsv, "A")
-    assert got is None or len(got) == 2
-
-
-@pytest.mark.logic
-def test_an_absent_mutations_tsv_is_none_not_a_crash(tmp_path):
-    assert nsr._read_mutations_positionset(tmp_path / "nope.tsv", "A") is None
-
-
-@pytest.mark.logic
-def test_seed_stage_dirs_of_an_empty_cycle_are_empty(tmp_path):
-    cycle = tmp_path / "cycle_0"
-    cycle.mkdir()
-    a, b, seeds = nsr._read_seed_stage_dirs(cycle, 3, "A", "B", 0, False)
-    assert seeds == [] or all(isinstance(s, int) for s in seeds)
 
 
 # ── the confidence flag ──────────────────────────────────────────────────────

@@ -500,7 +500,7 @@ def test_the_committed_contact_counts_hold_at_both_cutoffs():
 # expected_rec_seq is an optional check that the walked residue count matches
 # what the caller believes the receptor to be. It catches PDB-vs-FASTA
 # inconsistencies that would silently misalign the positional indices
-# derive_design_region.py consumes.
+# the design-region file is written in.
 #
 # What it checks is length and nothing else. That matters, because comparing a
 # reverted design against cycle_0's wild-type sequence raised on every design

@@ -136,7 +136,7 @@ echo "bash $LAUNCH"
 bash "$LAUNCH"
 
 # ── Tiering: pick the representative steered design and assign cross_tier ────
-# Mirrors the pipeline's NEGSTEER_CROSS_SUMMARY stage. cross_summary_cli.py reads
+# Mirrors the pipeline's NEGSTEER_CROSS_SUMMARY stage. cross_summary.py reads
 # the run's passing_summary.csv, picks ONE representative and writes
 # cross_sequence_summary.csv with cross_tier:
 #   A: n_pass == n_seeds   B: 1 < n_pass < n_seeds   C: n_pass == 1   none: 0
@@ -153,7 +153,7 @@ if [[ -f "$PASSING" ]]; then
     echo
     echo "=== tiering: representative + cross_tier -> cross_sequence_summary.csv ==="
     if singularity exec --bind "$WORKDIR" --bind "$ENGINE_BIN" "$CONTAINER" \
-            python "${ENGINE_BIN}/cross_summary_cli.py" \
+            python "${ENGINE_BIN}/cross_summary.py" \
                 --passing-summary "${NAME}=${PASSING}" \
                 --output "$XSUMM"; then
         echo "wrote $XSUMM"

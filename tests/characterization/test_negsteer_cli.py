@@ -38,7 +38,7 @@ EXPECTED_STAGES = [
     ("negsteer_aggregate.py", "compute-final-metrics"),
     ("negsteer_aggregate.py", "aggregate-per-sequence"),
     ("extract_passing.py", None),
-    ("cross_summary_cli.py", None),
+    ("cross_summary.py", None),
 ]
 
 
@@ -238,7 +238,7 @@ def test_tiering_failure_does_not_fail_the_run(tmp_path, monkeypatch):
     import negsteer.cli as cli
 
     def flaky(argv, *, tolerate=None, dry=False):
-        if "cross_summary_cli" in " ".join(str(a) for a in argv):
+        if "cross_summary" in " ".join(str(a) for a in argv):
             raise cli.StageError("tiering blew up")
         return 0
 

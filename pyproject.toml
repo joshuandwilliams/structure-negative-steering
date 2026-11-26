@@ -91,9 +91,9 @@ skip_covered = true
 # A ratchet over bin/ + scripts/ combined. It may only ever go up. Raise it to
 # whatever a run reports once new tests land, so coverage cannot quietly fall.
 #
-# The two hand-run plot modules used to be most of the remaining gap. They were
-# cohort diagnostics for the RFDiffusion/ProteinMPNN design campaign, which
-# receptor-resurfacing-pipeline runs and this repo does not, so they moved out
-# and the figures they drew are produced there. Everything left is reached by a
-# workflow stage, with the Boltz call stubbed on the laptop tier.
+# Everything under bin/ is now reached by a workflow stage, with the Boltz call
+# stubbed on the laptop tier. What used to sit outside that, and is now in
+# receptor-resurfacing-pipeline where it belongs, was the design-campaign code:
+# two hand-run cohort plot modules, a tiered object model keyed on MPNN
+# sequences, and the RFDiffusion contig and index derivation.
 fail_under = 100.0

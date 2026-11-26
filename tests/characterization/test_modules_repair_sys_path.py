@@ -34,16 +34,8 @@ BIN = _REPO_ROOT / "bin"
 # sibling import failed would raise, so reaching the assertion at all is most
 # of the test. The name proves the module finished executing.
 MODULES = [
-    ("cross_summary_cli", "main"),
-    ("design_cohort", "DesignCohort"),
-    ("designed_backbone", "DesignedBackbone"),
-    ("designed_sequence", "DesignedSequence"),
-    ("negative_steering_run", "NegativeSteeringRun"),
     ("negsteer_coldstart", "main"),
     ("pathway_labels", "read_mutations_tsv_full"),
-    ("position_set", "PositionSet"),
-    ("protein_structure_prediction", "ProteinStructurePrediction"),
-    ("stage_result", "StageResult"),
 ]
 
 
@@ -79,9 +71,9 @@ def test_a_module_already_on_the_path_does_not_duplicate_it(monkeypatch):
     before = sys.path.count(str(BIN))
 
     spec = importlib.util.spec_from_file_location(
-        "position_set", BIN / "position_set.py")
+        "pathway_labels", BIN / "pathway_labels.py")
     module = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, "position_set", module)
+    monkeypatch.setitem(sys.modules, "pathway_labels", module)
     spec.loader.exec_module(module)
 
     assert sys.path.count(str(BIN)) == before

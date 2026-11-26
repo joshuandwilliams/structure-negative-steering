@@ -139,8 +139,10 @@ def _write_ablation_record(path: Path, *, mode: str, seed: int, idx0: List[int],
 def _write_true_interface(path: Path, idx0: List[int], *, complex_pdb: Path,
                           receptor_chain: str, effector_chain: str,
                           source: str) -> None:
-    """Write 0-based indices, one per line, matching
-    derive_true_interface.py's format."""
+    """Write 0-based indices, one per line.
+
+    The format the design pipeline's true-interface files use, which is
+    what --true-interface-indices-file parses."""
     with path.open("w") as f:
         f.write(f"# derived from complex {complex_pdb}\n")
         f.write(f"# interface source: {source}\n")
@@ -155,9 +157,10 @@ def _write_true_interface(path: Path, idx0: List[int], *, complex_pdb: Path,
 
 def _write_design_region(path: Path, idx1: List[int], *, complex_pdb: Path,
                          receptor_chain: str, source: str) -> None:
-    """Write 1-based indices, comma-separated, matching
-    derive_design_region.py's format.  It counts from 1, unlike the
-    true-interface file above."""
+    """Write 1-based indices, comma-separated.
+
+    The format --design-region-indices-file parses.  It counts from 1,
+    unlike the true-interface file above."""
     with path.open("w") as f:
         f.write(f"# derived from complex {complex_pdb}\n")
         f.write(f"# design region source: {source}\n")

@@ -1,6 +1,6 @@
 """Golden-output tests for the cross-sequence summary chain.
 
-``cross_summary_cli.py`` is the CLI the Nextflow module and the SLURM entry point
+``cross_summary.py`` is the CLI the Nextflow module and the SLURM entry point
 both invoke. It routes through ``design_cohort.DesignCohort`` into
 ``cross_summary.aggregate``, which reads a run's ``passing_summary.csv``
 and picks one representative steered design, assigning its tier from
@@ -37,7 +37,7 @@ from unittest import mock
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CLI = REPO_ROOT / "bin" / "cross_summary_cli.py"
+CLI = REPO_ROOT / "bin" / "cross_summary.py"
 FIXTURES = Path(__file__).parent / "fixtures" / "cross_summary"
 
 # Provenance columns. They record an input location rather than a result.
@@ -55,9 +55,9 @@ sys.path.insert(0, str(REPO_ROOT / "bin"))
 
 
 def _main(*args: str) -> int:
-    """Drive cross_summary_cli in process so coverage can see it."""
-    import cross_summary_cli as csv2
-    with mock.patch.object(sys, "argv", ["cross_summary_cli.py", *args]):
+    """Drive cross_summary in process so coverage can see it."""
+    import cross_summary as csv2
+    with mock.patch.object(sys, "argv", ["cross_summary.py", *args]):
         rc = csv2.main()
     return 0 if rc is None else rc
 

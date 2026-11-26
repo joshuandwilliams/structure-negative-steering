@@ -321,13 +321,15 @@ Validate the config on a laptop first, which needs no GPU:
 ./scripts/negative_steering.py tests/test_run/config.yml --prepare-only
 ```
 
-Most of `bin/` is the same code the pipeline ships, so most of these tests came
-from `receptor-resurfacing-pipeline/tests/characterization/`. Eleven files
-ported without modification, because both repos put `bin/` at the repo root and
-resolve it the same way. They cover `position_set`, `contig_spec`,
-`stage_result`, `protein_structure_prediction`, `boltz_confidence`,
-`design_cohort`, `designed_sequence`, `designed_backbone`, `cross_summary_model`,
-`pipeline_thresholds` and `negative_steering_run`.
+`bin/` used to carry a tiered object model ported from
+`receptor-resurfacing-pipeline`, eleven modules built around one MPNN sequence
+per RFDiffusion backbone, with eleven test files ported alongside them. A run
+here is one solved complex with one sequence, nothing constructed any of those
+classes on a workflow path, and `cross_summary_cli.py` wrapped
+`cross_summary.py` to produce a byte-identical CSV. All of it went, along with
+the RFDiffusion contig parsing and the two `derive_*` scripts that read a
+design pipeline's `rfdiffusion_metrics.json`. The pipeline keeps its own
+copies, which is where that code belongs.
 
 The `hpc` tier pins a finished benchmark run. It asserts both variants cover the
 same targets, that every run carries the outputs it should, that one run yields

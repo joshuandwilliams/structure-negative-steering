@@ -86,7 +86,7 @@ COLDSTART = BIN / "negsteer_coldstart.py"
 REVERSION = BIN / "reversion.py"
 AGGREGATE = BIN / "negsteer_aggregate.py"
 EXTRACT = BIN / "extract_passing.py"
-CROSS_SUMMARY = BIN / "cross_summary_cli.py"
+CROSS_SUMMARY = BIN / "cross_summary.py"
 
 # predict-one and predict-reversion-one return 1 for a per-design failure,
 # 0 otherwise. Anything else is fatal, as in the shell orchestrator, so one
