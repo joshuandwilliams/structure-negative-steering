@@ -729,6 +729,49 @@ def _persist_reversion_results_to_disk(
     )
 
 
+def _compute_metrics_cmd(script, prediction_dir, *, rec_len, eff_len,
+                         output_csv, pae_cutoff, receptor_chain,
+                         effector_chain, contact_cutoff,
+                         native_pdb=None, effector_atom_filter=None,
+                         mutated_positions=None):
+    """The compute_metrics.py command line both reversion stages build.
+
+    The ten shared flags are here.  The three optional ones are not shared:
+
+      native_pdb              harvest only.  Without it intact_core,
+                              weighted_jaccard and interface_plddt come out
+                              blank.  The steered side passes the cycle_0
+                              ground truth too, so the two stay comparable.
+      effector_atom_filter    restricts contact detection to the effector
+                              interface-atom set in cycle_0/plan.json.  An
+                              empty list there leaves detection unfiltered,
+                              which compute_metrics.py handles.
+      mutated_positions       build-contaminated only, for the
+                              contamination check.
+
+    Keyword-only after the first two, because ten positional arguments in a
+    row would be worse than the duplication this replaces.
+    """
+    cmd = [
+        sys.executable, str(script),
+        "--model", "boltz2",
+        "--prediction-dir", str(prediction_dir),
+        "--chain-lengths", str(rec_len), str(eff_len),
+        "--output-csv", str(output_csv),
+        "--pae-cutoff", str(pae_cutoff),
+        "--receptor-chain", receptor_chain,
+        "--effector-chain", effector_chain,
+        "--contact-cutoff", str(contact_cutoff),
+    ]
+    if native_pdb is not None:
+        cmd += ["--native-pdb", str(native_pdb)]
+    if effector_atom_filter is not None:
+        cmd += ["--effector-atom-filter-json", str(effector_atom_filter)]
+    if mutated_positions:
+        cmd += ["--mutated-positions", mutated_positions]
+    return cmd
+
+
 def harvest_reversion_results(
     workdir: Path,
     ground_truth_pdb: Path,
@@ -881,23 +924,13 @@ def harvest_reversion_results(
             rev_dir, reverted_positions
         )
 
-        cmd = [
-            sys.executable, str(compute_metrics_script),
-            "--model", "boltz2",
-            "--prediction-dir", str(rev_dir),
-            "--chain-lengths", str(rec_len), str(eff_len),
-            "--output-csv", str(per_row_csv),
-            "--pae-cutoff", str(pae_cutoff),
-            "--receptor-chain", pred_rec,
-            "--effector-chain", pred_eff,
-            "--contact-cutoff", str(contact_cutoff),
-            # Without this, intact_core, weighted_jaccard and
-            # interface_plddt come out blank.  The steered side passes
-            # the cycle_0 ground truth too, so the two stay comparable.
-            "--native-pdb", str(ground_truth_pdb),
-        ]
-        if cycle0_plan_path is not None:
-            cmd.extend(["--effector-atom-filter-json", str(cycle0_plan_path)])
+        cmd = _compute_metrics_cmd(
+            compute_metrics_script, rev_dir,
+            rec_len=rec_len, eff_len=eff_len, output_csv=per_row_csv,
+            pae_cutoff=pae_cutoff, receptor_chain=pred_rec,
+            effector_chain=pred_eff, contact_cutoff=contact_cutoff,
+            native_pdb=ground_truth_pdb,
+            effector_atom_filter=cycle0_plan_path)
         if remaining_muts_str:
             cmd.extend(["--mutated-positions", remaining_muts_str])
 
@@ -1295,23 +1328,13 @@ def cmd_build_contaminated(args: argparse.Namespace) -> int:
 
         per_row_csv = scratch_dir / f"{label.replace('.', '_')}.csv"
 
-        cmd = [
-            sys.executable, str(compute_metrics_script),
-            "--model", "boltz2",
-            "--prediction-dir", str(pred_dir),
-            "--chain-lengths", str(rec_len), str(eff_len),
-            "--output-csv", str(per_row_csv),
-            "--pae-cutoff", str(args.pae_cutoff),
-            "--receptor-chain", pred_rec_chain,
-            "--effector-chain", pred_eff_chain,
-            "--contact-cutoff", str(args.contact_cutoff),
-            # Restricts contact detection to the effector interface-atom
-            # set in cycle_0/plan.json.  An empty list there leaves
-            # detection unfiltered, which compute_metrics.py handles.
-            "--effector-atom-filter-json", str(cycle0_plan_path),
-        ]
-        if mutated_cli:
-            cmd.extend(["--mutated-positions", mutated_cli])
+        cmd = _compute_metrics_cmd(
+            compute_metrics_script, pred_dir,
+            rec_len=rec_len, eff_len=eff_len, output_csv=per_row_csv,
+            pae_cutoff=args.pae_cutoff, receptor_chain=pred_rec_chain,
+            effector_chain=pred_eff_chain, contact_cutoff=args.contact_cutoff,
+            effector_atom_filter=cycle0_plan_path,
+            mutated_positions=mutated_cli)
 
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
