@@ -3,9 +3,9 @@
 # Sync the local repo to the HPC via SSH (uses the ~/.ssh/config alias 'slurm').
 #
 # Usage:
-#   ./scripts/sync_to_hpc.sh              # real sync
-#   ./scripts/sync_to_hpc.sh --dry        # dry run, no changes
-#   ./scripts/sync_to_hpc.sh --list-stale # report cluster-only paths, change nothing
+#   ./contrib/sync_to_hpc.sh              # real sync
+#   ./contrib/sync_to_hpc.sh --dry        # dry run, no changes
+#   ./contrib/sync_to_hpc.sh --list-stale # report cluster-only paths, change nothing
 #
 # Why --list-stale exists:
 #   rsync --delete does NOT delete excluded paths. It protects them, which is
@@ -49,8 +49,20 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HPC_USER_HOST="slurm"
-HPC_DEST="receptor_design/structure-negative-steering/"
+# Host and remote path come from site.conf, which is gitignored. HOST is
+# anything ssh accepts, including an alias from ~/.ssh/config.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/site_conf.sh
+. "${HERE}/../scripts/site_conf.sh"
+
+if [ -z "${NEGSTEER_HPC_HOST:-}" ] || [ -z "${NEGSTEER_HPC_DEST:-}" ]; then
+    echo "ERROR: set NEGSTEER_HPC_HOST and NEGSTEER_HPC_DEST in site.conf." >&2
+    echo "See site.conf.example." >&2
+    exit 1
+fi
+
+HPC_USER_HOST="${NEGSTEER_HPC_HOST}"
+HPC_DEST="${NEGSTEER_HPC_DEST}"
 
 DRY_RUN=""
 case "${1:-}" in

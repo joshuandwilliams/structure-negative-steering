@@ -21,7 +21,7 @@ fold-intactness also tracked, which those two scripts do not need.
 
 Data: experiments/dose-sweep/n50/<target>/run/raw_per_seed_results.csv,
 gitignored (HPC), pulled with
-    scripts/sync_from_hpc.sh --name dose-sweep --results-only
+    contrib/sync_from_hpc.sh --name dose-sweep --results-only
 Output: tier_failure_breakdown_n50.csv (committed).
 """
 from __future__ import annotations

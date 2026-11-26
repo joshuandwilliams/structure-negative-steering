@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name="nf_negsteer"
-#SBATCH -p jic-medium
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -c 2
@@ -9,7 +8,6 @@
 #SBATCH --output=nf_negsteer_%j.out
 #SBATCH --error=nf_negsteer_%j.err
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=jowillia@nbi.ac.uk
 # ─────────────────────────────────────────────────────────────────────────────
 # run_workflow.slurm.sh — submit main.nf as a batch job.
 #
@@ -25,12 +23,17 @@
 #
 # The header is sized for the head process only, 2 CPUs and 4 GB. Every stage
 # that does real work gets its own allocation from nextflow.config's `cpu` and
-# `gpu` labels, and executor.queueSize caps this run at 10 concurrent tasks.
+# `gpu` labels, and executor.queueSize caps this run at 40 tasks in flight.
+#
+# The partition is not here. It is the one resource whose name differs per
+# site, so it comes from site.conf through scripts/submit.sh, or from an
+# sbatch -p on the command line. Without either, the job takes the cluster's
+# default partition, which is fine for a CPU-only head process.
 #
 # --time must outlive the whole run, including time the GPU tasks spend queued,
 # because the head job being killed at its walltime orphans whatever it has
-# already submitted. 24 h on jic-medium is the default. Trim it with sbatch's
-# own flags, which override the header, but leave room for the queue:
+# already submitted. 24 h is the default. Trim it with sbatch's own flags,
+# which override the header, but leave room for the queue:
 #
 #   sbatch -t 12:00:00 scripts/run_workflow.slurm.sh tests/test_run/config.yml
 #
@@ -41,14 +44,18 @@
 set -euo pipefail
 
 if [ "$#" -lt 1 ]; then
-    echo "Usage: sbatch scripts/run_workflow.slurm.sh <targets> [extra nextflow args]"
+    echo "Usage: ./scripts/submit.sh workflow <targets> [extra nextflow args]"
     echo ""
     echo "  <targets>  one config.yml, or a quoted glob matching several."
     echo ""
     echo "Examples:"
-    echo "  sbatch scripts/run_workflow.slurm.sh tests/test_run/config.yml"
-    echo "  sbatch scripts/run_workflow.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml"
-    echo "  sbatch scripts/run_workflow.slurm.sh 'experiments/benchmarking/**/config.yml'"
+    echo "  ./scripts/submit.sh workflow tests/test_run/config.yml"
+    echo "  ./scripts/submit.sh workflow experiments/benchmarking/unconstrained/6G10/config.yml"
+    echo "  ./scripts/submit.sh workflow 'experiments/benchmarking/**/config.yml'"
+    echo ""
+    echo "submit.sh adds this site's partition from site.conf. Plain"
+    echo "\`sbatch scripts/run_workflow.slurm.sh <targets>\` also works and"
+    echo "takes the cluster's default partition."
     exit 1
 fi
 
@@ -60,37 +67,36 @@ shift
 # resolve to the repo. SLURM_SUBMIT_DIR is where sbatch was called from, which
 # is the repo root in the documented usage. Fall back to the canonical path.
 REPO_DIR="${NEGSTEER_REPO_DIR:-${SLURM_SUBMIT_DIR:-}}"
-if [ -z "${REPO_DIR}" ] || [ ! -f "${REPO_DIR}/main.nf" ]; then
-    REPO_DIR="/hpc-home/jowillia/receptor_design/structure-negative-steering"
-fi
-if [ ! -f "${REPO_DIR}/main.nf" ]; then
-    echo "ERROR: no main.nf under ${REPO_DIR}."
-    echo "Submit from the repo root, or set NEGSTEER_REPO_DIR."
+if [ ! -f "${REPO_DIR:-}/main.nf" ]; then
+    echo "ERROR: no main.nf under '${REPO_DIR:-}'."
+    echo "Submit from the repo root, or set NEGSTEER_REPO_DIR in site.conf."
     exit 1
 fi
 cd "${REPO_DIR}"
 
+# site.conf carries this cluster's container and launcher paths. Sourced after
+# the cd so a relative NEGSTEER_* path resolves against the repo.
+# shellcheck source=scripts/site_conf.sh
+. "${REPO_DIR}/scripts/site_conf.sh"
+
 # ── Why this one process runs outside a container ────────────────────────────
-# Every stage of the pipeline runs inside the Boltz image. The Nextflow head
-# process cannot, and this is the documented reason, from the pipeline's own
-# audit: "we're OUTSIDE the container here, so sbatch is on PATH". The head
-# process exists to submit and poll SLURM jobs, and sbatch and squeue are host
-# binaries. Run it inside NextFlow.img and it has no scheduler to talk to.
+# Every stage of the pipeline runs inside the Boltz image. The head process
+# cannot, because its whole job is to submit and poll SLURM jobs and sbatch
+# and squeue are host binaries. Run it inside an image and it has no
+# scheduler to talk to.
 #
-# So the head process needs a host JVM, which is why the JDK exists at
-# /hpc-home/jowillia/singularity/jdk-17.0.2. That is the canonical location
-# recorded in the pipeline's audit and used by all seven of its SLURM
-# launchers. It is not a version this script picked.
-#
-# The Nextflow version is NOT a host version either. The launcher is extracted
-# from NextFlow.img below, which pins 25.10.4 by URL in its %post. The image
-# decides the version; the host only supplies the JVM to run it.
+# So this one process needs a host JVM and a host Nextflow launcher. The
+# Nextflow VERSION is still not the host's: the launcher is extracted from
+# NEGSTEER_NEXTFLOW_IMG below, which pins it in its own %post.
 
 # ── Java ─────────────────────────────────────────────────────────────────────
-export JAVA_HOME="${NEGSTEER_JAVA_HOME:-/hpc-home/jowillia/singularity/jdk-17.0.2}"
-export PATH="${JAVA_HOME}/bin:${PATH}"
-if [ ! -x "${JAVA_HOME}/bin/java" ]; then
-    echo "ERROR: no java at ${JAVA_HOME}/bin/java. Set NEGSTEER_JAVA_HOME."
+# NEGSTEER_JAVA_HOME in site.conf, or java already on PATH.
+if [ -n "${NEGSTEER_JAVA_HOME:-}" ]; then
+    export JAVA_HOME="${NEGSTEER_JAVA_HOME}"
+    export PATH="${JAVA_HOME}/bin:${PATH}"
+fi
+if ! command -v java >/dev/null 2>&1; then
+    echo "ERROR: no java on PATH. Set NEGSTEER_JAVA_HOME in site.conf."
     exit 1
 fi
 
@@ -112,12 +118,20 @@ mkdir -p "${NXF_HOME}" "${NXF_WORK}" "${NXF_TEMP}" "${REPO_DIR}/.nextflow-report
 # ── Nextflow launcher ────────────────────────────────────────────────────────
 # Extracted from the container into this repo's own NXF_HOME rather than
 # borrowed from a sibling repo's, so a run here cannot write into that one.
-NEXTFLOW_IMG="${NEGSTEER_NEXTFLOW_IMG:-/hpc-home/jowillia/singularity/NextFlow/NextFlow.img}"
+NEXTFLOW_IMG="${NEGSTEER_NEXTFLOW_IMG:-}"
 NEXTFLOW_BIN="${NXF_HOME}/nextflow"
 
+# No image configured and a nextflow already on PATH is a complete answer.
+if [ ! -x "${NEXTFLOW_BIN}" ] && [ -z "${NEXTFLOW_IMG}" ] \
+   && command -v nextflow >/dev/null 2>&1; then
+    NEXTFLOW_BIN="$(command -v nextflow)"
+fi
+
 if [ ! -x "${NEXTFLOW_BIN}" ]; then
-    if [ ! -f "${NEXTFLOW_IMG}" ]; then
-        echo "ERROR: no nextflow launcher at ${NEXTFLOW_BIN} and no image at ${NEXTFLOW_IMG}."
+    if [ -z "${NEXTFLOW_IMG}" ] || [ ! -f "${NEXTFLOW_IMG}" ]; then
+        echo "ERROR: no nextflow launcher at ${NEXTFLOW_BIN}, none on PATH, and"
+        echo "no image at '${NEXTFLOW_IMG}'. Set NEGSTEER_NEXTFLOW_IMG in"
+        echo "site.conf, or install Nextflow 25.10.4."
         exit 1
     fi
     echo "Extracting the nextflow launcher from ${NEXTFLOW_IMG} ..."
@@ -125,7 +139,8 @@ if [ ! -x "${NEXTFLOW_BIN}" ]; then
     chmod +x "${NEXTFLOW_BIN}"
 fi
 
-if [ ! -d "${NXF_HOME}/plugins" ] || [ -z "$(ls -A "${NXF_HOME}/plugins" 2>/dev/null)" ]; then
+if [ -n "${NEXTFLOW_IMG}" ] && { [ ! -d "${NXF_HOME}/plugins" ] \
+   || [ -z "$(ls -A "${NXF_HOME}/plugins" 2>/dev/null)" ]; }; then
     echo "Seeding NXF_HOME from ${NEXTFLOW_IMG} ..."
     singularity exec --bind "${NXF_HOME}:/mnt/out" "${NEXTFLOW_IMG}" \
         bash -c "cp -r /opt/nextflow/* /mnt/out" 2>/dev/null || true

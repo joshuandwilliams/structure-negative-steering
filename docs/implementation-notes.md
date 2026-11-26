@@ -114,12 +114,12 @@ That stage is the awkward one, because the container path is what it is reading.
 `main.nf` is the entry point. It takes a glob, so one target and the whole benchmark are the same command. `scripts/run_workflow.slurm.sh` submits it. The Nextflow head process is CPU-only, and it parses the DAG, submits each stage to SLURM and then waits, so it runs as a batch job rather than on the login node.
 
 ```bash
-./scripts/sync_to_hpc.sh                       # from the Mac. Excludes experiments/ and analysis/
+./contrib/sync_to_hpc.sh                       # from the Mac. Excludes experiments/ and analysis/
 
 # on the HPC, from the repo root. One sbatch, nothing on the login node.
-sbatch scripts/run_workflow.slurm.sh tests/test_run/config.yml
-sbatch scripts/run_workflow.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml
-sbatch scripts/run_workflow.slurm.sh 'experiments/benchmarking/**/config.yml'
+./scripts/submit.sh workflow tests/test_run/config.yml
+./scripts/submit.sh workflow experiments/benchmarking/unconstrained/6G10/config.yml
+./scripts/submit.sh workflow 'experiments/benchmarking/**/config.yml'
 
 # The header is a default and sbatch's own flags override it. Trim with care:
 # the head job being killed at its walltime orphans whatever it has already
@@ -132,13 +132,13 @@ nextflow run main.nf -profile local --targets '...' -stub-run   # walk the DAG
 
 The wrapper resolves the JDK and the Nextflow launcher itself. Nothing is installed on the cluster. It extracts the launcher from `NextFlow.img` into this repo's own `nxf_home/` on first use, rather than borrowing a sibling repo's, so a run here cannot write into that one. `NEGSTEER_JAVA_HOME` and `NEGSTEER_NEXTFLOW_IMG` override both paths.
 
-The head process is the one thing that does not run in a container, and the reason is recorded in the pipeline's own audit. "We're OUTSIDE the container here, so sbatch is on PATH." Its whole job is to submit and poll SLURM jobs, and `sbatch` and `squeue` are host binaries. That is why the JDK at `/hpc-home/jowillia/singularity/jdk-17.0.2` exists, which is the canonical location that audit records and that all seven of the pipeline's launchers use. The Nextflow version is not a host version either. `NextFlow.def` pins 25.10.4 by URL, the launcher is extracted from that image, and the host supplies only the JVM to run it. Every pipeline stage still runs inside the Boltz image.
+The head process is the one thing that does not run in a container. Its whole job is to submit and poll SLURM jobs, and `sbatch` and `squeue` are host binaries, so inside an image it would have no scheduler to talk to. That is why it needs a host JVM, which `NEGSTEER_JAVA_HOME` in `site.conf` points at, or any `java` already on PATH. The Nextflow version is not a host version either. The launcher is extracted from `NEGSTEER_NEXTFLOW_IMG`, whose own `%post` pins 25.10.4 by URL, and the host supplies only the JVM to run it. Install Nextflow 25.10.4 normally instead and `run_workflow.slurm.sh` uses that. Every pipeline stage still runs inside the Boltz image.
 
 `-resume` is always passed, so a head job that hits its walltime can be resubmitted with the identical command and skips what already finished.
 
 **Profiles here are shaped around a Nextflow version trap.** 25.10.x *replaces* a `withLabel:` block when a profile redefines the same selector, where 26.04 merges it. The cluster runs 25.10.4. An `hpc` profile that set `withLabel: gpu { executor = 'slurm' }` therefore reduced the gpu label to exactly that, dropping `queue`, `cpus`, `memory`, `time` and `clusterOptions`. Nextflow submitted a bare `sbatch`, SLURM placed the job on whatever partition it liked with one CPU and no GPU, and Boltz died with "No supported gpu backend found!". A laptop check on 26.04 could not see it.
 
-So the cluster directives live in the `process` block, `hpc` sets only `process.executor` and touches no selector, and `local` is complete in itself. There is deliberately no profile named `standard`, because Nextflow applies that one whenever `-profile` is omitted. `tests/test_nextflow_profiles.py` holds that structure, and CI resolves the config with the cluster's own pinned Nextflow and asserts `jic-gpu` and `--gres=gpu:1` survive.
+So the cluster directives live in the `process` block, `hpc` sets only `process.executor` and touches no selector, and `local` is complete in itself. There is deliberately no profile named `standard`, because Nextflow applies that one whenever `-profile` is omitted. `tests/test_nextflow_profiles.py` holds that structure, and CI resolves the config with the cluster's own pinned Nextflow twice: once with partition names in the environment, asserting they arrive, and once with nothing set, asserting the queue resolves to null so Nextflow omits `-p` rather than submitting `-p null`.
 
 Every run artefact lands in `.nextflow-reports/`. That is the trace the compute-cost analysis reads, the HTML report and timeline, and the log. The config places the first three. The log is chosen before the config is read, so it needs `NXF_LOG_FILE`, which the submit wrapper exports, or `nextflow -log .nextflow-reports/nextflow.log run ...` on a hand-rolled invocation. Without either, Nextflow drops `.nextflow.log` in whatever directory you launched from. `.nextflow/` is Nextflow's own state directory and cannot be moved; it is hidden and gitignored.
 
@@ -151,7 +151,7 @@ The trace, report and timeline are written on every run. `trace.txt` is what the
 A single target can still be run without Nextflow, which is useful when debugging one config. This is the runner that produced the 18-target `experiments/benchmarking/` cohort. The 90-unit dose sweep was run by the workflow, and the two cohorts between them account for every committed result that came from this repo. README's Status section has the full split.
 
 ```bash
-sbatch scripts/negative_steering.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml
+./scripts/submit.sh steer experiments/benchmarking/unconstrained/6G10/config.yml
 
 # CPU-only steps need no GPU node. Run them interactively with bash:
 bash scripts/negative_steering.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml --dry-run
@@ -178,7 +178,7 @@ pip install -e '.[experiments]'                 # numpy, pandas, scipy, gemmi, b
 
 The run splits across the container boundary. `negative_steering.py` runs inside the Boltz image, because that is where Python lives. It parses the config, calls `prepare_complex_inputs.py` to derive the FASTAs, interface and design region, then writes `run/launch.sh` with every engine argument already resolved. `negative_steering.slurm.sh` executes that on the host, because the engine orchestrator does its own `singularity exec --nv` and singularity cannot be nested. It then assigns the run's tier. `launch.sh` doubles as the record of exactly what ran.
 
-The container defaults to the config's `boltz_container:`. Override it with `--container /path/to.img`, and see `/hpc-home/jowillia/singularity/` for the library.
+The container comes from `--container /path/to.img`, then the config's `boltz_container:`, then `NEGSTEER_BOLTZ_IMG` in `site.conf`. Every config in `experiments/` leaves the key null, so the site setting is what they resolve to.
 
 ### Driving the two steps by hand
 
@@ -204,9 +204,9 @@ The benchmark runs every target at `negsteer_n_designs: 20`, so the mutation-set
 ```bash
 python3 scripts/make_dose_sweep.py            # regenerate the 90 configs
 
-sbatch scripts/run_dose_sweep.slurm.sh        # all five doses, one head job
-sbatch scripts/run_dose_sweep.slurm.sh n10    # one dose
-sbatch -p jic-medium -t 12:00:00 scripts/run_dose_sweep.slurm.sh n10   # trimmed
+./scripts/submit.sh sweep                     # all five doses, one head job
+./scripts/submit.sh sweep n10                 # one dose
+sbatch -t 12:00:00 scripts/run_dose_sweep.slurm.sh n10        # trimmed walltime
 ```
 
 Each config is the tracked benchmark config with three lines changed, `name`, `reference_pdb` and `negsteer_n_designs`. Everything else is copied byte for byte, so the dose is the only thing that varies. The generator refuses to write a config that differs anywhere else, and `tests/characterization/test_dose_sweep_configs.py` asserts the same thing about what is committed. No structure is duplicated. Each config points back at `data/reference_complexes/`.
@@ -215,7 +215,7 @@ Each config is the tracked benchmark config with three lines changed, `name`, `r
 
 One head job runs the whole sweep rather than five, so the concurrency bound applies once rather than five times over. Five sessions would each claim the full bound and queue behind each other while monopolising the partition.
 
-GPU concurrency is `params.max_gpu_jobs`, applied as `maxForks` on the `gpu` label. It is 26, every A100 on jic-gpu. That is a choice about sharing rather than a technical limit, so lower it on a busy weekday with `--max_gpu_jobs 16`. It is a per-label bound rather than `executor.queueSize` because queueSize covers the `cpu` stages too, and a 90-target sweep has plenty of those competing for the same slots.
+GPU concurrency is `params.max_gpu_jobs`, applied as `maxForks` on the `gpu` label. It reads `NEGSTEER_MAX_GPU_JOBS` from `site.conf` and defaults to 8. Set it to your partition's card count, counting cards rather than nodes, and lower it on a busy weekday with `--max_gpu_jobs 16`. It is a choice about sharing rather than a technical limit. It is a per-label bound rather than `executor.queueSize` because queueSize covers the `cpu` stages too, and a 90-target sweep has plenty of those competing for the same slots.
 
 | Dose | Configs | Predictions | Storage | GPU-hours | Wall at 26 concurrent |
 |---:|---:|---:|---:|---:|---:|
@@ -246,8 +246,8 @@ One numbered folder per document, each named after the document it holds. A fold
 Run outputs live on the HPC and are gitignored. Pull the lightweight summaries down, roughly 16 MB with no raw model outputs, then regenerate.
 
 ```bash
-scripts/sync_from_hpc.sh --list                              # what is on the HPC
-scripts/sync_from_hpc.sh --name benchmarking --results-only  # summaries only
+contrib/sync_from_hpc.sh --list                              # what is on the HPC
+contrib/sync_from_hpc.sh --name benchmarking --results-only  # summaries only
 python3 analysis/01-pose-rescue/make_plots.py                 # benchmark_summary.csv + figures
 python3 analysis/03-compute-cost/stage_runtime_comparison.py  # runtime_comparison.csv
 cd analysis/01-pose-rescue && quarto render 01-pose-rescue.qmd
@@ -255,7 +255,7 @@ cd analysis/01-pose-rescue && quarto render 01-pose-rescue.qmd
 
 `make_plots.py` takes `--bench` and `--outdir` to override the input tree and output location. Every analysis falls back to its committed cached table when the source tree is absent, so all of them re-render anywhere.
 
-Two staged inputs come from outside this repo. `boltz2_benchmark_comparison.csv` holds unconstrained and reference-restrained Boltz-2 `ra_eff` per target, from `structure-prediction-benchmarking`'s `combined_metrics.csv`. `negsteer_maxrss.csv` holds peak memory from Slurm accounting, collected on the cluster by `collect_negsteer_maxrss.sh` and copied back. That script globs the cluster's own `experiments/benchmarking/`, so it re-emits any target still present there.
+Two staged inputs come from outside this repo. `boltz2_benchmark_comparison.csv` holds unconstrained and reference-restrained Boltz-2 `ra_eff` per target, from `structure-prediction-benchmarking`'s `combined_metrics.csv`. `negsteer_maxrss.csv` holds peak memory from Slurm accounting, collected on the cluster by `contrib/collect_negsteer_maxrss.sh` and copied back. That script globs the cluster's own `experiments/benchmarking/`, so it re-emits any target still present there.
 
 ### Known limits
 
@@ -278,7 +278,7 @@ Two tiers, one marker each. A marker says what a test needs, not where it happen
 mamba env create -f environment.yml && mamba activate negsteer-analysis
 pytest -m logic                  # everything that needs no run
 pytest                           # adds check_test_run, against a run already on disk
-sbatch tests/test_run.slurm.sh   # produce a fresh run, then assert on it
+./scripts/submit.sh test-run     # produce a fresh run, then assert on it
 ```
 
 ### The single-run test

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -39,15 +40,22 @@ HERE = Path(__file__).resolve().parent
 ANALYSIS = HERE.parent
 CONF = ANALYSIS / "04-confidence-cost"          # owns confidence_common.py
 CAMPAIGN = ANALYSIS / "05-campaign-confidence"  # owns campaign_data/
-HPC = Path(
-    "/Volumes/HPC-Home/receptor_design/receptor-resurfacing-pipeline"
-    "/experiments/campaigns/pikp1_avrpikf/runs/crystal_full_test_contig"
-)
+# The campaign run tree, which lives in receptor-resurfacing-pipeline and is
+# not part of this repo. Point --run-root at it, or set
+# NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf. There is no default, because the
+# path is one machine's mount of one cluster.
+_ENV_ROOT = os.environ.get("NEGSTEER_CAMPAIGN_RUN_ROOT")
+HPC = Path(_ENV_ROOT) if _ENV_ROOT else None
 VARIANTS = {
     "negsteer": ("results", CAMPAIGN / "campaign_data" / "campaign_per_seed.csv"),
     "negsteer+constraints": ("results_constrained",
                              CAMPAIGN / "campaign_data" / "campaign_per_seed_constrained.csv"),
 }
+# Set by main() from --run-root. A module-level global rather than a threaded
+# argument, because pae_path() and receptor_length() are called from inside a
+# loop that already carries four arguments, and this one never varies per row.
+RUN_ROOT: Path | None = None
+
 OUT_CSV = HERE / "ipsae_internals.csv"
 OUT_NPZ = HERE / "ipsae_nbelow.npz"
 
@@ -142,7 +150,7 @@ def pae_path(results_dir: str, unit: str, kind: str, design: str) -> Path | None
     ``steered_ipsae_min`` -> ``ipsae_min``; only ra_eff is taken from the
     reverted structure). So reversion directories are never needed here.
     """
-    base = HPC / results_dir / "negative_steering" / "runs" / unit / "cycle_0"
+    base = RUN_ROOT / results_dir / "negative_steering" / "runs" / unit / "cycle_0"
     if kind == "cold_start":
         # design is "initial" for seed 0 and "initial_s1"/"initial_s2" for the
         # others, and each seed has its own prediction directory of that name.
@@ -154,7 +162,8 @@ def pae_path(results_dir: str, unit: str, kind: str, design: str) -> Path | None
 
 
 def receptor_length(results_dir: str, unit: str) -> int | None:
-    pj = HPC / results_dir / "negative_steering" / "runs" / unit / "cycle_0" / "plan.json"
+    pj = (RUN_ROOT / results_dir / "negative_steering" / "runs" / unit
+          / "cycle_0" / "plan.json")
     if not pj.exists():
         return None
     return len(json.loads(pj.read_text()).get("wild_type_receptor_seq", "")) or None
@@ -164,8 +173,22 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cutoff", type=float, default=10.0,
                     help="PAE cutoff; 10.0 matches the ipsae_min column")
-    ap.add_argument("--limit", type=int, default=0, help="debug: cap rows per variant")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="diagnostic: cap rows per variant")
+    ap.add_argument("--run-root", type=Path, default=HPC,
+                    help="the campaign run tree; or set "
+                         "NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf")
     args = ap.parse_args()
+
+    global RUN_ROOT
+    RUN_ROOT = args.run_root
+    if RUN_ROOT is None:
+        print("ERROR: no run root. Pass --run-root, or set "
+              "NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf.", file=sys.stderr)
+        return 2
+    if not RUN_ROOT.is_dir():
+        print(f"ERROR: no run tree at {RUN_ROOT}", file=sys.stderr)
+        return 2
 
     rows, arrays = [], {}
     for variant, (results_dir, csv_path) in VARIANTS.items():

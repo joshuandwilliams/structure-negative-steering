@@ -2,10 +2,15 @@
 # Recover peak memory for the negative-steering benchmark runs from Slurm
 # accounting. Run this ON THE HPC, from anywhere.
 #
+# This ran once, against the job ids that produced the committed
+# analysis/03-compute-cost/negsteer_maxrss.csv. Slurm's accounting database
+# only holds your own jobs, so for anyone else it reports nothing and is here
+# as the provenance of that CSV rather than as something to run.
+#
 #   bash collect_negsteer_maxrss.sh > negsteer_maxrss.csv
 #
 # Then copy negsteer_maxrss.csv back to
-#   structure-negative-steering/analysis/03-compute-cost/
+#   <repo>/analysis/03-compute-cost/
 #
 # Several targets were retried, so more than one job id can exist per target.
 # Every id is emitted with its Slurm Elapsed; the staging script picks the one
@@ -13,7 +18,12 @@
 # actually used.
 set -uo pipefail
 
-REPO="${1:-/hpc-home/jowillia/receptor_design/structure-negative-steering}"
+REPO="${1:-${NEGSTEER_REPO_DIR:-}}"
+if [ -z "${REPO}" ] || [ ! -d "${REPO}/experiments" ]; then
+    echo "Usage: bash collect_negsteer_maxrss.sh <repo-on-the-cluster>" >&2
+    echo "or set NEGSTEER_REPO_DIR in site.conf." >&2
+    exit 1
+fi
 
 echo "target,jobid,maxrss_gb,elapsed,state,runtime_sec_recorded"
 

@@ -1,6 +1,9 @@
 BootStrap: yum
 OSVersion: 9
-MirrorURL: http://yum-repos.hpccluster/AlmaLinux/9/os/$basearch/
+MirrorURL: https://repo.almalinux.org/almalinux/9/BaseOS/$basearch/os/
+# A site with its own mirror substitutes it here. The original build
+# used an internal one, which is faster and which an airgapped build
+# node needs, but which resolves nowhere else.
 Include: yum
 
 # =============================================================================
@@ -32,7 +35,7 @@ Include: yum
 #   - cuEquivariance 0.9.1 (cu12, pinned — provides Boltz CUDA kernels)
 #   - pynvml (required by cuequivariance_ops triton autotune cache)
 #   - trifast (Boltz accelerated kernels)
-#   - DockQ, freesasa, MDAnalysis (orthogonal-metrics analysis — P0-29, P0-31)
+#   - DockQ, freesasa, MDAnalysis (orthogonal interface metrics)
 #   - numpy, pandas, scipy, biopython, matplotlib, gemmi, scikit-learn
 #
 # WHY system-level CUDA instead of pip nvidia-*-cu12 wheels:
@@ -171,7 +174,7 @@ Include: yum
         "https://pypi.org/pypi/cuequivariance-ops-cu12/json"
 
     # -------------------------------------------------------------------------
-    # Orthogonal-metrics analysis packages (P0-29, P0-31)
+    # Orthogonal interface-metric packages
     # -------------------------------------------------------------------------
     check_url "DockQ (interface quality)" \
         "https://pypi.org/pypi/DockQ/json"
@@ -555,16 +558,16 @@ CONSTRAINTS_EOF
     # Orthogonal-metrics analysis dependencies
     #
     # For the negative-steering orthogonal-validation stages:
-    #   - DockQ       CAPRI-standard iRMSD / fnat / DockQ score (P0-29)
+    #   - DockQ       CAPRI-standard iRMSD / fnat / DockQ score
     #                 GPL-3.0; ships CLI binary `DockQ` + importable library.
     #                 Source dist; compiles a small Cython extension (gcc
     #                 from Development Tools above).  Requires numpy<2
     #                 (satisfied by the constraints file).
-    #   - freesasa    Buried surface area via FreeSASA C library (P0-31).
+    #   - freesasa    Buried surface area via FreeSASA C library.
     #                 PyPI Linux install is source-only (no manylinux wheel);
     #                 compiles from C source via the installed gcc.
     #   - MDAnalysis  Interface H-bond counting and flexible iRMSD /
-    #                 contact machinery (P0-31).  Imports sqlite3 at package
+    #                 contact machinery.  Imports sqlite3 at package
     #                 init; requires sqlite-devel at Python build time.
     # =========================================================================
     pip install -c $CONSTRAINTS_FILE DockQ freesasa MDAnalysis

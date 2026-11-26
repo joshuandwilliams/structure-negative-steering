@@ -99,5 +99,7 @@ def test_the_launcher_delegates_and_asks_for_no_gpu() -> None:
     text = LAUNCHER.read_text()
     assert "run_workflow.slurm.sh" in text, "must not duplicate the bootstrap"
     header = [ln for ln in text.splitlines() if ln.startswith("#SBATCH")]
-    assert not any("gres" in ln or "jic-gpu" in ln for ln in header), \
+    assert not any("gres" in ln for ln in header), \
         "the head process only submits and polls"
+    assert not any(ln.startswith("#SBATCH -p") for ln in header), \
+        "the partition is site-specific and belongs in site.conf"

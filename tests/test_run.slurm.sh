@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name="negsteer_test_run"
-#SBATCH -p jic-gpu
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -c 4
@@ -9,6 +8,10 @@
 #SBATCH --gres=gpu:1
 #SBATCH --output=single_run_%j.out
 #SBATCH --error=single_run_%j.err
+#
+# The partition is not in this header. It is the one resource whose name
+# differs per site, so it comes from site.conf through scripts/submit.sh, or
+# from an sbatch -p on the command line.
 
 # -----------------------------------------------------------------------------
 # Run the engine end to end on the HPC, as cheaply as it will go, then assert
@@ -26,9 +29,9 @@
 # shipped 20, so the fan-out is 9 predictions rather than 60.
 #
 # Usage:
-#   sbatch tests/test_run.slurm.sh
-#   sbatch tests/test_run.slurm.sh --keep     # keep a previous run
-#   sbatch tests/test_run.slurm.sh --via-cli  # through `negsteer run`
+#   ./scripts/submit.sh test-run
+#   ./scripts/submit.sh test-run --keep     # keep a previous run
+#   ./scripts/submit.sh test-run --via-cli  # through `negsteer run`
 #
 # --via-cli runs the SAME config through the tool interface instead of the
 # shell orchestrator, into tests/test_run/run_cli/. Everything else is identical,

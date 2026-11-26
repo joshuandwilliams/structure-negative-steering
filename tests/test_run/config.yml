@@ -58,4 +58,5 @@ negsteer_postprocess_metric_column:   "steered_ra_eff_vs_truth"
 negsteer_postprocess_contact_cutoff:  5.0
 
 # ── Runtime (HPC + GPU) ──────────────────────────────────────────────────────
-boltz_container: "/hpc-home/jowillia/receptor_design/receptor-resurfacing-pipeline/containers/boltz2_negsteer.img"
+# Null on purpose. NEGSTEER_BOLTZ_IMG in site.conf is what this resolves to.
+boltz_container: null

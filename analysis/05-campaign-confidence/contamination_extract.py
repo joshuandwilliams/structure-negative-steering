@@ -30,16 +30,19 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 from pathlib import Path
 
 import pandas as pd
 
 HERE = Path(__file__).resolve().parent
-HPC = Path(
-    "/Volumes/HPC-Home/receptor_design/receptor-resurfacing-pipeline"
-    "/experiments/campaigns/pikp1_avrpikf/runs/crystal_full_test_contig"
-)
+# The campaign run tree, which lives in receptor-resurfacing-pipeline and is
+# not part of this repo. Point --run-root at it, or set
+# NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf. There is no default, because the
+# path is one machine's mount of one cluster.
+_ENV_ROOT = os.environ.get("NEGSTEER_CAMPAIGN_RUN_ROOT")
+HPC = Path(_ENV_ROOT) if _ENV_ROOT else None
 OUT_CSV = HERE / "campaign_data" / "contamination_per_prediction.csv"
 RA_EFF_THRESHOLD = 5.0   # the gate that decides whether reversion may run
 
@@ -127,6 +130,9 @@ def main() -> None:
     ap.add_argument("--indices", type=Path, default=None,
                     help="negative_steering/indices dir (default: under run root)")
     args = ap.parse_args()
+    if args.run_root is None:
+        raise SystemExit("no run root. Pass --run-root, or set "
+                         "NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf.")
     indices = args.indices or (args.run_root / "results" / "negative_steering" / "indices")
     for p in (args.run_root, indices):
         if not p.is_dir():

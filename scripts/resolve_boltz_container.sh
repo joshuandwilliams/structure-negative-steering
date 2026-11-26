@@ -4,6 +4,10 @@
 #
 #   resolve_boltz_container.sh CONFIG [OVERRIDE]
 #
+# OVERRIDE wins, then the config's boltz_container, then NEGSTEER_BOLTZ_IMG
+# from site.conf. The configs in experiments/ leave the key null, so the site
+# setting is what they resolve to.
+#
 # The airgapped HPC has no PyYAML on the host, so the container path cannot be
 # read with a YAML parser. It has to come out of the file as plain text, because
 # the container is what the parser would have to run inside. That is the same
@@ -37,6 +41,7 @@ fi
 LINE="$(grep -E '^[[:space:]]*boltz_container:' "${CONFIG}" | head -1 || true)"
 
 if [ -z "${LINE}" ]; then
+    printf '%s' "${NEGSTEER_BOLTZ_IMG:-}"
     exit 0
 fi
 
@@ -62,6 +67,15 @@ case "${VALUE}" in
         VALUE="${VALUE%%[[:space:]]#*}"
         # Right-trim. Only quoted values had their trailing space stripped above.
         VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
+        ;;
+esac
+
+# A null or empty value is the committed default, so fall back to the site
+# setting. Every config in experiments/ relies on this.
+case "${VALUE}" in
+    ""|null|Null|NULL|"~")
+        printf '%s' "${NEGSTEER_BOLTZ_IMG:-}"
+        exit 0
         ;;
 esac
 

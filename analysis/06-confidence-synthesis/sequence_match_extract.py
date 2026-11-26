@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -33,10 +34,12 @@ HERE = Path(__file__).resolve().parent
 ANALYSIS = HERE.parent
 CONF = ANALYSIS / "04-confidence-cost"          # owns confidence_common.py
 CAMPAIGN = ANALYSIS / "05-campaign-confidence"  # owns campaign_data/
-HPC = Path(
-    "/Volumes/HPC-Home/receptor_design/receptor-resurfacing-pipeline"
-    "/experiments/campaigns/pikp1_avrpikf/runs/crystal_full_test_contig"
-)
+# The campaign run tree, which lives in receptor-resurfacing-pipeline and is
+# not part of this repo. Point --run-root at it, or set
+# NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf. There is no default, because the
+# path is one machine's mount of one cluster.
+_ENV_ROOT = os.environ.get("NEGSTEER_CAMPAIGN_RUN_ROOT")
+HPC = Path(_ENV_ROOT) if _ENV_ROOT else None
 ARMS = {
     "negsteer": ("results", CAMPAIGN / "campaign_data" / "campaign_per_seed.csv"),
     "negsteer+constraints": (
@@ -99,6 +102,9 @@ def main() -> None:
     ap.add_argument("--run-root", type=Path, default=HPC,
                     help="campaign run directory holding both arms")
     args = ap.parse_args()
+    if args.run_root is None:
+        raise SystemExit("no run root. Pass --run-root, or set "
+                         "NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf.")
     if not args.run_root.is_dir():
         raise SystemExit(f"run root not found: {args.run_root}")
 
