@@ -67,7 +67,12 @@ target-version = "py310"
 # reformatting them to satisfy a linter would edit the thing being preserved,
 # and nothing imports them. A clean clone has no archive/ and this does
 # nothing.
-exclude = ["archive"]
+#
+# proposals/code/ IS in this repository. It holds fragments of proposed
+# rewrites, quoted in the markdown beside them. They reference names from the
+# module each one would go into, so they do not lint as standalone files and
+# are not meant to.
+exclude = ["archive", "proposals"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
