@@ -46,7 +46,7 @@ import pandas as pd
 
 HERE = Path.cwd()
 if not (HERE / "campaign_data").exists():
-    HERE = Path("analysis/05-campaign-confidence")
+    HERE = Path("analyses/05-campaign-confidence")
 HERE = HERE.resolve()
 ANALYSIS = HERE.parent
 REPO = ANALYSIS.parent

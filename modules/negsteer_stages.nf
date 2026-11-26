@@ -41,20 +41,20 @@ process NEGSTEER_READ_CONFIG {
     script:
     """
     CFG="\$(readlink -f ${config})"
-    CONTAINER="\$(bash ${params.repo_root}/scripts/resolve_boltz_container.sh \\
+    CONTAINER="\$(bash ${params.repo_root}/bin/resolve_boltz_container.sh \\
         "\$CFG" "${params.boltz_container ?: ''}")"
 
     if [ -n "\$CONTAINER" ] && [ -f "\$CONTAINER" ]; then
         singularity exec --bind ${params.repo_root} --bind "\$(dirname "\$CFG")" \\
             "\$CONTAINER" \\
-            python ${params.repo_root}/scripts/negative_steering.py "\$CFG" --emit-json
+            python ${params.repo_root}/bin/negative_steering.py "\$CFG" --emit-json
     elif [ "${params.allow_host_python}" = "true" ]; then
         # Opted into explicitly, and only ever by CI. A GitHub runner has
         # pip-installed PyYAML and no image to run anything inside. Enabling
         # this on the cluster would mean reading the config with whatever
         # Python the host happens to have, which is the thing the containers
         # exist to prevent.
-        python3 ${params.repo_root}/scripts/negative_steering.py "\$CFG" --emit-json
+        python3 ${params.repo_root}/bin/negative_steering.py "\$CFG" --emit-json
     else
         echo "ERROR: no Boltz container for \$CFG." >&2
         echo "Set boltz_container: in the config, or pass --boltz_container IMG." >&2
@@ -84,7 +84,7 @@ process NEGSTEER_PREPARE {
 
     _t0=\$SECONDS
     singularity exec --bind ${params.repo_root} ${container} \\
-        python ${params.repo_root}/scripts/negative_steering.py \\
+        python ${params.repo_root}/bin/negative_steering.py \\
             ${config} --prepare-only
     printf 'prepare %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/prepare
 

@@ -3,14 +3,14 @@
 # accounting. Run this ON THE HPC, from anywhere.
 #
 # This ran once, against the job ids that produced the committed
-# analysis/03-compute-cost/negsteer_maxrss.csv. Slurm's accounting database
+# analyses/03-compute-cost/negsteer_maxrss.csv. Slurm's accounting database
 # only holds your own jobs, so for anyone else it reports nothing and is here
 # as the provenance of that CSV rather than as something to run.
 #
 #   bash collect_negsteer_maxrss.sh > negsteer_maxrss.csv
 #
 # Then copy negsteer_maxrss.csv back to
-#   <repo>/analysis/03-compute-cost/
+#   <repo>/analyses/03-compute-cost/
 #
 # Several targets were retried, so more than one job id can exist per target.
 # Every id is emitted with its Slurm Elapsed; the staging script picks the one

@@ -44,8 +44,8 @@ not distort the comparison. Regenerate the steering half with
 ``contrib/collect_negsteer_maxrss.sh``, which must run on the cluster.
 
 Usage:
-    python3 analysis/03-compute-cost/stage_runtime_comparison.py
-    python3 analysis/03-compute-cost/stage_runtime_comparison.py --bench-repo ../spb
+    python3 analyses/03-compute-cost/stage_runtime_comparison.py
+    python3 analyses/03-compute-cost/stage_runtime_comparison.py --bench-repo ../spb
 """
 
 import argparse
@@ -62,7 +62,7 @@ DEFAULT_CAMPAIGN_REPO = REPO_ROOT.parent / "receptor-resurfacing-pipeline"
 # That repo moved this file. Newest location first, so an old checkout still works.
 BENCH_RUNTIME_RELS = (
     "data/metrics/runtime_stats.csv",
-    "analysis/structure_prediction_benchmark/runtime_stats.csv",
+    "analyses/structure_prediction_benchmark/runtime_stats.csv",
 )
 
 # Predictions per benchmark run: 5 seeds x 5 diffusion samples, except ESMFold2,
@@ -100,7 +100,7 @@ CAMPAIGN_LABEL = "Boltz-2 + negative steering, AVR-PikF campaign (steering sets 
 CAMPAIGN_SURVIVORS_REL = ("experiments/campaigns/pikp1_avrpikf/analyses/"
                           "06-confidence-and-biophysical-metrics/"
                           "data/crystal_full_test_contig_survivors.csv")
-CAMPAIGN_PER_SEED_REL = "analysis/05-campaign-confidence/campaign_data/campaign_per_seed.csv"
+CAMPAIGN_PER_SEED_REL = "analyses/05-campaign-confidence/campaign_data/campaign_per_seed.csv"
 CAMPAIGN_DIFFUSION_SAMPLES = 5   # negsteer_diffusion_samples in the run's params.yml
 
 # Peak memory, staged per cohort because the three sets were measured by

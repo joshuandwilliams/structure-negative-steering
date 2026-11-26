@@ -23,7 +23,7 @@
 
 # Paths are relative to the repo root, so run ChimeraX from there:
 #
-#   chimerax --script analysis/01-pose-rescue/negsteer_stages_6R8M.cxc
+#   chimerax --script analyses/01-pose-rescue/negsteer_stages_6R8M.cxc
 #
 # The two prediction paths are under experiments/, which is gitignored, so
 # they need the n50 dose-sweep run tree present. contrib/sync_from_hpc.sh
@@ -64,12 +64,12 @@ zoom 1.85
 # Panel 1, the solved complex on its own.
 hide #2 models
 hide #3 models
-save analysis/01-pose-rescue/raw-images/6R8M_solved.png width 3000 height 3000 supersample 3
+save analyses/01-pose-rescue/raw-images/6R8M_solved.png width 3000 height 3000 supersample 3
 
 # Panel 2, add the cold-start effector.
 show #2 models
 hide #2/A cartoon
-save analysis/01-pose-rescue/raw-images/6R8M_coldstart.png width 3000 height 3000 supersample 3
+save analyses/01-pose-rescue/raw-images/6R8M_coldstart.png width 3000 height 3000 supersample 3
 
 # Panel 3, add the steered effector and mark the steering mutations.
 show #3 models
@@ -78,6 +78,6 @@ color #1/A:205,207,208,211,212,244 red
 show #1/A:205,207,208,211,212,244 atoms
 style #1/A:205,207,208,211,212,244 stick
 hide #1/A:205,207,208,211,212,244@N,C,O,H* atoms
-save analysis/01-pose-rescue/raw-images/6R8M_steered.png width 3000 height 3000 supersample 3
+save analyses/01-pose-rescue/raw-images/6R8M_steered.png width 3000 height 3000 supersample 3
 
 exit

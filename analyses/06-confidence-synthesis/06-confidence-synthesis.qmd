@@ -42,7 +42,7 @@ import pandas as pd
 
 HERE = Path.cwd()
 if not (HERE / "confidence_per_prediction_constrained.csv").exists():
-    HERE = Path("analysis/06-confidence-synthesis")
+    HERE = Path("analyses/06-confidence-synthesis")
 HERE = HERE.resolve()
 ANALYSIS = HERE.parent
 REPO = ANALYSIS.parent

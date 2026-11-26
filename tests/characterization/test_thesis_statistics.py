@@ -1,6 +1,6 @@
 """The statistics and selection rules behind the confidence chapters.
 
-`analysis/04-confidence-cost/confidence_common.py` is 547 statements and is the
+`analyses/04-confidence-cost/confidence_common.py` is 547 statements and is the
 only analysis module imported by more than one document. Its docstring says why
 it exists: `04-confidence-cost.qmd` runs on the 18-target benchmark and
 `05-campaign-confidence.qmd` on the 128-sequence campaign, "they ask the same
@@ -40,7 +40,7 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_MODULE = (_REPO_ROOT / "analysis" / "04-confidence-cost"
+_MODULE = (_REPO_ROOT / "analyses" / "04-confidence-cost"
            / "confidence_common.py")
 
 

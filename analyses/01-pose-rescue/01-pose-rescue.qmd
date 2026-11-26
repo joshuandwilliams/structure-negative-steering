@@ -65,7 +65,7 @@ is one benchmark target with its run status, sequence lengths, cold-start
 HERE = Path.cwd()
 csv_path = HERE / "benchmark_summary.csv"
 if not csv_path.exists():
-    csv_path = Path("analysis/01-pose-rescue/benchmark_summary.csv")
+    csv_path = Path("analyses/01-pose-rescue/benchmark_summary.csv")
 
 df = pd.read_csv(csv_path)
 df.head()
@@ -319,7 +319,7 @@ here.
 ```{python}
 n50_path = HERE / "n50_pose_metrics.csv"
 if not n50_path.exists():
-    n50_path = Path("analysis/01-pose-rescue/n50_pose_metrics.csv")
+    n50_path = Path("analyses/01-pose-rescue/n50_pose_metrics.csv")
 n50 = pd.read_csv(n50_path)
 
 g = n50.dropna(subset=["cold_start_ra_eff_median", "rep_ra_eff"])
@@ -375,13 +375,13 @@ with this repo's pinned numpy):
 ```bash
 conda create -n dockq-tool python=3.11 -y
 conda run -n dockq-tool pip install DockQ
-python3 analysis/01-pose-rescue/dockq_scores.py
+python3 analyses/01-pose-rescue/dockq_scores.py
 ```
 
 ```{python}
 dockq_path = HERE / "dockq_scores.csv"
 if not dockq_path.exists():
-    dockq_path = Path("analysis/01-pose-rescue/dockq_scores.csv")
+    dockq_path = Path("analyses/01-pose-rescue/dockq_scores.csv")
 dockq_df = pd.read_csv(dockq_path)
 dockq_df
 ```
@@ -512,7 +512,7 @@ renders without the (gitignored, HPC) run data present.
 ```{python}
 dose_path = HERE / "dose_sweep_pass_counts.csv"
 if not dose_path.exists():
-    dose_path = Path("analysis/01-pose-rescue/dose_sweep_pass_counts.csv")
+    dose_path = Path("analyses/01-pose-rescue/dose_sweep_pass_counts.csv")
 dose_df = pd.read_csv(dose_path)
 dose_df
 ```

@@ -1,4 +1,4 @@
-"""Tests for scripts/prepare_complex_inputs.py.
+"""Tests for bin/prepare_complex_inputs.py.
 
 The adapter between a solved complex and the four files the engine's CLI
 demands. The derivation is asserted against 6G10's known answer, and every
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PREPARE = REPO_ROOT / "scripts" / "prepare_complex_inputs.py"
+PREPARE = REPO_ROOT / "bin" / "prepare_complex_inputs.py"
 SIXG10 = (REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb")
 
 OUTPUTS = ("receptor.fasta", "effector.fasta", "true_interface.txt",

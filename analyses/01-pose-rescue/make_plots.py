@@ -73,7 +73,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# Repo root: analysis/01-pose-rescue/make_plots.py -> parents[2].
+# Repo root: analyses/01-pose-rescue/make_plots.py -> parents[2].
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # ── Scope: the 18 HMA decoy + AVR targets ─────────────────────────────────────

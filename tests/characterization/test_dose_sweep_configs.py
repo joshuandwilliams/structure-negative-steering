@@ -31,7 +31,7 @@ MUTABLE = ("name:", "reference_pdb:", "negsteer_n_designs:")
 @pytest.fixture(scope="module")
 def drv():
     spec = importlib.util.spec_from_file_location(
-        "drv", REPO_ROOT / "scripts" / "negative_steering.py")
+        "drv", REPO_ROOT / "bin" / "negative_steering.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

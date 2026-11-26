@@ -7,7 +7,7 @@ scripts/negative_steering.slurm.sh invokes it via `singularity exec`.
 
 It parses and validates the config, resolving every path relative to the
 config file's own directory, then prepares the engine inputs with
-scripts/prepare_complex_inputs.py into <cfg_dir>/inputs/.
+bin/prepare_complex_inputs.py into <cfg_dir>/inputs/.
 
 It writes, but never runs, <cfg_dir>/run/launch.sh, which calls the engine
 orchestrator with every argument resolved. Launching is the host's job, since
@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PREPARE = REPO_ROOT / "scripts" / "prepare_complex_inputs.py"
+PREPARE = REPO_ROOT / "bin" / "prepare_complex_inputs.py"
 ENGINE_BIN = REPO_ROOT / "bin"
 ORCHESTRATOR = ENGINE_BIN / "negative_steering_run_one.sh"
 

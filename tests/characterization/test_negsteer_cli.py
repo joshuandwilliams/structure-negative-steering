@@ -350,7 +350,7 @@ def test_the_cli_can_set_every_plan_knob_the_config_driver_can(tmp_path, capsys)
     positions mutated, different residues, and a 2.2 A difference in ra_eff.
     Nothing failed; the answer was just quietly different.
 
-    Every knob scripts/negative_steering.py forwards to plan must therefore be
+    Every knob bin/negative_steering.py forwards to plan must therefore be
     reachable from the CLI. Flags exempt below are structural rather than
     scientific: paths and chain ids the CLI names differently, and control flow
     it owns.

@@ -1,7 +1,7 @@
 # =============================================================================
 # Negative-steering benchmark — 7BNT (reference-restrained)
 # =============================================================================
-# Consumed by scripts/negative_steering.py. It prepares the engine inputs from the
+# Consumed by bin/negative_steering.py. It prepares the engine inputs from the
 # reference complex below, then drives bin/negative_steering_run_one.sh.
 # All paths are resolved relative to THIS file's directory.
 #

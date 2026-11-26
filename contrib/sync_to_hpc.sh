@@ -40,7 +40,7 @@
 #   - tests/test_run/inputs/ and tests/test_run/run/  Same rule, same
 #     reason. The 6G10 workflow check is a real engine output produced on the
 #     cluster and only tests/test_run/config.yml is tracked.
-#   - analysis/  The Quarto report is authored and rendered on the Mac from
+#   - analyses/  The Quarto report is authored and rendered on the Mac from
 #     results pulled down by sync_from_hpc.sh.  Nothing on the HPC reads it, and
 #     its rendered .html plus the *_files/ JS/CSS bundle are gitignored build
 #     artefacts that do not belong on the cluster.
@@ -110,7 +110,7 @@ cd "$REPO_ROOT"
 rsync -av --delete $DRY_RUN -e ssh \
     --exclude='.git/' \
     --exclude='experiments/' \
-    --exclude='analysis/' \
+    --exclude='analyses/' \
     --exclude='tests/test_run/inputs/' \
     --exclude='tests/test_run/run/' \
     --exclude='tests/test_run/run_cli/' \

@@ -141,14 +141,14 @@ tool and the numbers cannot drift apart.
 | Path | Contents |
 |:---|:---|
 | `main.nf`, `modules/` | The workflow. Wiring only, one process per stage |
-| `bin/` | The engine, and its import closure |
+| `bin/` | The engine. Everything a workflow stage runs |
 | `negsteer/` | The `negsteer` CLI |
-| `scripts/` | Cluster launchers and config generators |
-| `contrib/` | Convenience scripts the pipeline never calls |
+| `scripts/` | What you run: cluster launchers and config generators |
+| `contrib/` | Convenience scripts nothing in the pipeline calls |
 | `site.conf.example` | Every setting that is specific to one cluster |
 | `data/reference_complexes/` | The 18 solved complexes, one copy each |
 | `experiments/` | Run definitions. Outputs are HPC-authoritative and gitignored |
-| `analysis/` | One folder per analysis document, with its own figures |
+| `analyses/` | One folder per analysis document, with its own figures |
 | `containers/` | Singularity definitions. The images live on the cluster |
 | `tests/` | The suite, plus its cluster wrappers |
 
@@ -178,7 +178,7 @@ model outputs) and re-render:
 
 ```bash
 contrib/sync_from_hpc.sh --name benchmarking --results-only
-cd analysis/01-pose-rescue && quarto render 01-pose-rescue.qmd
+cd analyses/01-pose-rescue && quarto render 01-pose-rescue.qmd
 ```
 
 Every analysis falls back to its committed cached table when the run tree is
@@ -252,7 +252,7 @@ that all of them predate it was wrong.
 | the `pikp1_avrpikf` design campaign | `receptor-resurfacing-pipeline`, not this repo | `campaign_data/*.csv`, `sequence_match.csv`, `ipsae_*.csv`, `mutation_excluded_*.csv` |
 
 The provenance of each memory figure is recorded at
-`analysis/03-compute-cost/stage_runtime_comparison.py:106-122`, which is where
+`analyses/03-compute-cost/stage_runtime_comparison.py:106-122`, which is where
 the split is visible: the dose-sweep cohort's peak memory comes from a Nextflow
 trace, the 18-target cohort's from Slurm `MaxRSS` because those jobs produced
 no trace.

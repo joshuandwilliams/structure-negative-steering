@@ -17,7 +17,7 @@
 # negative_steering.slurm.sh - run negative steering on one config.
 #
 # The host half of the runner. It resolves the container, runs the Python half
-# (scripts/negative_steering.py) inside it, executes the generated launch.sh,
+# (bin/negative_steering.py) inside it, executes the generated launch.sh,
 # then assigns the run's tier.
 #
 # The header mirrors the pipeline's NEGSTEER_RUN_ONE process, 4 CPUs, 12 GB,
@@ -78,26 +78,26 @@ CONFIG="$(realpath "$CONFIG")"
 CFG_DIR="$(dirname "$CONFIG")"
 
 # Walk up from the config dir to the repo root (the directory containing
-# scripts/negative_steering.py), then fall back to $SLURM_SUBMIT_DIR and finally
+# bin/negative_steering.py), then fall back to $SLURM_SUBMIT_DIR and finally
 # to this script's own location.
 REPO_ROOT=""
 _d="$CFG_DIR"
 while [[ "$_d" != "/" ]]; do
-    if [[ -f "$_d/scripts/negative_steering.py" ]]; then REPO_ROOT="$_d"; break; fi
+    if [[ -f "$_d/bin/negative_steering.py" ]]; then REPO_ROOT="$_d"; break; fi
     _d="$(dirname "$_d")"
 done
-if [[ -z "$REPO_ROOT" && -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/scripts/negative_steering.py" ]]; then
+if [[ -z "$REPO_ROOT" && -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/bin/negative_steering.py" ]]; then
     REPO_ROOT="$SLURM_SUBMIT_DIR"
 fi
 if [[ -z "$REPO_ROOT" ]]; then
     _bs="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || true)"
-    [[ -n "$_bs" && -f "$_bs/scripts/negative_steering.py" ]] && REPO_ROOT="$_bs"
+    [[ -n "$_bs" && -f "$_bs/bin/negative_steering.py" ]] && REPO_ROOT="$_bs"
 fi
 if [[ -z "$REPO_ROOT" ]]; then
-    echo "ERROR: could not locate the repo root (scripts/negative_steering.py) from $CONFIG" >&2
+    echo "ERROR: could not locate the repo root (bin/negative_steering.py) from $CONFIG" >&2
     exit 2
 fi
-PY_DRIVER="${REPO_ROOT}/scripts/negative_steering.py"
+PY_DRIVER="${REPO_ROOT}/bin/negative_steering.py"
 ENGINE_BIN="${REPO_ROOT}/bin"
 
 # Resolve the container: --container override, else the boltz_container: line in

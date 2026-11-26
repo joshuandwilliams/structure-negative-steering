@@ -72,7 +72,7 @@ comparable.
 Regenerate the input CSV with:
 
 ```bash
-python3 analysis/03-compute-cost/stage_runtime_comparison.py
+python3 analyses/03-compute-cost/stage_runtime_comparison.py
 ```
 
 ## 1. Setup
@@ -87,7 +87,7 @@ import pandas as pd
 
 HERE = Path.cwd()
 if not (HERE / "runtime_comparison.csv").exists():
-    HERE = Path("analysis/03-compute-cost")
+    HERE = Path("analyses/03-compute-cost")
 
 rt = pd.read_csv(HERE / "runtime_comparison.csv")
 

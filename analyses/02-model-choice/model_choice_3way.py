@@ -10,7 +10,7 @@ being compared on equal footing with the other three, and it only landed for
 a subset of the 18 targets. Data prep matches 02-model-choice.qmd exactly:
 neg_steered is the n=50 dose-sweep arm (see that qmd for why).
 
-Run after analysis/01-pose-rescue/make_plots.py (needs benchmark_summary.csv).
+Run after analyses/01-pose-rescue/make_plots.py (needs benchmark_summary.csv).
 """
 from __future__ import annotations
 

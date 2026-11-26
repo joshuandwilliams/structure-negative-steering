@@ -101,7 +101,7 @@ SMOKE_NOTE = """
 
 ABLATION_BLOCK = """
 # ── Interface ablation (this is the control) ───────────────────────────
-# none | alanine | scrambled. Applied by scripts/prepare_complex_inputs.py to the
+# none | alanine | scrambled. Applied by bin/prepare_complex_inputs.py to the
 # receptor positions in inputs/true_interface.txt, which is the same 5 A
 # heavy-atom contact set the protected set uses. Where restraints are on, the
 # engine builds them separately from the reference PDB at 8 A pocket and 10 A
