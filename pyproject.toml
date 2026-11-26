@@ -67,7 +67,11 @@ target-version = "py310"
 # only record of the sequence-walk and seed-variance diagnostics. Reformatting
 # them to satisfy a linter would edit the thing being preserved, and nothing
 # imports them, so they are excluded rather than fixed.
-exclude = ["archive"]
+#
+# proposals/code/ holds fragments of proposed rewrites, quoted in the markdown
+# beside them. They reference names from the module each one would go into, so
+# they do not lint as standalone files and are not meant to.
+exclude = ["archive", "proposals"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
