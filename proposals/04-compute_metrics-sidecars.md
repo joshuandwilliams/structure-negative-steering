@@ -1,7 +1,16 @@
 # 04 — `bin/compute_metrics.py`, the sidecar lookup
 
-**Proposal: accept.** This is the one change where speed is the point. **96×
-faster** at the benchmark's own model count, and 24 lines shorter.
+**Proposal: accept.** This is the one change where speed is the point. **4.2×
+faster** on `parse_boltz2` at the benchmark's own model count, and **25 lines
+longer**.
+
+Corrected after applying it. This file first claimed 96× and 24 lines shorter.
+96× was the lookup measured in isolation; end to end the lookup is a fraction
+of `parse_boltz2`, which also reads PDBs, loads npz arrays and computes
+metrics. And the two helpers with their docstrings cost more than the three
+glob chains and `_dedup_paths` saved, so the file goes 1,485 → 1,510 lines. I
+estimated the line count instead of measuring it. The speed is still the
+reason to take it; "shorter as well" was wrong.
 
 ## The problem
 
@@ -76,13 +85,26 @@ shallowest remaining path.
 
 ## Speed, measured
 
-Built a Boltz-shaped output tree and timed the three lookups across all PDBs:
+Two measurements, and the difference between them is why the headline changed.
+
+The **lookup in isolation**, three sidecars across all PDBs:
 
 | Models | Files in tree | Current | Proposed | Speedup |
 |---:|---:|---:|---:|---:|
 | 5 | 60 | 12.8 ms | 0.8 ms | 16× |
-| 25 | 300 | 78.3 ms | 0.8 ms | **96×** |
+| 25 | 300 | 78.3 ms | 0.8 ms | 96× |
 | 125 | 1,300 | 559.4 ms | 2.3 ms | 244× |
+
+**`parse_boltz2` end to end**, which is what a run actually spends:
+
+| Models | Files in tree | Current | Proposed | Speedup |
+|---:|---:|---:|---:|---:|
+| 5 | 30 | 65.6 ms | 5.1 ms | 12.9× |
+| 25 | 150 | 67.5 ms | 16.1 ms | **4.2×** |
+| 125 | 750 | 385.4 ms | 91.3 ms | 4.2× |
+
+The second table is the honest one. The first measures only the part that
+changed.
 
 The honest context: `negsteer_aggregate.py` runs `compute_metrics.py` as a
 subprocess per passing row, so a benchmark target makes tens to low hundreds
@@ -104,9 +126,10 @@ local one. I have not measured that, and I will not claim it.
 
 ## Line count
 
-24 lines out. The three 5-line glob chains become three 1-line calls, `_dedup_paths`
-and its docstring go, and the two new helpers cost 30 lines including their
-docstrings.
+**25 lines in**, 1,485 → 1,510. The three 5-line glob chains become three
+1-line calls and `_dedup_paths` goes with its docstring, 25 lines out. The two
+new helpers cost 50 lines including their docstrings. This is the one proposal
+in the folder that makes the file longer.
 
 ## Is every line necessary
 

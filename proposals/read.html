@@ -181,8 +181,8 @@ that fails any of those is not in this folder.</p>
 <td style="text-align: left;"><code>compute_metrics.py</code> sidecar
 lookup</td>
 <td style="text-align: right;">1,485</td>
-<td style="text-align: left;"><strong>96× faster</strong>, 24 lines
-shorter</td>
+<td style="text-align: left;"><strong>4.2× faster</strong>, 25 lines
+longer</td>
 <td style="text-align: left;">low</td>
 </tr>
 <tr>
@@ -259,6 +259,13 @@ were the 6,890 lines of design-campaign code already removed. What
 remains is column bookkeeping, which is repetitive rather than
 complicated, and two directory walks that are genuinely inefficient.</p>
 <p>If you only take two, take 04 and 06.</p>
+<p>One correction, made after applying them. 04 first claimed 96× and 24
+lines shorter. 96× was the lookup in isolation rather than
+<code>parse_boltz2</code> end to end, which is 4.2×, and the file is 25
+lines longer rather than shorter because I estimated the line count
+instead of measuring it. 06's claim went the other way: 6.1× in the
+proposal, 7.6× once applied and measured against the committed
+implementation.</p>
 
 <nav class="pager"><span></span><a class="pn" href="#s01">01 &rarr;</a></nav>
 </section><section id="s01">
@@ -563,8 +570,17 @@ reason, so it stays.</p>
 <h2 id="04--bincompute_metricspy-the-sidecar-lookup">04 —
 <code>bin/compute_metrics.py</code>, the sidecar lookup</h2>
 <p><strong>Proposal: accept.</strong> This is the one change where speed
-is the point. <strong>96× faster</strong> at the benchmark's own model
-count, and 24 lines shorter.</p>
+is the point. <strong>4.2× faster</strong> on <code>parse_boltz2</code>
+at the benchmark's own model count, and <strong>25 lines
+longer</strong>.</p>
+<p>Corrected after applying it. This file first claimed 96× and 24 lines
+shorter. 96× was the lookup measured in isolation; end to end the lookup
+is a fraction of <code>parse_boltz2</code>, which also reads PDBs, loads
+npz arrays and computes metrics. And the two helpers with their
+docstrings cost more than the three glob chains and
+<code>_dedup_paths</code> saved, so the file goes 1,485 → 1,510 lines. I
+estimated the line count instead of measuring it. The speed is still the
+reason to take it; "shorter as well" was wrong.</p>
 <h3 id="the-problem">The problem</h3>
 <p><code>parse_boltz2</code> walks <code>pred_dir</code> once to find
 the model PDBs, then for each PDB looks up three sidecars:
@@ -623,8 +639,10 @@ The old order was: beside the PDB, then the sibling category directory,
 then anywhere in the tree. The new code checks those two explicit
 locations first and falls back to the shallowest remaining path.</p>
 <h3 id="speed-measured">Speed, measured</h3>
-<p>Built a Boltz-shaped output tree and timed the three lookups across
-all PDBs:</p>
+<p>Two measurements, and the difference between them is why the headline
+changed.</p>
+<p>The <strong>lookup in isolation</strong>, three sidecars across all
+PDBs:</p>
 <table>
 <thead>
 <tr>
@@ -648,7 +666,7 @@ all PDBs:</p>
 <td style="text-align: right;">300</td>
 <td style="text-align: right;">78.3 ms</td>
 <td style="text-align: right;">0.8 ms</td>
-<td style="text-align: right;"><strong>96×</strong></td>
+<td style="text-align: right;">96×</td>
 </tr>
 <tr>
 <td style="text-align: right;">125</td>
@@ -659,6 +677,44 @@ all PDBs:</p>
 </tr>
 </tbody>
 </table>
+<p><strong><code>parse_boltz2</code> end to end</strong>, which is what
+a run actually spends:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Models</th>
+<th style="text-align: right;">Files in tree</th>
+<th style="text-align: right;">Current</th>
+<th style="text-align: right;">Proposed</th>
+<th style="text-align: right;">Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">30</td>
+<td style="text-align: right;">65.6 ms</td>
+<td style="text-align: right;">5.1 ms</td>
+<td style="text-align: right;">12.9×</td>
+</tr>
+<tr>
+<td style="text-align: right;">25</td>
+<td style="text-align: right;">150</td>
+<td style="text-align: right;">67.5 ms</td>
+<td style="text-align: right;">16.1 ms</td>
+<td style="text-align: right;"><strong>4.2×</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">125</td>
+<td style="text-align: right;">750</td>
+<td style="text-align: right;">385.4 ms</td>
+<td style="text-align: right;">91.3 ms</td>
+<td style="text-align: right;">4.2×</td>
+</tr>
+</tbody>
+</table>
+<p>The second table is the honest one. The first measures only the part
+that changed.</p>
 <p>The honest context: <code>negsteer_aggregate.py</code> runs
 <code>compute_metrics.py</code> as a subprocess per passing row, so a
 benchmark target makes tens to low hundreds of these calls. At 78 ms
@@ -680,9 +736,11 @@ PDB, in a sibling <code>confidence/</code>, deeper in the tree, or in
 several of those at once: 906 lookups total, zero differences.</li>
 </ul>
 <h3 id="line-count">Line count</h3>
-<p>24 lines out. The three 5-line glob chains become three 1-line calls,
-<code>_dedup_paths</code> and its docstring go, and the two new helpers
-cost 30 lines including their docstrings.</p>
+<p><strong>25 lines in</strong>, 1,485 → 1,510. The three 5-line glob
+chains become three 1-line calls and <code>_dedup_paths</code> goes with
+its docstring, 25 lines out. The two new helpers cost 50 lines including
+their docstrings. This is the one proposal in the folder that makes the
+file longer.</p>
 <h3 id="is-every-line-necessary">Is every line necessary</h3>
 <p><code>os.path.normpath</code> on both sides of the comparison is.
 Without it <code>a/pdb/../confidence/x.json</code> and

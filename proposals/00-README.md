@@ -50,7 +50,7 @@ any of those is not in this folder.
 | 01 | `sum_stage_times.py` | 47 | nothing to do | none |
 | 02 | `pipeline_thresholds.py` | 158 | nothing to do | none |
 | 03 | `pathway_labels.py` | 137 | one helper inlined | low |
-| 04 | `compute_metrics.py` sidecar lookup | 1,485 | **96× faster**, 24 lines shorter | low |
+| 04 | `compute_metrics.py` sidecar lookup | 1,485 | **4.2× faster**, 25 lines longer | low |
 | 05 | `negsteer_coldstart.py` plan lookup | 633 | one file read instead of N | low |
 | 06 | `extract_passing.py` | 629 | the column spec, 243 → 161 | low |
 | 07 | `negative_steering.py` | 296 | print blocks folded | low |
@@ -76,3 +76,10 @@ which is repetitive rather than complicated, and two directory walks that are
 genuinely inefficient.
 
 If you only take two, take 04 and 06.
+
+One correction, made after applying them. 04 first claimed 96× and 24 lines
+shorter. 96× was the lookup in isolation rather than `parse_boltz2` end to
+end, which is 4.2×, and the file is 25 lines longer rather than shorter
+because I estimated the line count instead of measuring it. 06's claim went
+the other way: 6.1× in the proposal, 7.6× once applied and measured against
+the committed implementation.
