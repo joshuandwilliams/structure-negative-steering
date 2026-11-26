@@ -125,14 +125,27 @@ def test_the_plan_stage_writes_the_boltz_inputs(tmp_path):
 
 @pytest.mark.logic
 @needs_pdb
-def test_the_effector_template_is_written_by_default(tmp_path):
+def test_no_effector_template_is_written_by_default(tmp_path):
+    """The template needs the ground-truth complex, so a novel target cannot
+    use it. Off is therefore the only safe default, and every committed
+    result was produced without one."""
     _run_plan(tmp_path, GT)
-    assert (tmp_path / "effector_template.cif").is_file()
+    assert not (tmp_path / "effector_template.cif").is_file(), \
+        "the plan stage wrote a template without being asked"
 
 
 @pytest.mark.logic
 @needs_pdb
-def test_no_effector_template_suppresses_it(tmp_path):
+def test_effector_template_opts_in(tmp_path):
+    _run_plan(tmp_path, GT, "--effector-template")
+    assert (tmp_path / "effector_template.cif").is_file(), \
+        "--effector-template wrote no template"
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_no_effector_template_still_suppresses_it(tmp_path):
+    """Redundant now, and kept because a caller may still pass it."""
     _run_plan(tmp_path, GT, "--no-effector-template")
     assert not (tmp_path / "effector_template.cif").is_file(), \
         "--no-effector-template still wrote a template"

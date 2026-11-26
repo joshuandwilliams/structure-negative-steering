@@ -180,6 +180,8 @@ def _plan_args(a: argparse.Namespace) -> list[str]:
             out += [flag, str(value)]
     if a.boltz_constraints:
         out.append("--boltz-constraints")
+    if a.effector_template:
+        out.append("--effector-template")
     if a.no_effector_template:
         out.append("--no-effector-template")
     if a.no_kernels:
@@ -373,7 +375,12 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--seed", type=int)
     st.add_argument("--boltz-constraints", action="store_true",
                     help="add reference-derived restraints; needs a known interface")
-    st.add_argument("--no-effector-template", action="store_true")
+    st.add_argument("--effector-template", action="store_true",
+                    help="use the reference effector chain as a structural "
+                         "template; needs the reference complex, so a novel "
+                         "target cannot use it")
+    st.add_argument("--no-effector-template", action="store_true",
+                    help="redundant, the template is off by default")
     st.add_argument("--plan-extra-args", default="",
                     help="escape hatch, forwarded to the plan stage verbatim")
 

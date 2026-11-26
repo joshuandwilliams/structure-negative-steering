@@ -3169,16 +3169,23 @@ def build_parser() -> argparse.ArgumentParser:
                          "--design-region-indices-file and falls back to "
                          "true_interface without one.")
     pp.add_argument("--effector-template",
-                    dest="effector_template", action="store_true", default=True,
+                    dest="effector_template", action="store_true", default=False,
                     help="Use the ground-truth effector chain as a "
-                         "structural template for Boltz (default: ON). "
+                         "structural template for Boltz.  OFF by default.  "
                          "The effector is fixed throughout the experiment, "
                          "so pinning its fold doesn't bias which surface "
-                         "Boltz picks for the receptor.")
+                         "Boltz picks for the receptor.  It does need the "
+                         "ground-truth complex, so a novel target cannot "
+                         "use it.  Every committed result was produced "
+                         "without it, and until 2026-11-25 this flag was "
+                         "on by default but the template never reached "
+                         "Boltz, so turning it on now is a change of "
+                         "behaviour rather than a return to an old one.")
     pp.add_argument("--no-effector-template",
                     dest="effector_template", action="store_false",
-                    help="Disable the effector template (sequence-only "
-                         "Boltz prediction for both chains).")
+                    help="Force the effector template off.  Redundant now "
+                         "that off is the default, and kept so a caller "
+                         "that passes it keeps working.")
     pp.add_argument("--boltz-constraints",
                     dest="boltz_constraints", action="store_true", default=False,
                     help="Add the same pocket + dense-contact constraints used "

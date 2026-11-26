@@ -185,8 +185,8 @@ The benchmark is complete and the committed analyses are current. Every
 analysis renders, and every committed CSV and figure regenerates from the
 pinned environment.
 
-Two things were known to be wrong. Both are now fixed, and both are recorded
-here because the first one changes what a new run does.
+Two things were known to be wrong. Both are now fixed, and the first is
+recorded here because it changes what the effector template does.
 
 **The effector template did not reach Boltz, and now does.**
 `write_boltz_yaml` used to emit the `templates:` block inside the effector's
@@ -200,17 +200,25 @@ both carry `"templates": []`. Paired template and template-free runs in
 `structure-prediction-benchmarking` returning byte-identical structures for
 every seed is what prompted the check.
 
-The block is now a root key. `force: true` makes the template a steering
-potential during diffusion, and `threshold` is then the flat-bottom upper
-bound in angstroms on each templated CB's deviation from the rigidly aligned
-template position (`boltz 2.2.1 model/potentials/potentials.py:599-641`). The
-default threshold is 1.0 Å. `tests/characterization/test_boltz_yaml_schema.py`
-pins the placement, because a regression would again be silent at run time.
+The block is now a root key, so a template passed to Boltz now reaches it.
+`force: true` makes it a steering potential during diffusion, and `threshold`
+is then the flat-bottom upper bound in angstroms on each templated CB's
+deviation from the rigidly aligned template position
+(`boltz 2.2.1 model/potentials/potentials.py:599-641`). The default threshold
+is 1.0 Å. `tests/characterization/test_boltz_yaml_schema.py` pins the
+placement, because a regression would again be silent at run time.
 
-**Every prediction in `experiments/` was made before this fix**, so a rerun
-will not reproduce the committed numbers. They remain the published ones.
-Reproducing them means passing `--no-effector-template`, which is what those
-runs effectively did.
+**The template is off by default, and it is the one steering option that
+needs the answer.** It is built from the ground-truth effector chain, so a
+novel target cannot use it, which is the same objection that makes reference
+restraints a ceiling rather than a rival method. `--effector-template` turns
+it on, `negsteer_effector_template: true` does the same from a config, and
+every config in `experiments/` says `false`.
+
+Off is also what produced every committed number. The flag used to default to
+on, but the template never reached Boltz, so the runs were template-free
+whatever the config said. The configs now say what those runs actually did, so
+rerunning one reproduces it.
 
 **Half the committed results were produced by the workflow.** The earlier claim
 that all of them predate it was wrong.

@@ -137,14 +137,19 @@ def test_opt_in_flags_appear_only_when_set(drv, tmp_path, key, flag, when):
 
 
 @pytest.mark.logic
-def test_effector_template_flag_is_inverted(drv, tmp_path):
-    """The config key is positive, the engine flag is negative."""
+def test_the_effector_template_is_forwarded_only_when_the_config_asks(
+        drv, tmp_path):
+    """Opt-in on both sides. The engine's own default is off, so a config
+    that says false, or omits the key, must forward no flag at all rather
+    than restate the default."""
     on = drv._build_plan_extra_args(drv._load_yaml(
         _write_config(tmp_path, negsteer_effector_template=True)))
     off = drv._build_plan_extra_args(drv._load_yaml(
         _write_config(tmp_path, negsteer_effector_template=False)))
+    assert "--effector-template" in on
+    assert "--effector-template" not in off
     assert "--no-effector-template" not in on
-    assert "--no-effector-template" in off
+    assert "--no-effector-template" not in off
 
 
 @pytest.mark.logic
