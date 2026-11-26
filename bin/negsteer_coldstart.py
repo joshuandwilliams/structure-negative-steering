@@ -392,6 +392,18 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
     def _label_for(c: Dict) -> str:
         return c.get("design", "?")
 
+    # reversion_plan.json is read once rather than per candidate: the file
+    # is the same for the whole stage, and scanning its entries per
+    # candidate made the lookup quadratic in the number of designs.
+    # setdefault keeps the old behaviour, which took the FIRST entry for a
+    # duplicated label because the scan used `break`.
+    reverted_fasta_by_label: Dict[str, str] = {}
+    rp_path = cycle0_dir / "reversion_plan.json"
+    if rp_path.exists():
+        for entry in json.loads(rp_path.read_text()).get("entries", []):
+            reverted_fasta_by_label.setdefault(
+                entry.get("label"), entry.get("reverted_receptor_fasta"))
+
     kept: List[Dict] = []
     missing_verdict_count = 0
     for c in intact_candidates:
@@ -418,15 +430,8 @@ def cmd_kickoff_finalize(args: argparse.Namespace) -> int:
             pose_holds_count += 1
             reverted_labels.append(label)
             design_workdir = Path(c["pdb"]).parent
-            # Locate reverted FASTA from reversion_plan.json
-            reverted_fasta = None
-            rp_path = cycle0_dir / "reversion_plan.json"
-            if rp_path.exists():
-                rp = json.loads(rp_path.read_text())
-                for entry in rp.get("entries", []):
-                    if entry.get("label") == label:
-                        reverted_fasta = Path(entry["reverted_receptor_fasta"])
-                        break
+            planned = reverted_fasta_by_label.get(label)
+            reverted_fasta = Path(planned) if planned else None
             if reverted_fasta and reverted_fasta.exists():
                 try:
                     seq_lines = reverted_fasta.read_text().splitlines()
