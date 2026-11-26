@@ -520,8 +520,8 @@ def find_contact_residues_heavy(
     ``boltz2_negative_steering.find_contact_residues_heavy`` is a second
     implementation with the same signature, also insertion-code aware,
     and the two agree exactly on a well-formed structure: the same
-    contact set and the same distances over all 18 complexes in
-    ``data/reference_complexes/``.
+    contact set and the same distances over all 18 benchmark complexes,
+    which are in negative-steering-analyses' ``data/reference_complexes/``.
 
     It sorts by distance rather than by index and returns full-precision
     distances, and it RAISES on a malformed structure where this one

@@ -89,3 +89,17 @@ def test_stub_blocks_need_neither_container_nor_python(process: str) -> None:
     stub = _blocks()[process]["stub"]
     assert "singularity" not in stub, f"{process}'s stub needs no container"
     assert not _bare_python_calls(stub), f"{process}'s stub should not need Python"
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("process", sorted(_blocks()))
+def test_every_container_call_binds_the_targets_as_well_as_the_engine(process: str) -> None:
+    """A target's config, run/ tree and reference_pdb can live outside this
+    checkout. negsteerBinds() adds params.bind_paths to the engine's own bind,
+    so a call that bound params.repo_root by hand would see bin/ but not the
+    target, and would fail only when the targets live elsewhere."""
+    for line in _logical_lines(_blocks()[process]["script"]):
+        if "singularity exec" in line:
+            assert "${negsteerBinds()}" in line, (
+                f"{process} calls singularity without negsteerBinds(): {line}")
+            assert "--bind ${params.repo_root}" not in line

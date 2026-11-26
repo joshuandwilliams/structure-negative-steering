@@ -28,7 +28,7 @@ jobs:
           pip install -e .[test]
 
       # The hpc tier needs a GPU, the Boltz container or a finished run, so only
-      # the two local tiers run here. Coverage over bin/ and scripts/ is gated
+      # the two local tiers run here. Coverage over bin/ and negsteer/ is gated
       # by pyproject as a ratchet, and pytest applies it through addopts.
       #
       # Three tests skip here and that is expected. addopts carries -ra, so the

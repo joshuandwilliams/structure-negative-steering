@@ -55,8 +55,8 @@ def _load_engine_helpers():
         raise SystemExit(
             f"ERROR: could not import engine helpers ({exc}).\n"
             f"prepare_complex_inputs needs numpy plus gemmi (or biopython) for sequence "
-            f"extraction. Install the experiments extras:\n"
-            f"    pip install -e '.[experiments]'"
+            f"extraction. Install the runtime extra:\n"
+            f"    pip install -e '.[runtime]'"
         )
     return get_chain_sequence, find_contact_residues_heavy
 

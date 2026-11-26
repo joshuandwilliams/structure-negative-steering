@@ -9,23 +9,22 @@ description = "Standalone Boltz-2 negative-steering engine. Run negative steerin
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-# What the engine and the analyses need on a laptop. boltz and torch are
+# What the engine imports outside the Boltz image: the config driver, input
+# preparation and the stages a laptop test reaches. boltz and torch are
 # GPU/HPC-side and are deliberately absent, because nothing outside a container
-# imports them.
-experiments = [
+# imports them. The analysis stack (pandas, matplotlib, scipy) lives with the
+# analyses in negative-steering-analyses.
+runtime = [
     "numpy>=1.24",
-    "pandas>=2.0",
     "gemmi>=0.6",
     "biopython>=1.81",
-    "matplotlib>=3.7",
-    "scipy>=1.10",
     "PyYAML>=6.0",
 ]
 # The same list plus the test tooling, stated once rather than twice. This is
-# what CI installs, so a package missing from `experiments` fails on a clean
+# what CI installs, so a package missing from `runtime` fails on a clean
 # runner instead of passing on a laptop whose conda environment supplies it.
 test = [
-    "structure-negative-steering[experiments]",
+    "structure-negative-steering[runtime]",
     "pytest>=7.0",
     "pytest-cov>=4.0",
 ]
@@ -43,11 +42,10 @@ packages = ["negsteer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Coverage runs on every invocation over both trees, so bin/ is visible rather
-# than hidden. The gate is a ratchet; see [tool.coverage.report].
+# Coverage runs on every invocation over bin/ and negsteer/, so bin/ is visible
+# rather than hidden. The gate is a ratchet; see [tool.coverage.report].
 addopts = """
     --strict-markers -ra
-    --cov=scripts
     --cov=bin
     --cov=negsteer
     --cov-report=lcov:lcov.info
@@ -77,7 +75,7 @@ ignore = ["E501"]
 
 
 [tool.coverage.run]
-source = ["scripts", "bin", "negsteer"]
+source = ["bin", "negsteer"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -88,7 +86,7 @@ exclude_also = [
 show_missing = true
 skip_covered = true
 
-# A ratchet over bin/ + scripts/ combined. It may only ever go up. Raise it to
+# A ratchet over bin/ + negsteer/ combined. It may only ever go up. Raise it to
 # whatever a run reports once new tests land, so coverage cannot quietly fall.
 #
 # Everything under bin/ is now reached by a workflow stage, with the Boltz call

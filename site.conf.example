@@ -14,9 +14,23 @@
 
 # ── Where the repo lives on the cluster ──────────────────────────────────────
 # The launchers normally take this from SLURM_SUBMIT_DIR, which is the
-# directory sbatch was called from. Set it only if you submit from elsewhere.
+# directory sbatch was called from. Set it if you submit from elsewhere, for
+# example from a project repository that keeps its own targets.
 # Default: SLURM_SUBMIT_DIR, then the directory holding this file.
 #NEGSTEER_REPO_DIR="/home/you/structure-negative-steering"
+
+# Where the Nextflow head job runs. --targets resolves against it, and work/,
+# nxf_home/ and .nextflow-reports/ are written into it.
+# Default: SLURM_SUBMIT_DIR, then NEGSTEER_REPO_DIR.
+#NEGSTEER_LAUNCH_DIR="/home/you/my-project"
+
+# Host directories the containers must see besides the engine, comma-separated.
+# A target's config.yml, run/ tree and reference_pdb have to be visible inside
+# the Boltz image. Read by nextflow.config as params.bind_paths and by
+# negative_steering.slurm.sh.
+# Default: the launch directory for the workflow, and the config's own
+# directory for the single-job runner.
+#NEGSTEER_BIND_PATHS="/home/you/my-project,/data/structures"
 
 
 # ── Partitions ───────────────────────────────────────────────────────────────
@@ -32,8 +46,6 @@
 #NEGSTEER_PARTITION_GPU="gpu"
 # Head: the Nextflow head process. CPU-only, 2 cores, 24 h.
 #NEGSTEER_PARTITION_HEAD="short"
-# Head, long: the dose sweep's head job, which needs 36 h.
-#NEGSTEER_PARTITION_HEAD_LONG="long"
 # CPU: the short CPU stages Nextflow submits. Read by nextflow.config.
 #NEGSTEER_PARTITION_CPU="short"
 
@@ -52,9 +64,9 @@
 
 
 # ── Containers ───────────────────────────────────────────────────────────────
-# The Boltz image, built from containers/boltz2_negsteer.def. Every config in
-# experiments/ leaves boltz_container null and falls back to this, so one
-# value covers the whole repo. --boltz_container on the Nextflow command line
+# The Boltz image, built from containers/boltz2_negsteer.def. A config that
+# leaves boltz_container null falls back to this, so one value covers every
+# such config. --boltz_container on the Nextflow command line
 # overrides both. No default: a run without it stops and says so.
 #NEGSTEER_BOLTZ_IMG="/path/to/boltz2_negsteer.img"
 
@@ -70,17 +82,3 @@
 # Leave both unset if `java` and `nextflow` are already on PATH.
 #NEGSTEER_JAVA_HOME="/path/to/jdk-17"
 #NEGSTEER_NEXTFLOW_IMG="/path/to/NextFlow.img"
-
-
-# ── Syncing a laptop checkout to the cluster ─────────────────────────────────
-# Only contrib/sync_to_hpc.sh and contrib/sync_from_hpc.sh read these, and
-# neither is part of the pipeline. HOST is anything ssh accepts, including an
-# alias from ~/.ssh/config. DEST is relative to your remote home.
-#NEGSTEER_HPC_HOST="cluster"
-#NEGSTEER_HPC_DEST="structure-negative-steering/"
-
-# ── The design campaign's run tree ───────────────────────────────────────────
-# Four analysis scripts recompute confidence metrics from the pikp1_avrpikf
-# campaign, which lives in receptor-resurfacing-pipeline rather than here.
-# They take --run-root, and fall back to this. 05, 06, 07 and 09 all read it.
-#NEGSTEER_CAMPAIGN_RUN_ROOT="/path/to/receptor-resurfacing-pipeline/experiments/campaigns/pikp1_avrpikf/runs/crystal_full_test_contig"

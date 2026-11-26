@@ -1,7 +1,7 @@
 """Tests for negsteer_aggregate's `aggregate` stage, on built run trees.
 
 This stage flattens a finished run into all_results_multicycle.csv, which is
-what every analysis in analyses/ reads. A row lost here is a prediction that
+what every downstream analysis reads. A row lost here is a prediction that
 silently never happened, and a column renamed wrongly is a number attributed
 to the wrong metric. Neither shows up as an error.
 

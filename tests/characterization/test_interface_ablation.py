@@ -32,7 +32,7 @@ def _deps_available() -> bool:
 
 needs_deps = pytest.mark.skipif(
     not _deps_available(),
-    reason="needs numpy plus gemmi or biopython (pip install -e '.[experiments]')")
+    reason="needs numpy plus gemmi or biopython (pip install -e '.[runtime]')")
 
 
 @pytest.fixture(scope="module")

@@ -3,12 +3,13 @@
 # Submit a launcher with this site's partition and accounting.
 #
 #   ./scripts/submit.sh workflow  tests/test_run/config.yml
-#   ./scripts/submit.sh workflow  'experiments/benchmarking/**/config.yml'
-#   ./scripts/submit.sh sweep                       # all five doses
-#   ./scripts/submit.sh sweep     n10
-#   ./scripts/submit.sh ablation
-#   ./scripts/submit.sh steer     experiments/benchmarking/unconstrained/6G10/config.yml
+#   ./scripts/submit.sh workflow  'my_targets/**/config.yml'
+#   ./scripts/submit.sh steer     tests/test_run/config.yml
 #   ./scripts/submit.sh test-run
+#
+# Jobs are submitted from the repo root, so relative targets resolve against
+# it. A project that keeps its targets elsewhere submits from its own
+# directory instead. See scripts/run_workflow.slurm.sh.
 #
 # Each launcher carries the resources it needs in its own #SBATCH header, and
 # none of those are site-specific. What IS site-specific is the partition
@@ -48,16 +49,6 @@ case "${ROLE}" in
         PARTITION="${NEGSTEER_PARTITION_HEAD:-}"
         GPU=0
         ;;
-    sweep)
-        SCRIPT="${REPO}/scripts/run_dose_sweep.slurm.sh"
-        PARTITION="${NEGSTEER_PARTITION_HEAD_LONG:-${NEGSTEER_PARTITION_HEAD:-}}"
-        GPU=0
-        ;;
-    ablation)
-        SCRIPT="${REPO}/scripts/run_ablation_controls.slurm.sh"
-        PARTITION="${NEGSTEER_PARTITION_HEAD:-}"
-        GPU=0
-        ;;
     steer)
         SCRIPT="${REPO}/scripts/negative_steering.slurm.sh"
         PARTITION="${NEGSTEER_PARTITION_GPU:-}"
@@ -72,8 +63,6 @@ case "${ROLE}" in
         echo "Usage: ./scripts/submit.sh [--dry-run] <role> [args]" >&2
         echo "" >&2
         echo "  workflow <targets>   the Nextflow head job" >&2
-        echo "  sweep    [dose]      the dose sweep, one head job for all of it" >&2
-        echo "  ablation [variant]   the interface-ablation controls" >&2
         echo "  steer    <config>    one target through the engine, no Nextflow" >&2
         echo "  test-run             produce the run the check_test_run tier asserts on" >&2
         echo "" >&2

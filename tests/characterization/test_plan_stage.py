@@ -314,7 +314,7 @@ def test_every_protected_set_source_includes_the_true_interface():
         assert "true_set" in head, (
             f"a protected-set branch omits the true interface: {head.strip()!r}. "
             "If that is deliberate, the blindness claim in README.md and "
-            "analyses/02-model-choice needs updating with it.")
+            "negative-steering-analyses' 02-model-choice need updating with it.")
 
 
 # ── the overlapping cold start, where there is nothing to steer away from ────

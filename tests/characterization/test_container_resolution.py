@@ -31,9 +31,7 @@ def _resolve(config: Path, override: str = "") -> str:
 
 
 def _all_configs() -> list[Path]:
-    found = sorted((REPO_ROOT / "experiments" / "benchmarking").glob("*/*/config.yml"))
-    found += sorted((REPO_ROOT / "tests").glob("*/config.yml"))
-    return found
+    return sorted((REPO_ROOT / "tests").glob("*/config.yml"))
 
 
 @pytest.mark.logic

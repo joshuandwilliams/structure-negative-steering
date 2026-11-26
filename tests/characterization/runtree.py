@@ -6,8 +6,8 @@ asserting on it only proves the aggregator agrees with whatever it produced
 last time. These builders construct the tree instead, so each test states the
 answer before running the code.
 
-The layouts here are taken from a real run, `experiments/dose-sweep/n50/6G10/
-run/`, not from the aggregator's docstrings. Two cycle-0 layouts exist: a
+The layouts here are taken from a real run, negative-steering-analyses'
+`experiments/dose-sweep/n50/6G10/run/`, not from the aggregator's docstrings. Two cycle-0 layouts exist: a
 nested one with a `cycle_0/` subdirectory, and a flat one where the same files
 sit in the experiment root. Both are buildable, because the aggregator still
 detects and supports each.

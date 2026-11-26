@@ -12,7 +12,21 @@
 # run_workflow.slurm.sh — submit main.nf as a batch job.
 #
 #   sbatch scripts/run_workflow.slurm.sh tests/test_run/config.yml
-#   sbatch scripts/run_workflow.slurm.sh 'experiments/benchmarking/**/config.yml'
+#   sbatch scripts/run_workflow.slurm.sh 'my_targets/**/config.yml'
+#
+# Two directories matter, and they need not be the same one.
+#
+#   the engine   this checkout, holding main.nf. NEGSTEER_REPO_DIR, else the
+#                directory sbatch was called from.
+#   the launch   where Nextflow runs. --targets resolves against it, and
+#                work/, nxf_home/ and .nextflow-reports/ are written into it.
+#                NEGSTEER_LAUNCH_DIR, else the directory sbatch was called
+#                from, else the engine.
+#
+# Submitting from the engine's root makes them one directory. A project that
+# keeps its targets in its own repository submits from that repository with
+# NEGSTEER_REPO_DIR pointing at the engine. The containers then bind the
+# launch directory as well as the engine, through params.bind_paths.
 #
 # The Nextflow head process is CPU-only. It parses the DAG, submits each stage
 # to SLURM and waits. It is NOT run on the login node: this is a shared cluster,
@@ -50,8 +64,7 @@ if [ "$#" -lt 1 ]; then
     echo ""
     echo "Examples:"
     echo "  ./scripts/submit.sh workflow tests/test_run/config.yml"
-    echo "  ./scripts/submit.sh workflow experiments/benchmarking/unconstrained/6G10/config.yml"
-    echo "  ./scripts/submit.sh workflow 'experiments/benchmarking/**/config.yml'"
+    echo "  ./scripts/submit.sh workflow 'my_targets/**/config.yml'"
     echo ""
     echo "submit.sh adds this site's partition from site.conf. Plain"
     echo "\`sbatch scripts/run_workflow.slurm.sh <targets>\` also works and"
@@ -62,20 +75,25 @@ fi
 TARGETS="$1"
 shift
 
-# ── Repo ─────────────────────────────────────────────────────────────────────
+# ── Engine and launch directory ──────────────────────────────────────────────
 # SLURM copies the batch script to a spool directory, so BASH_SOURCE does not
 # resolve to the repo. SLURM_SUBMIT_DIR is where sbatch was called from, which
-# is the repo root in the documented usage. Fall back to the canonical path.
+# is the repo root in the documented usage.
 REPO_DIR="${NEGSTEER_REPO_DIR:-${SLURM_SUBMIT_DIR:-}}"
 if [ ! -f "${REPO_DIR:-}/main.nf" ]; then
     echo "ERROR: no main.nf under '${REPO_DIR:-}'."
     echo "Submit from the repo root, or set NEGSTEER_REPO_DIR in site.conf."
     exit 1
 fi
-cd "${REPO_DIR}"
+LAUNCH_DIR="${NEGSTEER_LAUNCH_DIR:-${SLURM_SUBMIT_DIR:-${REPO_DIR}}}"
+if [ ! -d "${LAUNCH_DIR}" ]; then
+    echo "ERROR: launch directory '${LAUNCH_DIR}' does not exist."
+    exit 1
+fi
+cd "${LAUNCH_DIR}"
 
 # site.conf carries this cluster's container and launcher paths. Sourced after
-# the cd so a relative NEGSTEER_* path resolves against the repo.
+# the cd so a relative NEGSTEER_* path resolves against the launch directory.
 # shellcheck source=scripts/site_conf.sh
 . "${REPO_DIR}/scripts/site_conf.sh"
 
@@ -105,19 +123,19 @@ fi
 # Nextflow that tries to resolve a plugin there hangs rather than failing.
 export NXF_OFFLINE=true
 export NXF_PLUGINS_DEFAULT=false
-export NXF_HOME="${REPO_DIR}/nxf_home"
-export NXF_WORK="${REPO_DIR}/work"
+export NXF_HOME="${LAUNCH_DIR}/nxf_home"
+export NXF_WORK="${LAUNCH_DIR}/work"
 export NXF_TEMP="${NXF_WORK}/tmp"
 
 # .nextflow.log's location is fixed before nextflow.config is read, so it needs
 # the environment variable rather than a config setting. See the README.
-export NXF_LOG_FILE="${REPO_DIR}/.nextflow-reports/nextflow.log"
+export NXF_LOG_FILE="${LAUNCH_DIR}/.nextflow-reports/nextflow.log"
 
-mkdir -p "${NXF_HOME}" "${NXF_WORK}" "${NXF_TEMP}" "${REPO_DIR}/.nextflow-reports"
+mkdir -p "${NXF_HOME}" "${NXF_WORK}" "${NXF_TEMP}" "${LAUNCH_DIR}/.nextflow-reports"
 
 # ── Nextflow launcher ────────────────────────────────────────────────────────
-# Extracted from the container into this repo's own NXF_HOME rather than
-# borrowed from a sibling repo's, so a run here cannot write into that one.
+# Extracted from the container into the launch directory's own NXF_HOME rather
+# than borrowed from a sibling repo's, so a run here cannot write into that one.
 NEXTFLOW_IMG="${NEGSTEER_NEXTFLOW_IMG:-}"
 NEXTFLOW_BIN="${NXF_HOME}/nextflow"
 
@@ -158,7 +176,8 @@ fi
 echo "============================================================"
 echo "structure-negative-steering — Nextflow head job"
 echo "============================================================"
-echo "Repo:        ${REPO_DIR}"
+echo "Engine:      ${REPO_DIR}"
+echo "Launch dir:  ${LAUNCH_DIR}"
 echo "Targets:     ${TARGETS}"
 echo "NXF_HOME:    ${NXF_HOME}"
 echo "NXF_WORK:    ${NXF_WORK}"
@@ -176,7 +195,7 @@ echo "============================================================"
 # redefine any `withLabel:` selector, because Nextflow 25.10 REPLACES such a
 # block rather than merging it. That is what dropped --gres=gpu:1 and put a
 # Boltz job on a partition with no GPU.
-"${NEXTFLOW_BIN}" run main.nf \
+"${NEXTFLOW_BIN}" run "${REPO_DIR}/main.nf" \
     -profile hpc \
     --targets "${TARGETS}" \
     -resume \
