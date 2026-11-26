@@ -1,6 +1,6 @@
 """The bash container resolver must agree with a real YAML parser.
 
-scripts/resolve_boltz_container.sh reads `boltz_container:` out of a config
+bin/resolve_boltz_container.sh reads `boltz_container:` out of a config
 with grep and sed, because the stage that needs the answer is the one that
 cannot use a parser: the airgapped host has no PyYAML, and PyYAML lives in the
 container the answer points at.
@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-RESOLVER = REPO_ROOT / "scripts" / "resolve_boltz_container.sh"
+RESOLVER = REPO_ROOT / "bin" / "resolve_boltz_container.sh"
 
 
 def _resolve(config: Path, override: str = "") -> str:

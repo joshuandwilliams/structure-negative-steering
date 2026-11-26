@@ -14,7 +14,7 @@ is the rule the benchmark chapter reports. Copying that row is all the staging
 needed.
 
 Usage:
-    python3 analysis/02-model-choice/stage_boltz2_benchmark.py [--metrics PATH]
+    python3 analyses/02-model-choice/stage_boltz2_benchmark.py [--metrics PATH]
 """
 from __future__ import annotations
 

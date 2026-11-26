@@ -10,7 +10,7 @@
 // The sbatch self-resubmission was removed with the multi-cycle harness: this
 // repo always ran with --max-cycles 0, so it never fired here.
 //
-// Config is read by scripts/negative_steering.py --emit-json rather than parsed
+// Config is read by bin/negative_steering.py --emit-json rather than parsed
 // here, so key names and defaults live in one place.
 
 nextflow.enable.dsl = 2

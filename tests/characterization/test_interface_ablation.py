@@ -1,4 +1,4 @@
-"""Tests for the interface ablation in scripts/prepare_complex_inputs.py.
+"""Tests for the interface ablation in bin/prepare_complex_inputs.py.
 
 The ablation is the control for the constrained arm, so a silent no-op here
 would read as the method working. The permutation and the alanine substitution
@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PREPARE = REPO_ROOT / "scripts" / "prepare_complex_inputs.py"
+PREPARE = REPO_ROOT / "bin" / "prepare_complex_inputs.py"
 REFERENCE = REPO_ROOT / "data" / "reference_complexes" / "7QZD.pdb"
 
 SEQ = "MKVLAAGGWWDDEEKKRRTT"

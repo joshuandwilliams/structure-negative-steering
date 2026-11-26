@@ -15,7 +15,7 @@ Writes dose_sweep_pass_counts.csv, committed so 01-pose-rescue.qmd renders
 without the dose-sweep run trees present.
 
 Usage:
-    python3 analysis/01-pose-rescue/dose_sweep_pass_counts.py
+    python3 analyses/01-pose-rescue/dose_sweep_pass_counts.py
 """
 
 import json

@@ -971,7 +971,7 @@ def find_contact_residues_heavy(
     wrong indices.
 
     ``compute_metrics.find_contact_residues_heavy``, used only by
-    ``scripts/prepare_complex_inputs.py``, is a second implementation
+    ``bin/prepare_complex_inputs.py``, is a second implementation
     with the same signature and the same icode-aware bucketing.  On a
     well-formed structure the two agree exactly: over all 18 complexes
     in ``data/reference_complexes/`` they return the same contact set

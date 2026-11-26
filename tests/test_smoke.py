@@ -33,7 +33,7 @@ ENTRY_POINTS = [
     "bin/cross_summary.py",
     "bin/extract_passing.py",
     "bin/sum_stage_times.py",
-    "scripts/negative_steering.py",
+    "bin/negative_steering.py",
 ]
 
 

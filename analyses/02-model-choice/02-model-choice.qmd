@@ -43,7 +43,7 @@ import pandas as pd
 
 HERE = Path.cwd()
 if not (HERE / "boltz2_benchmark_comparison.csv").exists():
-    HERE = Path("analysis/02-model-choice")
+    HERE = Path("analyses/02-model-choice")
 HERE = HERE.resolve()
 ANALYSIS = HERE.parent
 REPO_ROOT = ANALYSIS.parent
@@ -241,7 +241,7 @@ The figure above mixes three runnable methods with one ceiling reference
 only landed for a subset of targets. Dropping that fourth series:
 
 ```bash
-python3 analysis/02-model-choice/model_choice_3way.py
+python3 analyses/02-model-choice/model_choice_3way.py
 ```
 
 ![Unrestrained, reference-restrained and negative-steered only, same selection rules as the four-way figure above.](thesis-figures/model_choice_comparison_3way.png){#fig-model-choice-3way width="100%"}

@@ -12,7 +12,7 @@ TM-score kernel is a function of the *interacting set size* for each
 reference residue, not of the chain length; using the chain length turns
 ipSAE into a global pTM-style metric that no longer measures the interface.
 
-analysis/07-ipsae-instability is a whole document about how unstable this
+analyses/07-ipsae-instability is a whole document about how unstable this
 metric is at these chain lengths, so the floor and the d0 clamp are the
 parts that most need pinning.
 """

@@ -1,4 +1,4 @@
-"""Tests for the config-driven runner, scripts/negative_steering.py.
+"""Tests for the config-driven runner, bin/negative_steering.py.
 
 This is the half of the runner that reads a target's ``config.yml`` and writes
 ``run/launch.sh``. Everything it does is a pure translation from config keys to
@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DRIVER = REPO_ROOT / "scripts" / "negative_steering.py"
+DRIVER = REPO_ROOT / "bin" / "negative_steering.py"
 REAL_CONFIG = (REPO_ROOT / "experiments" / "benchmarking" / "unconstrained"
                / "6G10" / "config.yml")
 

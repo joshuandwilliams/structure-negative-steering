@@ -90,7 +90,7 @@ from IPython.display import display
 
 HERE = Path.cwd()
 if not (HERE / "ipsae_internals.csv").exists():
-    HERE = Path("analysis/07-ipsae-instability")
+    HERE = Path("analyses/07-ipsae-instability")
 HERE = HERE.resolve()
 ANALYSIS = HERE.parent
 CONF = ANALYSIS / "04-confidence-cost"          # owns confidence_common.py

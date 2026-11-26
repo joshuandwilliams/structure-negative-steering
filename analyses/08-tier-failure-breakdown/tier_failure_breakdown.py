@@ -35,7 +35,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 DOSE_SWEEP = REPO_ROOT / "experiments" / "dose-sweep" / "n50"
 
-sys.path.insert(0, str(REPO_ROOT / "analysis" / "01-pose-rescue"))
+sys.path.insert(0, str(REPO_ROOT / "analyses" / "01-pose-rescue"))
 from make_plots import RA_EFF_THRESHOLD, TARGETS, _try_float, _try_int  # noqa: E402
 
 FOLD_THRESHOLD = 5.0  # Angstrom; independent chain RMSD misfolding cutoff

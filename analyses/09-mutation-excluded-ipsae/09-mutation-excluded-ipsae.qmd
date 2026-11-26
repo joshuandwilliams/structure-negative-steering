@@ -42,7 +42,7 @@ import pandas as pd
 
 HERE = Path.cwd()
 if not (HERE / "mutation_excluded_ipsae.csv").exists():
-    HERE = Path("analysis/09-mutation-excluded-ipsae")
+    HERE = Path("analyses/09-mutation-excluded-ipsae")
 HERE = HERE.resolve()
 ANALYSIS = HERE.parent
 CONF = ANALYSIS / "04-confidence-cost"

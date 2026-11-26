@@ -22,8 +22,8 @@ all three cold-start seeds, so steering never triggered.
 Regenerate with:
 
 ```bash
-python3 analysis/08-tier-failure-breakdown/tier_failure_breakdown.py
-python3 analysis/08-tier-failure-breakdown/make_plots.py
+python3 analyses/08-tier-failure-breakdown/tier_failure_breakdown.py
+python3 analyses/08-tier-failure-breakdown/make_plots.py
 ```
 
 One data-quality point affects how these counts are read. On most
@@ -45,7 +45,7 @@ import pandas as pd
 
 HERE = Path.cwd()
 if not (HERE / "tier_failure_breakdown_n50.csv").exists():
-    HERE = Path("analysis/08-tier-failure-breakdown")
+    HERE = Path("analyses/08-tier-failure-breakdown")
 
 df = pd.read_csv(HERE / "tier_failure_breakdown_n50.csv")
 df

@@ -88,7 +88,7 @@ Everything else has a default. `--n-designs`, `--num-seeds`, `--diffusion-sample
 
 `status` is `skipped_steering` when the cold start already passed, which is a normal outcome and not a failure. `tiering_succeeded: false` means the run produced its results but the representative could not be picked, which is also not a failure.
 
-`integration/negative_steering.nf` is a drop-in Nextflow module for `receptor-resurfacing-pipeline`, replacing the copy of the engine it carries today.
+`contrib/negative_steering.nf` is a drop-in Nextflow module for `receptor-resurfacing-pipeline`, replacing the copy of the engine it carries today.
 
 The CLI runs the same nine stages, in the same order, with the same arguments as `bin/negative_steering_run_one.sh`, which produced the committed benchmark. That equivalence is asserted by `tests/characterization/test_negsteer_cli.py`, so the tool and the runner behind the published numbers cannot drift apart.
 
@@ -109,12 +109,12 @@ The HPC is airgapped, so nothing is installed there and everything runs in a con
 
 `tests/characterization/test_no_host_python.py` enforces that. Every `script:` block's Python must be wrapped in `singularity exec`, and every `stub:` block must need no container at all. The first cluster run failed on the one stage that broke the rule, `NEGSTEER_READ_CONFIG`, which called the host's `python3` for a driver that needs PyYAML.
 
-That stage is the awkward one, because the container path is what it is reading. `scripts/resolve_boltz_container.sh` pulls `boltz_container:` out of the YAML as plain text, the same extraction `negative_steering.slurm.sh` has always used, and the driver then runs inside that image. A config with no container is a hard error rather than a fallback. `--allow_host_python` opens the one exception, for CI, which has PyYAML installed and no image to run anything inside.
+That stage is the awkward one, because the container path is what it is reading. `bin/resolve_boltz_container.sh` pulls `boltz_container:` out of the YAML as plain text, the same extraction `negative_steering.slurm.sh` has always used, and the driver then runs inside that image. A config with no container is a hard error rather than a fallback. `--allow_host_python` opens the one exception, for CI, which has PyYAML installed and no image to run anything inside.
 
 `main.nf` is the entry point. It takes a glob, so one target and the whole benchmark are the same command. `scripts/run_workflow.slurm.sh` submits it. The Nextflow head process is CPU-only, and it parses the DAG, submits each stage to SLURM and then waits, so it runs as a batch job rather than on the login node.
 
 ```bash
-./contrib/sync_to_hpc.sh                       # from the Mac. Excludes experiments/ and analysis/
+./contrib/sync_to_hpc.sh                       # from the Mac. Excludes experiments/ and analyses/
 
 # on the HPC, from the repo root. One sbatch, nothing on the login node.
 ./scripts/submit.sh workflow tests/test_run/config.yml
@@ -172,8 +172,8 @@ On the Mac the Python driver runs the CPU-only steps directly, for prepping and 
 
 ```bash
 pip install -e '.[experiments]'                 # numpy, pandas, scipy, gemmi, biopython, matplotlib, pyyaml
-./scripts/negative_steering.py experiments/benchmarking/unconstrained/6G10/config.yml --dry-run
-./scripts/negative_steering.py experiments/benchmarking/unconstrained/6G10/config.yml --prepare-only
+./bin/negative_steering.py experiments/benchmarking/unconstrained/6G10/config.yml --dry-run
+./bin/negative_steering.py experiments/benchmarking/unconstrained/6G10/config.yml --prepare-only
 ```
 
 The run splits across the container boundary. `negative_steering.py` runs inside the Boltz image, because that is where Python lives. It parses the config, calls `prepare_complex_inputs.py` to derive the FASTAs, interface and design region, then writes `run/launch.sh` with every engine argument already resolved. `negative_steering.slurm.sh` executes that on the host, because the engine orchestrator does its own `singularity exec --nv` and singularity cannot be nested. It then assigns the run's tier. `launch.sh` doubles as the record of exactly what ran.
@@ -185,7 +185,7 @@ The container comes from `--container /path/to.img`, then the config's `boltz_co
 The config driver is the supported path. `prepare_complex_inputs.py` also runs on its own, for deriving inputs for something that has no `config.yml`.
 
 ```bash
-./scripts/prepare_complex_inputs.py \
+./bin/prepare_complex_inputs.py \
     --complex experiments/6G10/6G10.pdb \
     --outdir  experiments/6G10/inputs \
     --derive --contact-cutoff 5.0
@@ -248,9 +248,9 @@ Run outputs live on the HPC and are gitignored. Pull the lightweight summaries d
 ```bash
 contrib/sync_from_hpc.sh --list                              # what is on the HPC
 contrib/sync_from_hpc.sh --name benchmarking --results-only  # summaries only
-python3 analysis/01-pose-rescue/make_plots.py                 # benchmark_summary.csv + figures
-python3 analysis/03-compute-cost/stage_runtime_comparison.py  # runtime_comparison.csv
-cd analysis/01-pose-rescue && quarto render 01-pose-rescue.qmd
+python3 analyses/01-pose-rescue/make_plots.py                 # benchmark_summary.csv + figures
+python3 analyses/03-compute-cost/stage_runtime_comparison.py  # runtime_comparison.csv
+cd analyses/01-pose-rescue && quarto render 01-pose-rescue.qmd
 ```
 
 `make_plots.py` takes `--bench` and `--outdir` to override the input tree and output location. Every analysis falls back to its committed cached table when the source tree is absent, so all of them re-render anywhere.
@@ -318,7 +318,7 @@ number would still look plausible.
 Validate the config on a laptop first, which needs no GPU:
 
 ```bash
-./scripts/negative_steering.py tests/test_run/config.yml --prepare-only
+./bin/negative_steering.py tests/test_run/config.yml --prepare-only
 ```
 
 `bin/` used to carry a tiered object model ported from
