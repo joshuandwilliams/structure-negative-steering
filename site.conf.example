@@ -66,8 +66,14 @@
 # ── Containers ───────────────────────────────────────────────────────────────
 # The Boltz image, built from containers/boltz2_negsteer.def. A config that
 # leaves boltz_container null falls back to this, so one value covers every
-# such config. --boltz_container on the Nextflow command line
-# overrides both. No default: a run without it stops and says so.
+# such config. No default: a run without it stops and says so.
+#
+# Under the workflow this variable is the only override. --boltz_container on
+# the Nextflow command line decides which image READ_CONFIG reads the config
+# inside, and nothing else: the container every later stage uses comes from the
+# JSON that stage emits, which bin/negative_steering.py --emit-json builds from
+# the config and then this variable. The single-target runner is different, and
+# its --container does reach every stage.
 #NEGSTEER_BOLTZ_IMG="/path/to/boltz2_negsteer.img"
 
 # The Nextflow head process is the one thing that does not run in a container,
