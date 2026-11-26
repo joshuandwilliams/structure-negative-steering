@@ -1,4 +1,4 @@
-# derived from complex experiments/benchmarking/unconstrained/6G10/6G10.pdb
+# derived from complex data/reference_complexes/6G10.pdb
 # interface source: heavy-atom contacts <= 5.0 A
 # receptor chain: A
 # effector chain: B

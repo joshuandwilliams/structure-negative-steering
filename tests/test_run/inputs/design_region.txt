@@ -1,4 +1,4 @@
-# derived from complex experiments/benchmarking/unconstrained/6G10/6G10.pdb
+# derived from complex data/reference_complexes/6G10.pdb
 # design region source: none (protect only the true interface)
 # receptor chain: A
 # design region size: 0 residues

@@ -13,8 +13,11 @@ and a documented output contract.
         --true-interface true_interface.txt \
         --outdir         design_00
 
-It runs the same nine stages, in the same order, with the same arguments as
+It runs the same stages, in the same order, with the same arguments as
 bin/negative_steering_run_one.sh, which produced the committed benchmark.
+Thirteen invocations always run, plus one predict-one per steered design and
+one predict-reversion-one per reversion. The list is pinned as EXPECTED_STAGES
+in tests/characterization/test_negsteer_cli.py.
 
 The stages call `boltz` directly inside a container, which the engine
 detects from SINGULARITY_NAME. That is why this runs in-container
