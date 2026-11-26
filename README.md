@@ -60,19 +60,17 @@ inside the threshold is a false positive by construction.
 
 The config driver, input preparation and the tests run on a laptop. No
 predictor is installed, by design: Boltz-2 and its CUDA stack live in the
-Singularity image built from `containers/boltz2_negsteer.def`, on the cluster.
+Singularity image built from `containers/Dockerfile`, on the cluster.
 
 ```bash
 pip install -e '.[runtime]'          # numpy, gemmi, biopython, PyYAML
 pip install -e '.[test]'             # the same, plus pytest
+pip install -e '.[dev]'              # the same, plus the pinned ruff
 ```
 
-`environment.yml` is the same set of packages pinned, for a conda user:
-
-```bash
-mamba env create -f environment.yml
-mamba activate negsteer-dev
-```
+There is no conda environment here. The pinned analysis stack, which is what
+regenerates a committed figure byte for byte, belongs with the analyses in
+[`negative-steering-analyses`](https://github.com/joshuandwilliams/negative-steering-analyses).
 
 ### Your cluster
 
@@ -166,10 +164,9 @@ equivalence, so the tool and the numbers cannot drift apart.
 | `bin/` | The engine. Everything a workflow stage runs |
 | `negsteer/` | The `negsteer` CLI |
 | `scripts/` | What you run: the cluster launchers |
-| `contrib/` | A drop-in module for a downstream pipeline. Nothing here is called by this one |
 | `site.conf.example` | Every setting that is specific to one cluster |
 | `data/reference_complexes/` | Two solved complexes, 6G10 and 7QZD, used as test fixtures |
-| `containers/` | Singularity definitions. The images live on the cluster |
+| `containers/` | Two Dockerfiles, runtime and test. The images live on the cluster |
 | `tests/` | The suite, plus its cluster wrappers |
 
 `data/reference_complexes/` holds only what the tests read. The 18 benchmark

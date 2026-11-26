@@ -14,6 +14,10 @@ orchestrator with every argument resolved. Launching is the host's job, since
 the orchestrator does its own `singularity exec --nv` and singularity cannot
 nest. launch.sh records what was run.
 
+Its 20 print calls look like a reporting-heavy file and are not. They are four
+`ERROR:` guards, one JSON emission, four --dry-run lines and a six-line run
+summary, each saying something the others do not, so there is nothing to fold.
+
 Usage, normally via negative_steering.slurm.sh, but runnable on a Mac with the
 [runtime] extra:
 

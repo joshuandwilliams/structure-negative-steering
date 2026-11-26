@@ -98,9 +98,9 @@ timeline.html
 # because eight of them have no descendant anywhere in this repo's history.
 archive/
 
-# The testing image's def is local-only. The image it builds is installed
-# under the regular boltz2_negsteer.img name on the HPC, so publishing this
-# would only confuse anyone building from containers/boltz2_negsteer.def.
+# The testing image's def is local-only, and containers/Dockerfile.test
+# supersedes it. See containers/README.md for the one case it still covers,
+# which is measuring the engine's own coverage from inside the runtime image.
 containers/boltz2_negsteer_testing.def
 
 # ----- Site settings: partitions, container paths, an ssh host -----

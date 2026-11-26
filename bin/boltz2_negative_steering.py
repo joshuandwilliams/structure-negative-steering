@@ -1823,6 +1823,15 @@ def make_steered_sequence(
 
 # ── Subcommand: plan ───────────────────────────────────────────────
 def cmd_plan(args: argparse.Namespace) -> int:
+    """Stage the steered designs, or decide there are none to stage.
+
+    The 92 print calls here are not bloat and folding them was considered and
+    rejected. On a cluster they are the only record of what this stage decided:
+    which cold start it got, which interface it read as wrong, which residues
+    entered the pool and why each candidate was kept or dropped. Each line says
+    something a later line does not, so a generic reporter would lose the
+    detail rather than compress it.
+    """
     workdir: Path = args.workdir
     workdir.mkdir(parents=True, exist_ok=True)
 

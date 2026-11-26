@@ -84,13 +84,11 @@ Everything else has a default. `--n-designs`, `--num-seeds`, `--diffusion-sample
 
 `status` is `skipped_steering` when the cold start already passed, which is a normal outcome and not a failure. `tiering_succeeded: false` means the run produced its results but the representative could not be picked, which is also not a failure.
 
-`contrib/negative_steering.nf` is a drop-in Nextflow module for `receptor-resurfacing-pipeline`, replacing the copy of the engine it carries today.
-
 The CLI runs the same stages, in the same order, with the same arguments as `bin/negative_steering_run_one.sh`, which produced the committed benchmark. Thirteen invocations always run, plus one `predict-one` per steered design and one `predict-reversion-one` per reversion. `tests/characterization/test_negsteer_cli.py` holds that list as `EXPECTED_STAGES` and asserts the equivalence, so the tool and the runner behind the published numbers cannot drift apart.
 
 Nesting is not a problem. The engine detects `SINGULARITY_NAME` and calls `boltz` directly when it is already inside a container. That is why `negsteer` runs in-container where the old shell orchestrator could not. `--boltz-container` is only needed on a bare host.
 
-Until the image is rebuilt from `containers/boltz2_negsteer.def`, reach the same CLI from a bind-mounted checkout:
+Until the image is rebuilt from `containers/Dockerfile`, reach the same CLI from a bind-mounted checkout:
 
 ```bash
 singularity exec --nv --bind $REPO negsteer.img \
@@ -215,7 +213,7 @@ Two tiers, one marker each. A marker says what a test needs, not where it happen
 | `check_test_run` | the output of a real run | a finished run tree on disk |
 
 ```bash
-mamba env create -f environment.yml && mamba activate negsteer-dev
+pip install -e '.[test]'
 pytest -m logic                  # everything that needs no run
 pytest                           # adds check_test_run, against a run already on disk
 ./scripts/submit.sh test-run     # produce a fresh run, then assert on it

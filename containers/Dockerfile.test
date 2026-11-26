@@ -1,0 +1,76 @@
+# =============================================================================
+# negsteer test image: the suite, and nothing that runs a prediction.
+#
+#   docker build -t negsteer-test:dev -f containers/Dockerfile.test .
+#   apptainer build negsteer-test.sif docker-daemon://negsteer-test:dev
+#
+#   apptainer exec --bind "$REPO" negsteer-test.sif \
+#       sh -c "cd $REPO && pytest -m logic"
+#
+# Separate from containers/Dockerfile on purpose: one image runs the thing, one
+# image tests it. Keeping them apart means the runtime image carries no test
+# tooling, and this one carries no torch, no CUDA and no Boltz, so it is small
+# and it cannot accidentally become the thing under test.
+#
+# WHAT IS IN HERE, and why each one. This is the exact set the suite imports,
+# checked by running `pytest -m logic` in a clean virtualenv with only these
+# installed: 1459 passed.
+#
+#   numpy       RMSD, contact geometry and ipSAE arithmetic
+#   gemmi       PDB coordinate parsing
+#   biopython   the second structure reader; the engine takes either, and
+#               tests/characterization/test_engine_guards.py asserts the
+#               module refuses to load with Bio.Align blocked
+#   PyYAML      the emitted Boltz input YAML, and reading a config
+#   pytest      the runner, with pytest-cov and coverage for the gate
+#   bash        >= 4.4. test_run_one_shell.py runs
+#               bin/negative_steering_run_one.sh directly, and that script
+#               expands empty arrays under `set -u`, which errors on bash 3.2.
+#               Rocky 9 ships bash 5, so nothing extra is needed here.
+#
+# WHAT WAS IN THE FILE THIS REPLACES, and is not here. containers/
+# pytest_runner.def also installed pandas, matplotlib, Pillow and
+# scikit-image. Its own comments attributed all four to
+# receptor-resurfacing-pipeline and structure-prediction-benchmarking rather
+# than to this repository, and nothing in tests/ imports any of them.
+#
+# The def also noted a gemmi skew worth keeping in mind: it pinned 0.7.5 here
+# against 0.6.5 in the runtime image. Both parse a .pdb prediction
+# identically, so the skew is latent. Anything added that reads mmCIF has to
+# be exercised in the RUNTIME image too, because 0.6.5 returns zero models
+# for input 0.7.5 accepts instead of raising, which surfaces as an empty
+# result rather than an error.
+# =============================================================================
+FROM rockylinux:9
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN dnf install -y --setopt=install_weak_deps=False \
+        python3.11 python3.11-pip git \
+ && dnf clean all \
+ && rm -rf /var/cache/dnf \
+ && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
+ && ln -sf /usr/bin/python3.11 /usr/local/bin/python3 \
+ && python -m pip install --upgrade pip setuptools
+
+# gemmi is pinned to the version the def used here, so a parser difference
+# cannot be what makes a test pass or fail between rebuilds.
+RUN pip install \
+        numpy \
+        'gemmi==0.7.5' \
+        biopython \
+        pyyaml \
+        pytest \
+        pytest-cov \
+        coverage
+
+# The suite is run against a bind-mounted checkout rather than a copy, so the
+# image does not go stale against the tests every commit. Nothing from the
+# repository is baked in.
+WORKDIR /work
+
+RUN python -c "import numpy, gemmi, Bio, yaml, pytest; print('imports OK')" \
+ && bash -c 'echo "bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"' \
+ && test "${BASH_VERSINFO:-0}" -ge 4
+
+CMD ["pytest", "-m", "logic"]
