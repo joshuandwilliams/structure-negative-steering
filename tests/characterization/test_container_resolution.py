@@ -75,3 +75,21 @@ def test_quoting_and_spacing_are_stripped(tmp_path: Path, line: str) -> None:
     cfg.write_text(f"name: x\n{line}\n")
     expected = yaml.safe_load(cfg.read_text())["boltz_container"]
     assert _resolve(cfg) == expected
+
+
+@pytest.mark.logic
+def test_the_single_job_runner_uses_this_resolver_rather_than_its_own() -> None:
+    """scripts/negative_steering.slurm.sh must not extract boltz_container itself.
+
+    It used to, with grep and sed, and that silently broke every committed
+    config. They all carry `boltz_container: null`; the extraction returned the
+    string "null", the runner then tested `-f null` and reported "container
+    image not found: null", and NEGSTEER_BOLTZ_IMG was never consulted. The
+    workflow path was unaffected because it already went through this resolver,
+    so the two entry points disagreed about what a null config means.
+    """
+    runner = (REPO_ROOT / "scripts" / "negative_steering.slurm.sh").read_text()
+    assert "resolve_boltz_container.sh" in runner, \
+        "the runner must resolve the image through bin/resolve_boltz_container.sh"
+    assert "grep -E '^[[:space:]]*boltz_container:'" not in runner, \
+        "the runner extracts boltz_container itself again; that ignores `null`"

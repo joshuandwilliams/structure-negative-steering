@@ -104,14 +104,31 @@ fi
 PY_DRIVER="${REPO_ROOT}/bin/negative_steering.py"
 ENGINE_BIN="${REPO_ROOT}/bin"
 
-# Resolve the container: --container override, else the boltz_container: line in
-# the YAML. Plain text extraction, so no parser and nothing to install.
-if [[ -z "$CONTAINER" ]]; then
-    CONTAINER="$(grep -E '^[[:space:]]*boltz_container:' "$CONFIG" | head -1 \
-        | sed -E 's/^[^:]*:[[:space:]]*//; s/^["'"'"']//; s/["'"'"'][[:space:]]*$//')"
+# Resolve the container through bin/resolve_boltz_container.sh, which is the
+# same resolver the workflow's READ_CONFIG stage uses: --container override,
+# then the config's boltz_container, then NEGSTEER_BOLTZ_IMG.
+#
+# This used to extract the YAML line here with grep and sed, and that was a
+# real bug rather than a duplication. Every committed config carries
+# `boltz_container: null`, which the extraction returned as the literal string
+# "null", so the check below reported "container image not found: null" and the
+# site setting was never consulted. It broke the moment the configs were
+# emptied in 11b9f01, and only on this path, because the workflow already went
+# through the resolver.
+#
+# NEGSTEER_BOLTZ_IMG reaches here by inheritance: scripts/submit.sh sources
+# scripts/site_conf.sh and sbatch exports the submitting environment. A plain
+# `bash scripts/negative_steering.slurm.sh <config>` with no site.conf loaded
+# therefore needs --container, and says so below.
+RESOLVER="${REPO_ROOT}/bin/resolve_boltz_container.sh"
+if [[ ! -f "$RESOLVER" ]]; then
+    echo "ERROR: missing $RESOLVER" >&2
+    exit 2
 fi
+CONTAINER="$(bash "$RESOLVER" "$CONFIG" "$CONTAINER")"
 if [[ -z "$CONTAINER" ]]; then
-    echo "ERROR: no container. Pass --container or set boltz_container in $CONFIG" >&2
+    echo "ERROR: no Boltz image. The config leaves boltz_container null, so" >&2
+    echo "       set NEGSTEER_BOLTZ_IMG in site.conf, or pass --container." >&2
     exit 2
 fi
 if [[ ! -f "$CONTAINER" ]]; then
