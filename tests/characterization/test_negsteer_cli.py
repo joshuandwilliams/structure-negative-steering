@@ -361,7 +361,7 @@ def test_the_cli_can_set_every_plan_knob_the_config_driver_can(tmp_path, capsys)
         "--receptor-fasta", "--effector-fasta",
         "--true-interface-indices", "--true-interface-indices-file",
         "--design-region-indices-file",
-        "--effector-template",  # the default; --no-effector-template negates it
+        "--effector-template",   # opt-in; --no-effector-template forces off
     }
     src = (REPO_ROOT / "bin" / "boltz2_negative_steering.py").read_text()
     start = src.index('"plan"')
@@ -485,6 +485,7 @@ def test_a_missing_plan_is_a_width_of_zero(tmp_path):
 @pytest.mark.logic
 @pytest.mark.parametrize("attr,flag", [
     ("boltz_constraints", "--boltz-constraints"),
+    ("effector_template", "--effector-template"),
     ("no_effector_template", "--no-effector-template"),
     ("no_kernels", "--no-kernels"),
 ])
@@ -501,8 +502,8 @@ def test_each_boolean_knob_is_forwarded_only_when_set(attr, flag):
                     candidate_pool_size=None, protected_set_source=None,
                     contact_cutoff=None, seed=None, mode=None,
                     rmsd_threshold=None, boltz_constraints=False,
-                    no_effector_template=False, no_kernels=False,
-                    plan_extra_args=None)
+                    effector_template=False, no_effector_template=False,
+                    no_kernels=False, plan_extra_args=None)
         base.update(kw)
         return argparse.Namespace(**base)
 
@@ -520,7 +521,7 @@ def test_extra_plan_arguments_are_forwarded_verbatim():
         recycling_steps=None, max_mutations=None, candidate_pool_size=None,
         protected_set_source=None, contact_cutoff=None, seed=None, mode=None,
         rmsd_threshold=None, boltz_constraints=False,
-        no_effector_template=False, no_kernels=False,
+        effector_template=False, no_effector_template=False, no_kernels=False,
         plan_extra_args="--something 5 --else")
     got = cli._plan_args(ns)
     assert got[-3:] == ["--something", "5", "--else"]

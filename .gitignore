@@ -106,14 +106,6 @@ ENV/
 .env.local
 *.local
 
-# ----- Smoke-run outputs. The config is tracked, the run is not -----
-tests/smoke/run/
-tests/smoke/run_cli/
-tests/smoke/.cli_view*
-tests/smoke/inputs/
-tests/smoke/*.out
-tests/smoke/*.err
-
 # ----- Workflow-check outputs. Same rule: the config is tracked, the run is not -----
 tests/test_run/run/
 tests/test_run/run_cli/

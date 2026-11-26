@@ -634,13 +634,20 @@ def write_boltz_yaml(
     """Minimal Boltz2 YAML: two protein chains, single-seq A3Ms.
 
     With `effector_template_cif`, the effector chain gets a structural
-    template from that CIF, with `force: true` and a tight `threshold`
-    so the fold is locked rather than a soft suggestion.  It is never
-    applied to the receptor.  The syntax matches boltz2_prepare.py,
-    with chain_id and template_id as bare strings, not lists.
+    template from that CIF.  It is never applied to the receptor.
+    `chain_id` names the chain in this prediction and `template_id` the
+    chain inside the CIF, both as bare strings rather than lists.
 
-    `constraints_block` is appended as a top-level ``constraints:``
-    key, pre-rendered by build_benchmark_style_constraints_block.
+    `force: true` adds a steering potential during diffusion, and then
+    `threshold` is the flat-bottom upper bound in angstroms on how far
+    each templated CB may sit from the rigidly aligned template
+    position.  Without `force` the threshold is infinite and the
+    template only enters as a feature.  Boltz raises if `force` is set
+    without a `threshold`.
+
+    `templates:` and `constraints:` are both top-level keys, siblings
+    of `sequences:`.  The constraints block is pre-rendered by
+    build_benchmark_style_constraints_block.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -663,15 +670,20 @@ def write_boltz_yaml(
     ]
 
     if effector_template_cif is not None:
-        # This block nests INSIDE the effector chain definition,
-        # under "  - protein:", not at the YAML root.
+        # Top-level key, sibling of "sequences:". Boltz reads templates
+        # only from the schema root, at boltz 2.2.1
+        # data/parse/schema.py:1603 (`schema.get("templates", [])`). A
+        # chain entry's own keys are never inspected past the entity
+        # type, so a templates block nested under "  - protein:" is
+        # dropped without an error. This code emitted it there until
+        # 2026-11-25, and every prediction before that ran untemplated.
         yaml_lines.extend([
-            "      templates:",
-            f"        - cif: {effector_template_cif.resolve()}",
-            f"          chain_id: {eff_chain}",
-            f"          template_id: {eff_chain}",
-            "          force: true",
-            f"          threshold: {template_threshold}",
+            "templates:",
+            f"  - cif: {effector_template_cif.resolve()}",
+            f"    chain_id: {eff_chain}",
+            f"    template_id: {eff_chain}",
+            "    force: true",
+            f"    threshold: {template_threshold}",
         ])
 
     if constraints_block:
@@ -3157,16 +3169,23 @@ def build_parser() -> argparse.ArgumentParser:
                          "--design-region-indices-file and falls back to "
                          "true_interface without one.")
     pp.add_argument("--effector-template",
-                    dest="effector_template", action="store_true", default=True,
+                    dest="effector_template", action="store_true", default=False,
                     help="Use the ground-truth effector chain as a "
-                         "structural template for Boltz (default: ON). "
+                         "structural template for Boltz.  OFF by default.  "
                          "The effector is fixed throughout the experiment, "
                          "so pinning its fold doesn't bias which surface "
-                         "Boltz picks for the receptor.")
+                         "Boltz picks for the receptor.  It does need the "
+                         "ground-truth complex, so a novel target cannot "
+                         "use it.  Every committed result was produced "
+                         "without it, and until 2026-11-25 this flag was "
+                         "on by default but the template never reached "
+                         "Boltz, so turning it on now is a change of "
+                         "behaviour rather than a return to an old one.")
     pp.add_argument("--no-effector-template",
                     dest="effector_template", action="store_false",
-                    help="Disable the effector template (sequence-only "
-                         "Boltz prediction for both chains).")
+                    help="Force the effector template off.  Redundant now "
+                         "that off is the default, and kept so a caller "
+                         "that passes it keeps working.")
     pp.add_argument("--boltz-constraints",
                     dest="boltz_constraints", action="store_true", default=False,
                     help="Add the same pocket + dense-contact constraints used "

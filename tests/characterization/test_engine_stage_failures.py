@@ -267,13 +267,17 @@ def test_a_ligand_in_the_effector_chain_stops_the_run(tmp_path, capsys):
     template, where the writer emits `label_seq_id .` for the ligand row and the
     validation refuses it. AF3 and Boltz would both reject that template 30
     minutes into a GPU job, so the run has to stop here instead.
+
+    --effector-template is passed explicitly because the template is opt-in.
+    Without it the plan never reads the ground truth's effector chain as a
+    structure, so there is nothing for the ligand to break.
     """
     gt = _two_chain_pdb(tmp_path / "lig.pdb", effector_ligand="SO4")
     assert bns.get_chain_sequence(gt, "B") == "G" * 10, \
         "the ligand already broke sequence extraction, so this tests nothing"
     fake, counter = _stub_boltz(tmp_path / "scratch", gt)
 
-    assert _plan(tmp_path / "work", gt, fake) == 1
+    assert _plan(tmp_path / "work", gt, fake, "--effector-template") == 1
     assert "Effector template extraction failed" in capsys.readouterr().out
     assert counter[0] == 0, "GPU time was spent after the template failed"
     assert not (tmp_path / "work" / "plan.json").exists()

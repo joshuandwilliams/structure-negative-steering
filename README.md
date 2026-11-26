@@ -185,24 +185,55 @@ The benchmark is complete and the committed analyses are current. Every
 analysis renders, and every committed CSV and figure regenerates from the
 pinned environment.
 
-Two things are known to be wrong, and are recorded here rather than left to be
-discovered.
+Two things were known to be wrong. Both are now fixed, and the first is
+recorded here because it changes what the effector template does.
 
-**The effector template never reached Boltz.** `write_boltz_yaml` emits the
-`templates:` block inside the effector's chain entry. Boltz reads `templates`
-only from the root of the schema, at `boltz 2.2.1 data/parse/schema.py:1603`,
-and ignores an unrecognised key inside a chain entry without raising. Every
-prediction this repo has produced therefore ran without the effector template.
-The paired template and template-free runs in
-`structure-prediction-benchmarking` returned byte-identical structures for
-every seed, which is how it was found. The code is left as it is so the
-committed results stay reproducible. Fixing it invalidates every run in
-`experiments/`, so it means rerunning the sweep.
+**The effector template did not reach Boltz, and now does.**
+`write_boltz_yaml` used to emit the `templates:` block inside the effector's
+chain entry. Boltz reads `templates` only from the root of the schema, at
+`boltz 2.2.1 data/parse/schema.py:1603`, and a chain entry is inspected only
+for the key naming its entity type, at `schema.py:1018-1020`, so the nested
+block was dropped without an error. Boltz's own record of a run says so: the
+committed fixtures at
+`tests/characterization/fixtures/single_run/*/boltz_results_input/processed/records/input.json`
+both carry `"templates": []`. Paired template and template-free runs in
+`structure-prediction-benchmarking` returning byte-identical structures for
+every seed is what prompted the check.
 
-**The committed results predate the workflow.** They were produced by the
-previous single-job runner, not by the Nextflow workflow that replaced it. The
-stage sequence and every scientific parameter are unchanged, so a rerun
-reproduces them, but they have not been rerun.
+The block is now a root key, so a template passed to Boltz now reaches it.
+`force: true` makes it a steering potential during diffusion, and `threshold`
+is then the flat-bottom upper bound in angstroms on each templated CB's
+deviation from the rigidly aligned template position
+(`boltz 2.2.1 model/potentials/potentials.py:599-641`). The default threshold
+is 1.0 Å. `tests/characterization/test_boltz_yaml_schema.py` pins the
+placement, because a regression would again be silent at run time.
+
+**The template is off by default, and it is the one steering option that
+needs the answer.** It is built from the ground-truth effector chain, so a
+novel target cannot use it, which is the same objection that makes reference
+restraints a ceiling rather than a rival method. `--effector-template` turns
+it on, `negsteer_effector_template: true` does the same from a config, and
+every config in `experiments/` says `false`.
+
+Off is also what produced every committed number. The flag used to default to
+on, but the template never reached Boltz, so the runs were template-free
+whatever the config said. The configs now say what those runs actually did, so
+rerunning one reproduces it.
+
+**Half the committed results were produced by the workflow.** The earlier claim
+that all of them predate it was wrong.
+
+| cohort | runner | committed outputs |
+|:---|:---|:---|
+| `experiments/dose-sweep/` (90 target × dose units) | the Nextflow workflow, head job `nf_dosesweep` | the pose-rescue figures and `n50_pose_metrics.csv`, `dockq_scores.csv`, `dose_sweep_pass_counts.csv`, `dose_sweep_maxrss.csv`, `tier_failure_breakdown_n50.csv`, and the steered series in `02-model-choice` |
+| `experiments/benchmarking/` (18 targets × 2 arms) | the single-job runner, one `sbatch` per target | `benchmark_summary.csv`, `negsteer_maxrss.csv`, `confidence_per_prediction*.csv` |
+| the `pikp1_avrpikf` design campaign | `receptor-resurfacing-pipeline`, not this repo | `campaign_data/*.csv`, `sequence_match.csv`, `ipsae_*.csv`, `mutation_excluded_*.csv` |
+
+The provenance of each memory figure is recorded at
+`analysis/03-compute-cost/stage_runtime_comparison.py:106-122`, which is where
+the split is visible: the dose-sweep cohort's peak memory comes from a Nextflow
+trace, the 18-target cohort's from Slurm `MaxRSS` because those jobs produced
+no trace.
 
 ## Further reading
 

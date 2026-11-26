@@ -1528,7 +1528,7 @@ def _load_input_design_region(
     input_design_region_path: Optional[str],
 ) -> Tuple[Optional[set], Optional[int]]:
     """Load input-PDB-numbered design-region positions from
-    input_design_region.txt, written by derive_input_design_region.py and
+    input_design_region.txt, written by derive_design_region.py and
     published to .../negative_steering/controls_inputs/.  The format is
     comma-separated 1-based positions, with '#' comment lines.
 

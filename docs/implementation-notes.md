@@ -148,7 +148,7 @@ Every run artefact lands in `.nextflow-reports/`. That is the trace the compute-
 
 The trace, report and timeline are written on every run. `trace.txt` is what the compute-cost analysis reads.
 
-A single target can still be run without Nextflow, which is useful when debugging one config. This is the runner that produced the committed results.
+A single target can still be run without Nextflow, which is useful when debugging one config. This is the runner that produced the 18-target `experiments/benchmarking/` cohort. The 90-unit dose sweep was run by the workflow, and the two cohorts between them account for every committed result that came from this repo. README's Status section has the full split.
 
 ```bash
 sbatch scripts/negative_steering.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml
@@ -211,7 +211,7 @@ sbatch -p jic-medium -t 12:00:00 scripts/run_dose_sweep.slurm.sh n10   # trimmed
 
 Each config is the tracked benchmark config with three lines changed, `name`, `reference_pdb` and `negsteer_n_designs`. Everything else is copied byte for byte, so the dose is the only thing that varies. The generator refuses to write a config that differs anywhere else, and `tests/characterization/test_dose_sweep_configs.py` asserts the same thing about what is committed. No structure is duplicated. Each config points back at `data/reference_complexes/`.
 
-`n20` is not redundant. It reproduces the committed unconstrained arm under the Nextflow workflow, where the published numbers came from the single-job runner that preceded it.
+`n20` is not redundant. It is the dose that matches the `experiments/benchmarking/` unconstrained arm, so it reproduces that arm under the workflow rather than under the single-job runner that produced it.
 
 One head job runs the whole sweep rather than five, so the concurrency bound applies once rather than five times over. Five sessions would each claim the full bound and queue behind each other while monopolising the partition.
 

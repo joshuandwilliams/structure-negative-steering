@@ -18,8 +18,9 @@ passed through as text and is not a runtime type.
 ``contig_utils.py`` holds the older parser (``parse_block_segments``,
 ``resolve_contigs``, ``parse_design_region``), which ContigSpec absorbs
 and which stays until every caller has moved over.  Two more parsers
-once lived in ``bin/derive_input_design_region.py`` and
-``bin/pipeline_correct_sequences.py``, both since deleted.
+lived in receptor-resurfacing-pipeline's ``derive_input_design_region.py``
+and ``pipeline_correct_sequences.py``.  Neither file has ever been in this
+repo, and ``bin/derive_design_region.py`` is the descendant of the first.
 """
 
 from __future__ import annotations

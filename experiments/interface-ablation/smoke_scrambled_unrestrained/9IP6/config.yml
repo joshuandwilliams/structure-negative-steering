@@ -70,7 +70,7 @@ negsteer_num_seeds:            3
 negsteer_max_mutations:        6
 negsteer_candidate_pool_size:  12
 negsteer_protected_set_source: "true_interface"   # true_interface | design_region_union
-negsteer_effector_template:    true
+negsteer_effector_template:    false
 negsteer_diffusion_samples:    1
 negsteer_recycling_steps:      3
 negsteer_seed:                 0

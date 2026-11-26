@@ -115,8 +115,10 @@ def _build_plan_extra_args(cfg: Dict[str, Any]) -> str:
         f"--rmsd-threshold {cfg.get('negsteer_rmsd_threshold', 5.0)}",
         f"--contact-cutoff {cfg.get('negsteer_contact_cutoff', 5.0)}",
     ]
-    if not cfg.get("negsteer_effector_template", True):
-        parts.append("--no-effector-template")
+    # Opt-in. The engine's own default is off, so a config that omits the
+    # key gets no template.
+    if cfg.get("negsteer_effector_template", False):
+        parts.append("--effector-template")
     if cfg.get("negsteer_no_kernels", False):
         parts.append("--no-kernels")
     if cfg.get("negsteer_boltz_constraints", False):

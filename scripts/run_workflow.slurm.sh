@@ -13,7 +13,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # run_workflow.slurm.sh — submit main.nf as a batch job.
 #
-#   sbatch scripts/run_workflow.slurm.sh tests/workflow_check/config.yml
+#   sbatch scripts/run_workflow.slurm.sh tests/test_run/config.yml
 #   sbatch scripts/run_workflow.slurm.sh 'experiments/benchmarking/**/config.yml'
 #
 # The Nextflow head process is CPU-only. It parses the DAG, submits each stage
@@ -32,7 +32,7 @@
 # already submitted. 24 h on jic-medium is the default. Trim it with sbatch's
 # own flags, which override the header, but leave room for the queue:
 #
-#   sbatch -t 12:00:00 scripts/run_workflow.slurm.sh tests/workflow_check/config.yml
+#   sbatch -t 12:00:00 scripts/run_workflow.slurm.sh tests/test_run/config.yml
 #
 # -resume is always passed, so a head job that hits its walltime can be
 # resubmitted with the identical command and will skip what already finished.
@@ -46,7 +46,7 @@ if [ "$#" -lt 1 ]; then
     echo "  <targets>  one config.yml, or a quoted glob matching several."
     echo ""
     echo "Examples:"
-    echo "  sbatch scripts/run_workflow.slurm.sh tests/workflow_check/config.yml"
+    echo "  sbatch scripts/run_workflow.slurm.sh tests/test_run/config.yml"
     echo "  sbatch scripts/run_workflow.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml"
     echo "  sbatch scripts/run_workflow.slurm.sh 'experiments/benchmarking/**/config.yml'"
     exit 1

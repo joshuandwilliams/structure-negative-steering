@@ -24,7 +24,7 @@ Include: yum
 #
 #   pytest-cov is not installed, and pyproject asks for --cov on every
 #   invocation, so a bare `pytest` in here aborts on an unrecognised argument
-#   before collecting anything. tests/run_pytest.slurm.sh passes
+#   before collecting anything. tests/test_run.slurm.sh:197 passes
 #   -o addopts="" for that reason. Coverage over an engine run in a separate
 #   container could not be measured anyway.
 #
@@ -39,15 +39,18 @@ Include: yum
 #     toolchain so test code that imports 3.11-only typing features works
 #     identically inside both containers)
 #   - pytest                (test runner — markers wired up in pyproject.toml)
-#   - pandas                (CSV comparators — tests/characterization/helpers/csv_compare.py)
-#   - numpy                 (PNG SSIM math + helper unit tests)
+#   - pandas                (the thesis-statistics tests, which rebuild each
+#                            committed table from its CSV —
+#                            tests/characterization/test_thesis_statistics.py)
+#   - numpy                 (RMSD, contact geometry and ipSAE arithmetic — 12
+#                            test files and 7 bin/ modules)
 #   - Pillow (provides `PIL`)
-#                           (PNG decode/resize — helpers/png_compare.py;
-#                            ImageDraw is used by helper unit tests to
-#                            synthesise small fixture PNGs)
+#                           (PNG decode/resize for receptor-resurfacing-
+#                            pipeline's helpers/png_compare.py. Nothing in
+#                            THIS repo imports it)
 #   - scikit-image (provides `skimage`)
-#                           (skimage.metrics.structural_similarity — SSIM
-#                            for PNG-PERCEPTUAL strategy in png_compare.py)
+#                           (SSIM for the same comparator. Nothing in THIS
+#                            repo imports it either)
 #   - gemmi                 (mmCIF/PDB coordinate parsing — the
 #                            structure-prediction-benchmarking hpc tier drives
 #                            bin/classify_predicted_interface.py and
@@ -58,10 +61,9 @@ Include: yum
 #                            figure, so the Agg backend via MPLCONFIGDIR is
 #                            sufficient)
 #   - PyYAML (provides `yaml`)
-#                           (bin/validate_boltz_yaml.py parses the generated
-#                            Boltz input YAML.  Its tests importorskip yaml, so
-#                            omitting it makes 5 tests skip silently rather
-#                            than fail loudly)
+#                           (test_boltz_yaml_schema.py parses the emitted Boltz
+#                            input YAML and test_container_resolution.py reads
+#                            a config)
 #   - biopython (provides `Bio`)
 #                           (Bio.SVDSuperimposer and Bio.Align back the Kabsch
 #                            fit and the Needleman-Wunsch pairing in that
@@ -75,10 +77,11 @@ Include: yum
 # Those tests build their own poses from committed reference structures, so
 # they do not need a finished benchmark run.
 #
-# The package set above is derived directly from the imports in
-# tests/characterization/{conftest.py,test_*.py,helpers/*.py,helpers/tests/*.py}
-# and matches the [project.optional-dependencies] "test" extra in
-# pyproject.toml.  Any new third-party import added to those files MUST be
+# The package set above is the union over three repositories, so it is wider
+# than this one needs. This repo's own tests import numpy, gemmi, matplotlib,
+# pandas, yaml and pytest, and nothing here imports PIL or skimage. The
+# [project.optional-dependencies] "test" extra in pyproject.toml is the
+# authoritative list for this repo.  Any new third-party import added to those files MUST be
 # added both here and in pyproject.toml — the final %post verification
 # block fails the build if any installed package is missing or unimportable.
 #
