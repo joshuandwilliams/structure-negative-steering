@@ -1001,15 +1001,50 @@ def compute_interface_plddt(model_pdb, receptor_chain, effector_chain,
 # Path helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _dedup_paths(paths):
-    """Deduplicate file paths preserving order."""
-    seen = set()
-    out = []
-    for p in paths:
-        if p not in seen:
-            seen.add(p)
-            out.append(p)
-    return out
+def _sidecar_index(pred_dir):
+    """Map every filename under pred_dir to its paths, shallowest first.
+
+    parse_boltz2 looks up three sidecars per PDB: confidence_<name>.json,
+    plddt_<name>.npz and pae_<name>.npz.  Each lookup used to be three
+    globs, one of which walked the whole of pred_dir recursively, so the
+    tree was walked three times per PDB.  At the benchmark's 25 models,
+    5 seeds x 5 diffusion samples, that is 75 walks of one directory.
+    Walking once and indexing by filename gives the same answer.
+    """
+    index = {}
+    for dirpath, _dirnames, filenames in os.walk(pred_dir):
+        for nm in filenames:
+            index.setdefault(nm, []).append(os.path.join(dirpath, nm))
+    for paths in index.values():
+        paths.sort(key=lambda p: (p.count(os.sep), p))
+    return index
+
+
+def _sidecar(index, pdb_dir, name, kind, ext):
+    """The best path for one sidecar, or None.
+
+    `kind` is both the filename prefix and the sibling directory name,
+    which Boltz keeps the same: confidence_<name>.json sits either beside
+    the PDB or in a sibling `confidence/`.
+
+    Preference order is the one the three chained globs had, because the
+    caller takes the first hit: beside the PDB, then the sibling category
+    directory, then the shallowest path anywhere in the tree.  normpath on
+    both sides is what makes the sibling case match, since
+    `a/pdb/../confidence/x` and `a/confidence/x` are the same file under
+    different strings.
+    """
+    filename = f"{kind}_{name}.{ext}"
+    candidates = index.get(filename, ())
+    if not candidates:
+        return None
+    here = os.path.join(pdb_dir, filename)
+    sibling = os.path.normpath(os.path.join(pdb_dir, "..", kind, filename))
+    for preferred in (here, sibling):
+        for c in candidates:
+            if os.path.normpath(c) == preferred:
+                return c
+    return candidates[0]
 
 
 def _is_reference(path):
@@ -1068,20 +1103,18 @@ def parse_boltz2(
         print(f"  WARNING: No PDB files found in {pred_dir}")
         return results
 
+    sidecars = _sidecar_index(pred_dir)
+
     for pdb_path in pdb_files:
         name = os.path.basename(pdb_path).replace(".pdb", "")
         pdb_dir = os.path.dirname(pdb_path)
         entry = {"pdb_path": pdb_path, "model_name": name}
 
         # --- Confidence JSON ---
-        conf_files = _dedup_paths(
-            glob.glob(os.path.join(pdb_dir, f"confidence_{name}.json")) +
-            glob.glob(os.path.join(pdb_dir, "..", "confidence", f"confidence_{name}.json")) +
-            glob.glob(os.path.join(pred_dir, "**", f"confidence_{name}.json"), recursive=True)
-        )
-        if conf_files:
+        conf_file = _sidecar(sidecars, pdb_dir, name, "confidence", "json")
+        if conf_file:
             try:
-                with open(conf_files[0]) as f:
+                with open(conf_file) as f:
                     conf = json.load(f)
                 entry["ptm"] = round(float(conf.get("ptm", 0.0)), 4)
                 entry["iptm"] = round(float(
@@ -1098,14 +1131,10 @@ def parse_boltz2(
                 print(f"  WARNING: conf parse failed for {name}: {e}")
 
         # --- pLDDT ---
-        plddt_files = _dedup_paths(
-            glob.glob(os.path.join(pdb_dir, f"plddt_{name}.npz")) +
-            glob.glob(os.path.join(pdb_dir, "..", "plddt", f"plddt_{name}.npz")) +
-            glob.glob(os.path.join(pred_dir, "**", f"plddt_{name}.npz"), recursive=True)
-        )
-        if plddt_files:
+        plddt_file = _sidecar(sidecars, pdb_dir, name, "plddt", "npz")
+        if plddt_file:
             try:
-                data = np.load(plddt_files[0])
+                data = np.load(plddt_file)
                 arr = data[list(data.keys())[0]]
                 if arr.ndim > 1:
                     arr = arr.flatten()
@@ -1124,15 +1153,11 @@ def parse_boltz2(
             entry["avg_plddt"] = plddt_from_pdb(pdb_path)
 
         # --- PAE matrix ---
-        pae_files = _dedup_paths(
-            glob.glob(os.path.join(pdb_dir, f"pae_{name}.npz")) +
-            glob.glob(os.path.join(pdb_dir, "..", "pae", f"pae_{name}.npz")) +
-            glob.glob(os.path.join(pred_dir, "**", f"pae_{name}.npz"), recursive=True)
-        )
+        pae_file = _sidecar(sidecars, pdb_dir, name, "pae", "npz")
         pae_matrix = None
-        if pae_files:
+        if pae_file:
             try:
-                data = np.load(pae_files[0])
+                data = np.load(pae_file)
                 for key in data.keys():
                     arr = np.array(data[key])
                     if arr.ndim == 2:

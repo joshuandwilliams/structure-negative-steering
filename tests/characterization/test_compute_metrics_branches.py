@@ -753,6 +753,72 @@ def test_interface_plddt_names_each_reason_it_could_not_be_computed(tmp_path):
 
 @pytest.mark.logic
 @needs_pdb
+def test_a_sidecar_in_neither_expected_place_is_still_found(tmp_path):
+    """The last resort in _sidecar, and the only reason the index is sorted.
+
+    Boltz normally writes confidence_<name>.json either beside the model PDB
+    or in a sibling confidence/ directory, and _sidecar prefers those two in
+    that order. A tree that has it somewhere else entirely still has to
+    resolve, because the three chained globs this replaced ended with a
+    recursive search of the whole prediction directory.
+
+    Two copies are planted at different depths to pin which one wins: the
+    index sorts each filename's paths by separator count, so the shallower
+    one is taken.
+    """
+    out = _tree(tmp_path / "out", GT)
+    job = Path(out) / "predictions" / "input"
+    moved = job / "confidence" / "confidence_input_model_0.json"
+    body = moved.read_text()
+    moved.unlink()
+    (job / "elsewhere").mkdir()
+    (job / "elsewhere" / "confidence_input_model_0.json").write_text(body)
+    deeper = job / "elsewhere" / "deeper"
+    deeper.mkdir()
+    (deeper / "confidence_input_model_0.json").write_text(
+        json.dumps({"ptm": 0.11, "iptm": 0.11}))
+
+    row = _parse(out)[0]
+    assert row["ptm"] == pytest.approx(0.66), "the shallower copy must win"
+    assert row["iptm"] == pytest.approx(0.43)
+
+
+@pytest.mark.logic
+@needs_pdb
+def test_boltz_own_layout_prefers_the_sidecar_next_to_the_model(tmp_path):
+    """The preferred-location branch, which the flatter _tree does not reach.
+
+    Boltz's real layout is <job>/pdb/<name>.pdb with the sidecars in
+    <job>/confidence/, <job>/pae/ and <job>/plddt/, so pdb_dir/.. is the job
+    directory and the sibling category directory is where _sidecar looks
+    second. A decoy copy is planted deeper with different values, so taking
+    the preferred one rather than the shallowest-anywhere is what the
+    assertion pins.
+    """
+    job = tmp_path / "out" / "predictions" / "input"
+    (job / "pdb").mkdir(parents=True)
+    for sub in ("pae", "plddt", "confidence"):
+        (job / sub).mkdir()
+    shutil.copy(GT, job / "pdb" / "input_model_0.pdb")
+    np.savez(job / "plddt" / "plddt_input_model_0.npz",
+             plddt=np.full(TOTAL, 0.9))
+    np.savez(job / "pae" / "pae_input_model_0.npz",
+             pae=np.full((TOTAL, TOTAL), 2.0))
+    (job / "confidence" / "confidence_input_model_0.json").write_text(
+        json.dumps({"ptm": 0.66, "iptm": 0.43}))
+
+    decoy = job / "pdb" / "nested"
+    decoy.mkdir()
+    (decoy / "confidence_input_model_0.json").write_text(
+        json.dumps({"ptm": 0.01, "iptm": 0.01}))
+
+    row = _parse(str(tmp_path / "out"))[0]
+    assert row["ptm"] == pytest.approx(0.66), "the sibling copy must win"
+    assert row["iptm"] == pytest.approx(0.43)
+
+
+@pytest.mark.logic
+@needs_pdb
 def test_a_two_dimensional_plddt_array_is_flattened(tmp_path):
     """A (1, N) array averages to the same 90.0 as a flat one.
 
