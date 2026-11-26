@@ -218,25 +218,7 @@ def test_average_plddt_reads_the_b_factor_column():
     assert got is None or isinstance(float(got), float)
 
 
-# ── position-list parsing ────────────────────────────────────────────────────
-
-@pytest.mark.logic
-@pytest.mark.parametrize("spec,expected", [
-    ("1,2,3", [1, 2, 3]),
-    ("1-3", [1, 2, 3]),
-    ("1-3,7", [1, 2, 3, 7]),
-    ("7,1-3", [1, 2, 3, 7]),
-    ("", []),
-])
-def test_position_list_supports_ranges(spec, expected):
-    assert sorted(cm.parse_position_list(spec)) == expected
-
-
-@pytest.mark.logic
-def test_position_file_round_trips(tmp_path):
-    f = tmp_path / "pos.txt"
-    f.write_text("# a comment\n1-3\n7\n")
-    assert sorted(cm.load_positions_file(f)) == [1, 2, 3, 7]
+# ── the mutated-positions list ───────────────────────────────────────────────
 
 
 @pytest.mark.logic

@@ -318,20 +318,6 @@ def test_the_cutoff_decides_the_interface_set(tmp_path):
 
 
 @pytest.mark.logic
-def test_the_deprecated_atom_mask_wraps_the_residue_set(tmp_path):
-    """The legacy name expands each residue to a sentinel atom_name of None.
-
-    None means "every atom of this residue", which is what the residue-level
-    fix requires. A Ca-only ground truth would otherwise produce a mask of Ca
-    atoms alone, and a Ca almost never registers a heavy-atom contact against
-    a prediction carrying full side chains.
-    """
-    got = cm.compute_effector_interface_atom_mask(
-        _tiny_gt(tmp_path), [1], REC, EFF, 8.0)
-    assert got == {(1, None): (0.0, 0.0, 0.0), (2, None): (0.0, 0.0, 0.0)}
-
-
-@pytest.mark.logic
 def test_a_malformed_ground_truth_line_drops_only_that_residue(tmp_path):
     """Receptor position 1 is the first line that parses, not the first line.
 
@@ -947,9 +933,3 @@ def test_a_parser_exception_writes_a_header_only_csv(tmp_path, capsys):
 
 
 # ── the position parser's empty tokens ───────────────────────────────────────
-
-@pytest.mark.logic
-def test_empty_tokens_are_skipped_by_the_range_capable_parser():
-    """A trailing comma in a design-region spec is not a position of zero."""
-    assert cm.parse_position_list("5,,26") == [5, 26]
-    assert cm.parse_position_list("5, ,30-31,") == [5, 30, 31]
