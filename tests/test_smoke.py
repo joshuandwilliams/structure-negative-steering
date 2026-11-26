@@ -30,7 +30,7 @@ ENTRY_POINTS = [
     "bin/negsteer_coldstart.py",
     "bin/negsteer_aggregate.py",
     "bin/pathway_labels.py",
-    "bin/cross_summary_cli.py",
+    "bin/cross_summary.py",
     "bin/extract_passing.py",
     "bin/sum_stage_times.py",
     "scripts/negative_steering.py",
@@ -126,4 +126,6 @@ def test_submit_wrapper_head_job_asks_for_no_gpu() -> None:
     large allocation here would idle scarce hardware for the whole run."""
     header = [ln for ln in SUBMIT_SH.read_text().splitlines()
               if ln.startswith("#SBATCH")]
-    assert not any("gres" in ln or "jic-gpu" in ln for ln in header)
+    assert not any("gres" in ln for ln in header)
+    assert not any(ln.startswith("#SBATCH -p") for ln in header), \
+        "the partition is site-specific and belongs in site.conf"

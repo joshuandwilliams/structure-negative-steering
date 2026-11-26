@@ -41,7 +41,7 @@ Both are written; the figure shows both.
 ``peak_rss_gb`` is staged per cohort, from whatever measured that cohort. See
 the note above ``negsteer_memory`` for the tooling difference and why it does
 not distort the comparison. Regenerate the steering half with
-``collect_negsteer_maxrss.sh``, which must run on the cluster.
+``contrib/collect_negsteer_maxrss.sh``, which must run on the cluster.
 
 Usage:
     python3 analysis/03-compute-cost/stage_runtime_comparison.py
@@ -107,7 +107,7 @@ CAMPAIGN_DIFFUSION_SAMPLES = 5   # negsteer_diffusion_samples in the run's param
 # different tooling. The benchmark predictors and the campaign both come from a
 # Nextflow trace's peak_rss; the 18-target steering runs were plain sbatch jobs
 # with no trace, so theirs is Slurm's MaxRSS, recovered by
-# collect_negsteer_maxrss.sh. MaxRSS is sampled by the Slurm accounting plugin
+# contrib/collect_negsteer_maxrss.sh. MaxRSS is sampled by the Slurm plugin
 # rather than by Nextflow, so it is not the identical quantity, but the two
 # agree closely where they overlap: the campaign's steering runs read 5.1 GB by
 # trace against 4.6 GB by MaxRSS for the benchmark steering runs, and unsteered
@@ -117,7 +117,9 @@ NEGSTEER_MAXRSS_REL = "negsteer_maxrss.csv"
 # head job that ran all 90 (target, dose) units (nf_dosesweep, cluster job
 # 22636181, .nextflow-reports/trace.txt). One row per (target, dose), the max
 # peak_rss across every task belonging to that unit's chain (PREPARE through
-# POSTPROCESS). See dose_sweep_trace/ for how it was extracted.
+# POSTPROCESS). The raw trace is not committed: it is 4,728 lines of cluster
+# work-directory paths, and dose_sweep_maxrss.csv is the whole of what the
+# analysis reads from it.
 DOSE_SWEEP_MAXRSS_REL = "dose_sweep_maxrss.csv"
 CAMPAIGN_TRACE_MEMORY_REL = "campaign_trace_memory.csv"
 

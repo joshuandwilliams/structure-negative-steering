@@ -374,22 +374,72 @@ def test_prepare_only_stops_before_launch(drv, tmp_path, monkeypatch, capsys):
     assert "prepare-only" in capsys.readouterr().out
 
 
-@pytest.mark.logic
-def test_run_without_a_container_is_rejected_after_prepare(drv, tmp_path, monkeypatch, capsys):
-    cfg = tmp_path / "config.yml"
-    cfg.write_text('name: "T"\nreference_pdb: "./ref.pdb"\n'
-                   'receptor_chain: "A"\neffector_chain: "B"\n')
-    (tmp_path / "ref.pdb").write_text("ATOM\n")
-
+def _stub_prepare(drv, monkeypatch):
+    """Let the prepare step appear to succeed, so the container check is what
+    the test reaches."""
     def fake_run(cmd, check):
         out = Path(cmd[cmd.index("--outdir") + 1])
         out.mkdir(parents=True, exist_ok=True)
         for name in drv.INPUT_FILES:
             (out / name).write_text("stub\n")
-
     monkeypatch.setattr(drv.subprocess, "run", fake_run)
+
+
+def _minimal_config(tmp_path):
+    cfg = tmp_path / "config.yml"
+    cfg.write_text('name: "T"\nreference_pdb: "./ref.pdb"\n'
+                   'receptor_chain: "A"\neffector_chain: "B"\n')
+    (tmp_path / "ref.pdb").write_text("ATOM\n")
+    return cfg
+
+
+@pytest.mark.logic
+def test_run_without_a_container_is_rejected_after_prepare(drv, tmp_path, monkeypatch, capsys):
+    """The last link in the chain. --boltz-container, then the config, then
+    NEGSTEER_BOLTZ_IMG, and with none of the three there is no image to run
+    Boltz in, so launch.sh cannot be written.
+
+    The environment is cleared on purpose. Without that this passes or fails
+    depending on whether whoever runs it has a site.conf loaded."""
+    monkeypatch.delenv("NEGSTEER_BOLTZ_IMG", raising=False)
+    cfg = _minimal_config(tmp_path)
+    _stub_prepare(drv, monkeypatch)
+
     assert drv.main([str(cfg)]) == 2
-    assert "no boltz_container" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "no Boltz image" in err
+    assert "NEGSTEER_BOLTZ_IMG" in err, "the message must name the way out"
+
+
+@pytest.mark.logic
+def test_the_environment_supplies_the_container_when_the_config_does_not(
+        drv, tmp_path, monkeypatch):
+    """Every config in experiments/ leaves boltz_container null, so this
+    fallback is what makes all 167 of them runnable from one site setting."""
+    monkeypatch.setenv("NEGSTEER_BOLTZ_IMG", "/img/boltz.img")
+    cfg = _minimal_config(tmp_path)
+    _stub_prepare(drv, monkeypatch)
+
+    assert drv.main([str(cfg)]) == 0
+    assert "/img/boltz.img" in (tmp_path / "run" / "launch.sh").read_text()
+
+
+@pytest.mark.logic
+def test_the_config_beats_the_environment(drv, tmp_path, monkeypatch):
+    """A config that names an image means it, so the site default must not
+    silently replace it."""
+    monkeypatch.setenv("NEGSTEER_BOLTZ_IMG", "/img/site.img")
+    cfg = tmp_path / "config.yml"
+    cfg.write_text('name: "T"\nreference_pdb: "./ref.pdb"\n'
+                   'receptor_chain: "A"\neffector_chain: "B"\n'
+                   'boltz_container: "/img/from_config.img"\n')
+    (tmp_path / "ref.pdb").write_text("ATOM\n")
+    _stub_prepare(drv, monkeypatch)
+
+    assert drv.main([str(cfg)]) == 0
+    launch = (tmp_path / "run" / "launch.sh").read_text()
+    assert "/img/from_config.img" in launch
+    assert "/img/site.img" not in launch
 
 
 @pytest.mark.logic

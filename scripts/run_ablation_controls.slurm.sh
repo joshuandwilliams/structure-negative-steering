@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name="nf_ablation"
-#SBATCH -p jic-medium
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -c 2
@@ -9,15 +8,18 @@
 #SBATCH --output=nf_ablation_%j.out
 #SBATCH --error=nf_ablation_%j.err
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=jowillia@nbi.ac.uk
+#
+# The partition is not in this header. It is the one resource whose name
+# differs per site, so it comes from site.conf through scripts/submit.sh, or
+# from an sbatch -p on the command line.
 # ─────────────────────────────────────────────────────────────────────────────
 # run_ablation_controls.slurm.sh — the interface-ablation controls, as one batch job.
 #
-#   sbatch scripts/run_ablation_controls.slurm.sh smoke_scrambled_restrained
-#   sbatch scripts/run_ablation_controls.slurm.sh smoke_scrambled_unrestrained
-#   sbatch scripts/run_ablation_controls.slurm.sh scrambled_restrained    # all 18
-#   sbatch scripts/run_ablation_controls.slurm.sh scrambled_unrestrained  # all 18
-#   sbatch scripts/run_ablation_controls.slurm.sh all                     # everything
+#   ./scripts/submit.sh ablation smoke_scrambled_restrained
+#   ./scripts/submit.sh ablation smoke_scrambled_unrestrained
+#   ./scripts/submit.sh ablation scrambled_restrained    # all 18
+#   ./scripts/submit.sh ablation scrambled_unrestrained  # all 18
+#   ./scripts/submit.sh ablation all                     # everything
 #
 # Same shape as run_dose_sweep.slurm.sh. It resolves the variant selector to a
 # targets glob and hands over to run_workflow.slurm.sh, which owns the Nextflow
@@ -62,7 +64,7 @@
 # GPU concurrency is params.max_gpu_jobs in nextflow.config, applied as maxForks
 # on the gpu label. Lower it on a busy weekday:
 #
-#   sbatch scripts/run_ablation_controls.slurm.sh scrambled --max_gpu_jobs 16
+#   ./scripts/submit.sh ablation scrambled --max_gpu_jobs 16
 #
 # If it dies partway, resubmit the identical command. run_workflow.slurm.sh
 # always passes -resume, so finished targets are skipped.
@@ -83,11 +85,9 @@ if [ -z "${SELECTOR}" ]; then
 fi
 
 REPO_DIR="${NEGSTEER_REPO_DIR:-${SLURM_SUBMIT_DIR:-}}"
-if [ -z "${REPO_DIR}" ] || [ ! -f "${REPO_DIR}/main.nf" ]; then
-    REPO_DIR="/hpc-home/jowillia/receptor_design/structure-negative-steering"
-fi
-if [ ! -f "${REPO_DIR}/main.nf" ]; then
-    echo "ERROR: no main.nf under ${REPO_DIR}. Submit from the repo root." >&2
+if [ ! -f "${REPO_DIR:-}/main.nf" ]; then
+    echo "ERROR: no main.nf under '${REPO_DIR:-}'. Submit from the repo root," >&2
+    echo "or set NEGSTEER_REPO_DIR in site.conf." >&2
     exit 1
 fi
 

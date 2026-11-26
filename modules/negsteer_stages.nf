@@ -393,7 +393,7 @@ process NEGSTEER_CROSS_SUMMARY {
     script:
     """
     singularity exec --bind ${params.repo_root} ${container} \\
-        python ${params.repo_root}/bin/cross_summary_cli.py \\
+        python ${params.repo_root}/bin/cross_summary.py \\
             --passing-summary "${name}=${run_dir}/passing_summary.csv" \\
             --output ${run_dir}/cross_sequence_summary.csv
 

@@ -71,7 +71,7 @@ def _local_path(hpc_path: str) -> Path:
     """Remap a path recorded from the HPC run to this repo's local checkout.
 
     Recorded paths look like
-    /hpc-home/jowillia/.../structure-negative-steering/experiments/...;
+    /<cluster-home>/structure-negative-steering/experiments/...;
     only the part from "structure-negative-steering/" onward is portable.
     Paths under experiments/benchmarking/ were recorded before the local
     tree was split into unconstrained/ and constrained/ subfolders, so

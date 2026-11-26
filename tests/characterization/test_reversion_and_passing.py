@@ -1,14 +1,10 @@
-"""Contig notation, reversion bookkeeping and passing-row extraction.
-
-contig_utils turns the user-facing contig string into segments and back, and
-derives the design region from it. Getting that wrong shifts the protected
-residues, which nothing downstream would catch.
+"""Reversion bookkeeping and passing-row extraction.
 
 reversion decides whether a rescue survived having its contaminating mutations
 put back, and extract_passing turns aggregated rows into the passing_summary
 the tiering reads.
 
-All three are string and dictionary work. 6G10 supplies a real PDB where a
+Both are string and dictionary work. 6G10 supplies a real PDB where a
 structure is needed.
 """
 
@@ -22,85 +18,11 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "bin"))
 
-import contig_utils as cu  # noqa: E402
 import extract_passing as ep  # noqa: E402
 import reversion as rev  # noqa: E402
 
 SIXG10 = (_REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb")
 needs_pdb = pytest.mark.skipif(not SIXG10.is_file(), reason="6G10 reference absent")
-
-
-# ── contig_utils: reading a real chain ───────────────────────────────────────
-
-@pytest.mark.logic
-@needs_pdb
-def test_chain_residue_range_matches_the_file():
-    """6G10 chain A is author-numbered 187..262."""
-    lo, hi = cu.get_chain_residue_range(str(SIXG10), "A")
-    assert (lo, hi) == (187, 262), f"got {lo}..{hi}"
-
-
-@pytest.mark.logic
-@needs_pdb
-def test_absent_chain_gives_no_range_rather_than_raising():
-    assert cu.get_chain_residue_range(str(SIXG10), "Z") == (None, None)
-
-
-@pytest.mark.logic
-@needs_pdb
-def test_sorted_residues_are_unique_and_ordered():
-    got = cu.get_chain_residues_sorted(str(SIXG10), "A")
-    assert got == sorted(set(got)), "residues came back unsorted or duplicated"
-    assert len(got) == 76, f"chain A has {len(got)} residues, expected 76"
-
-
-@pytest.mark.logic
-@needs_pdb
-def test_effector_chain_is_read_independently():
-    got = cu.get_chain_residues_sorted(str(SIXG10), "B")
-    assert len(got) == 83, f"chain B has {len(got)} residues, expected 83"
-
-
-# ── contig_utils: the notation itself ────────────────────────────────────────
-
-@pytest.mark.logic
-def test_expected_chain_lengths_from_a_resolved_contig():
-    rec, eff = cu.get_expected_chain_lengths("A1-10/5/A16-20 B1-30", "A", "B")
-    assert rec == 10 + 5 + 5, f"receptor length {rec}, expected 20"
-    assert eff == 30, f"effector length {eff}, expected 30"
-
-
-@pytest.mark.logic
-def test_design_region_is_the_de_novo_stretch():
-    """The inserted segment is designed, the A-prefixed ones are fixed."""
-    design, fixed = cu.parse_design_region("A1-10/5/A16-20", "A")
-    assert len(design) == 5, f"expected 5 designed positions, got {sorted(design)}"
-    assert len(fixed) == 15, f"expected 15 fixed positions, got {len(fixed)}"
-    assert not (set(design) & set(fixed)), "a position is both designed and fixed"
-
-
-@pytest.mark.logic
-def test_a_wholly_fixed_contig_has_no_design_region():
-    design, fixed = cu.parse_design_region("A1-20", "A")
-    assert not design
-    assert len(fixed) == 20
-
-
-@pytest.mark.logic
-def test_parsing_a_block_yields_descriptors_and_the_chain():
-    """Returns (segments, chain). Fixed segments carry their bounds."""
-    segs, chain = cu.parse_block_segments("A1-10/5/A16-20", "A", None)
-    assert chain == "A"
-    assert len(segs) == 3, f"expected 3 segments, got {segs}"
-    assert segs[0] == ("fixed", "A", 1, 10)
-    assert segs[1][0] == "denovo"
-    assert segs[2] == ("fixed", "A", 16, 20)
-
-
-@pytest.mark.logic
-def test_segments_round_trip_through_the_string_form():
-    segs, _ = cu.parse_block_segments("A1-10/5/A16-20", "A", None)
-    assert cu.segments_to_string(segs)
 
 
 # ── reversion: the verdict ───────────────────────────────────────────────────

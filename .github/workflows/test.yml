@@ -91,13 +91,33 @@ jobs:
       # The stub run below exercises the DAG, not the cluster directives, so
       # assert those directly. A gpu stage that loses its queue or its --gres
       # gets scheduled on whatever partition SLURM likes, with no GPU.
+      #
+      # Partition names are site-specific, so this feeds the resolver the same
+      # environment variables site.conf would and checks they arrive. A fork
+      # with different partition names passes unchanged, which the old version
+      # asserting the literal 'jic-gpu' did not.
       - name: Assert the cluster profile keeps its resources
+        env:
+          NEGSTEER_PARTITION_GPU: ci-gpu
+          NEGSTEER_PARTITION_CPU: ci-cpu
+          NEGSTEER_GPU_CLUSTER_OPTIONS: --gres=gpu:1
+          NEGSTEER_MAX_GPU_JOBS: 4
         run: |
           nextflow config -profile hpc > resolved.config
-          grep -q "queue = 'jic-gpu'"                  resolved.config
+          grep -q "queue = 'ci-gpu'"                   resolved.config
+          grep -q "queue = 'ci-cpu'"                   resolved.config
           grep -q "clusterOptions = '--gres=gpu:1'"    resolved.config
-          grep -q "queue = 'jic-short'"                resolved.config
+          grep -q "maxForks = 4"                       resolved.config
           echo "cluster directives survive profile resolution"
+
+      # And with nothing set, which is what a fresh clone has. A null queue
+      # makes Nextflow omit -p rather than submit `-p null`.
+      - name: Assert the profile resolves with no site settings
+        run: |
+          nextflow config -profile hpc > bare.config
+          grep -q "queue = null"                       bare.config
+          grep -q "clusterOptions = '--gres=gpu:1'"    bare.config
+          echo "resolves with no site.conf"
 
       - name: Stub-run the workflow
         # --allow_host_python because a runner has no Boltz image. READ_CONFIG

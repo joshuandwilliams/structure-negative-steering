@@ -68,19 +68,39 @@ Quarto is not a conda package here. Install it separately and keep it at
 regenerate byte-identically under the pinned matplotlib, so use this
 environment rather than a pip virtualenv for anything that writes one.
 
+### Your cluster
+
+Nothing in this repo names a partition, a container path or an email address.
+Everything that would is in one file:
+
+```bash
+cp site.conf.example site.conf    # then fill in the partitions and the image
+```
+
+`site.conf` is gitignored and `site.conf.example` documents every setting.
+Every one is optional. The minimum for a real run is `NEGSTEER_BOLTZ_IMG`,
+which is the Singularity image, and `NEGSTEER_PARTITION_GPU`. Without a
+partition the jobs take your cluster's default, which is right for the
+Nextflow head process and usually wrong for the Boltz calls.
+
 ## Running it
 
-One target is one `config.yml`. On the cluster, one `sbatch` runs the whole
+One target is one `config.yml`. On the cluster, one submission runs the whole
 thing and nothing is left on the login node.
 
 ```bash
-./scripts/sync_to_hpc.sh                   # from the Mac
+./contrib/sync_to_hpc.sh                   # optional, if you work on a laptop
 
 # on the HPC, from the repo root
-sbatch scripts/run_workflow.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml
-sbatch scripts/run_workflow.slurm.sh 'experiments/benchmarking/**/config.yml'
-sbatch scripts/run_dose_sweep.slurm.sh     # all five doses, one head job
+./scripts/submit.sh workflow experiments/benchmarking/unconstrained/6G10/config.yml
+./scripts/submit.sh workflow 'experiments/benchmarking/**/config.yml'
+./scripts/submit.sh sweep                  # all five doses, one head job
 ```
+
+`submit.sh` is a thin wrapper that adds this site's partition and accounting
+from `site.conf`. It is not required. `sbatch scripts/run_workflow.slurm.sh
+<targets>` works too, and `--dry-run` prints the command rather than
+submitting it.
 
 `-resume` is always passed, so a head job that hits its walltime can be
 resubmitted with the identical command and skips what already finished.
@@ -123,7 +143,9 @@ tool and the numbers cannot drift apart.
 | `main.nf`, `modules/` | The workflow. Wiring only, one process per stage |
 | `bin/` | The engine, and its import closure |
 | `negsteer/` | The `negsteer` CLI |
-| `scripts/` | Cluster launchers, config generators, HPC sync |
+| `scripts/` | Cluster launchers and config generators |
+| `contrib/` | Convenience scripts the pipeline never calls |
+| `site.conf.example` | Every setting that is specific to one cluster |
 | `data/reference_complexes/` | The 18 solved complexes, one copy each |
 | `experiments/` | Run definitions. Outputs are HPC-authoritative and gitignored |
 | `analysis/` | One folder per analysis document, with its own figures |
@@ -155,7 +177,7 @@ To regenerate, pull the summaries down from the cluster (about 16 MB, no raw
 model outputs) and re-render:
 
 ```bash
-scripts/sync_from_hpc.sh --name benchmarking --results-only
+contrib/sync_from_hpc.sh --name benchmarking --results-only
 cd analysis/01-pose-rescue && quarto render 01-pose-rescue.qmd
 ```
 
@@ -173,7 +195,7 @@ Two tiers. A marker says what a test needs, not where it happens to run.
 
 ```bash
 pytest -m logic                  # everything that needs no run
-sbatch tests/test_run.slurm.sh   # produce a fresh run, then assert on it
+./scripts/submit.sh test-run     # produce a fresh run, then assert on it
 ```
 
 Coverage is gated as a ratchet that may only rise. The badge above is the live

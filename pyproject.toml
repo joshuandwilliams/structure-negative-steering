@@ -91,9 +91,9 @@ skip_covered = true
 # A ratchet over bin/ + scripts/ combined. It may only ever go up. Raise it to
 # whatever a run reports once new tests land, so coverage cannot quietly fall.
 #
-# What is left is the drawing half of the two plot modules and the degenerate-
-# data guards inside each figure. Both plot modules are standalone diagnostic
-# CLIs: nothing in main.nf, modules/, scripts/ or analysis/ invokes either, and
-# neither writes a committed figure. The run stages themselves are covered on
-# the laptop tier with the Boltz call stubbed, so they are no longer the gap.
+# Everything under bin/ is now reached by a workflow stage, with the Boltz call
+# stubbed on the laptop tier. What used to sit outside that, and is now in
+# receptor-resurfacing-pipeline where it belongs, was the design-campaign code:
+# two hand-run cohort plot modules, a tiered object model keyed on MPNN
+# sequences, and the RFDiffusion contig and index derivation.
 fail_under = 100.0

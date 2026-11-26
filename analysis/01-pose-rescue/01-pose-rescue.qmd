@@ -36,7 +36,7 @@ intended interface is known by construction.
 
 The benchmark run outputs live on the HPC and are gitignored. This document reads
 the committed `benchmark_summary.csv` (one row per target, produced by
-`make_plots.py` after `scripts/sync_from_hpc.sh --name benchmarking
+`make_plots.py` after `contrib/sync_from_hpc.sh --name benchmarking
 --results-only`), so it renders without any HPC access.
 
 ---

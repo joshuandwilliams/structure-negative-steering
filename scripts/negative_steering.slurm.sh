@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name="negsteer"
-#SBATCH -p jic-gpu
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -c 4
@@ -10,7 +9,10 @@
 #SBATCH --output=negsteer_%j.out
 #SBATCH --error=negsteer_%j.err
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=jowillia@nbi.ac.uk
+#
+# The partition is not in this header. It is the one resource whose name
+# differs per site, so it comes from site.conf through scripts/submit.sh, or
+# from an sbatch -p on the command line.
 # ─────────────────────────────────────────────────────────────────────
 # negative_steering.slurm.sh - run negative steering on one config.
 #
@@ -18,12 +20,13 @@
 # (scripts/negative_steering.py) inside it, executes the generated launch.sh,
 # then assigns the run's tier.
 #
-# The header mirrors the pipeline's NEGSTEER_RUN_ONE process, queue jic-gpu,
-# 4 CPUs, 12 GB, --gres=gpu:1, but with --time raised to 48 h. The pipeline's
-# 6 h is sized for small RFDiffusion design fragments. The benchmark runs full
-# experimental complexes up to ~1400 residues under a heavier
-# n_designs x num_seeds x diffusion config, which can exceed 12 h. jic-gpu has
-# no walltime cap, so a short --time only risks killing a long structure.
+# The header mirrors the pipeline's NEGSTEER_RUN_ONE process, 4 CPUs, 12 GB,
+# --gres=gpu:1, but with --time raised to 48 h. The pipeline's 6 h is sized
+# for small RFDiffusion design fragments. The benchmark runs full experimental
+# complexes up to ~1400 residues under a heavier n_designs x num_seeds x
+# diffusion config, which can exceed 12 h. A short --time risks killing a long
+# structure for nothing, so raise it rather than trim it unless your partition
+# caps walltime.
 #
 # The GPU allocation is REQUIRED. The engine's `singularity exec --nv` needs the
 # host GPU driver libraries, or Boltz fails with "No supported gpu backend found!".
@@ -34,7 +37,7 @@
 # `singularity exec --nv`, which is why it cannot run from inside a container.
 #
 # Usage:
-#   sbatch scripts/negative_steering.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml
+#   ./scripts/submit.sh steer experiments/benchmarking/unconstrained/6G10/config.yml
 #
 #   # CPU-only steps need no GPU node. Run them interactively with bash,
 #   # since the #SBATCH lines are just comments outside sbatch:
@@ -133,7 +136,7 @@ echo "bash $LAUNCH"
 bash "$LAUNCH"
 
 # ── Tiering: pick the representative steered design and assign cross_tier ────
-# Mirrors the pipeline's NEGSTEER_CROSS_SUMMARY stage. cross_summary_cli.py reads
+# Mirrors the pipeline's NEGSTEER_CROSS_SUMMARY stage. cross_summary.py reads
 # the run's passing_summary.csv, picks ONE representative and writes
 # cross_sequence_summary.csv with cross_tier:
 #   A: n_pass == n_seeds   B: 1 < n_pass < n_seeds   C: n_pass == 1   none: 0
@@ -150,7 +153,7 @@ if [[ -f "$PASSING" ]]; then
     echo
     echo "=== tiering: representative + cross_tier -> cross_sequence_summary.csv ==="
     if singularity exec --bind "$WORKDIR" --bind "$ENGINE_BIN" "$CONTAINER" \
-            python "${ENGINE_BIN}/cross_summary_cli.py" \
+            python "${ENGINE_BIN}/cross_summary.py" \
                 --passing-summary "${NAME}=${PASSING}" \
                 --output "$XSUMM"; then
         echo "wrote $XSUMM"

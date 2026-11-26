@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Draw the NegativeSteering hex logo and favicon.
 
-Matches the sticker frame used by CDALabeller and AutoCDAScorer so the three
+Matches the hex sticker frame of the author's two other tool repos, so the three
 sit together: a pointy-top hexagon with a corner at the top and the bottom,
 rounded corners, a green rim, the package name arched over the top in white,
 and one motif below it.
 
-The frame is measured from CDALabeller rather than eyeballed. Its hexagon is
+The frame is measured from one of those logos rather than eyeballed. Its hexagon is
 208 x 240 inside a 240 px square, which is a pointy-top hexagon of circumradius
 120 (width = 120 * sqrt(3) = 207.8). Its corners are arcs: the shape's width
 2, 4, 6, 10 and 16 px below the top vertex is 19, 26, 33, 46 and 66 px, against
@@ -44,7 +44,7 @@ from matplotlib.textpath import TextPath  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 
-# Sampled from CDALabeller/man/figures/logo.png and AutoCDAScorer's. #4c6433 is
+# Sampled from those logos. #4c6433 is
 # the most common rim pixel in both, so the rim colour is already shared.
 INK = "#000000"       # hexagon fill
 RIM = "#4c6433"       # hexagon border
@@ -57,7 +57,7 @@ WHITE = "#fbfbfb"
 # the numbers can be compared directly with a measurement off a reference PNG.
 PX = 1.0 / 120.0                  # one px at 240, in axis units
 
-RIM_W = 8.0                       # rim width in px, matching CDALabeller
+RIM_W = 8.0                       # rim width in px, matching those logos
 TARGET_CORNER = 20.0              # outer corner radius in px, fitted to it
 
 # Matplotlib centres a stroke on its path, so the drawn shape runs half the

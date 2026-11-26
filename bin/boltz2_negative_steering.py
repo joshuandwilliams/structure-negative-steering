@@ -13,9 +13,9 @@ Three subcommands, so the workflow can be split across SLURM jobs:
                  RMSD into steered_results.csv and summary.txt.  One
                  CPU job depending on the array.
 
-The RMSD machinery (Kabsch plus Needleman-Wunsch) is inlined below, so
-the only project-level dependency is ``contig_utils`` for
-``THREE_TO_ONE``.  Keep this script beside it.
+The Kabsch fit and the sequence-aligned RMSD are inlined below, the
+latter over ``Bio.Align.PairwiseAligner``.  The only sibling this
+module imports is ``compute_metrics``, lazily, inside ``cmd_plan``.
 
 Negative-steering rationale
 ---------------------------
@@ -42,7 +42,24 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from contig_utils import THREE_TO_ONE
+
+# Three-letter to one-letter amino acid map.  It covers the 20 standard
+# residues plus the modified codes in PDB and mmCIF files, meaning
+# selenomethionine MSE, selenocysteine SEC, pyrrolysine PYL,
+# hydroxyproline HYP and phospho-Thr/Ser/Tyr TPO/SEP/PTR.  Use
+# `.get(code, "X")` so an unknown code becomes "X".
+#
+# It lived in contig_utils.py, which was RFDiffusion contig parsing with this
+# dict attached.  The parsing went with the rest of the design-campaign code,
+# and this is the only thing that was ever imported from it.
+THREE_TO_ONE: dict[str, str] = {
+    "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
+    "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",
+    "LEU": "L", "LYS": "K", "MET": "M", "PHE": "F", "PRO": "P",
+    "SER": "S", "THR": "T", "TRP": "W", "TYR": "Y", "VAL": "V",
+    "SEC": "U", "PYL": "O",
+    "MSE": "M", "HYP": "P", "TPO": "T", "SEP": "S", "PTR": "Y",
+}
 
 # cmd_collect redefines both as locals.  Keep the copies in sync.
 RECEPTOR_INTACT_CUTOFF = 5.0   # Å Cα RMSD vs ground truth
@@ -3255,14 +3272,14 @@ def build_parser() -> argparse.ArgumentParser:
     # will design.  The reversion pass protects
     # design_region ∪ true_interface, because the wet-lab construct
     # will not carry them as-is, so a steering mutation landing there
-    # has to be reverted.  derive_design_region.py writes 1-based
+    # has to be reverted.  The design-region file is 1-based
     # coordinates, converted to 0-based to match true_interface_idx.
     pp.add_argument("--design-region-indices-file", type=Path, default=None,
                     help="Path to a file containing 1-BASED receptor "
                          "positions that constitute the ProteinMPNN-"
-                         "designed region for this design.  Produced by "
-                         "derive_design_region.py from "
-                         "rfdiffusion_metrics.json.  Accepts comma-"
+                         "designed region for this design.  Produced "
+                         "upstream from rfdiffusion_metrics.json by the "
+                         "design pipeline.  Accepts comma-"
                          "separated integers and 'start-end' ranges; "
                          "'#' starts a line comment.  When supplied, "
                          "plan.json gains a 'design_region_idx' field "

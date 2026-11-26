@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -215,7 +216,12 @@ def main(argv: List[str]) -> int:
     inputs_dir = cfg_dir / "inputs"
     run_dir = cfg_dir / "run"
     prepare_cmd = _build_prepare_cmd(cfg, cfg_dir, inputs_dir)
-    boltz_container = args.boltz_container or cfg.get("boltz_container")
+    # --boltz-container, then the config, then site.conf's NEGSTEER_BOLTZ_IMG.
+    # The configs in experiments/ leave the key null, so one site setting
+    # covers every one of them.
+    boltz_container = (args.boltz_container
+                       or cfg.get("boltz_container")
+                       or os.environ.get("NEGSTEER_BOLTZ_IMG"))
 
     if args.emit_json:
         # The Nextflow workflow reads this rather than parsing YAML, so the
@@ -267,8 +273,9 @@ def main(argv: List[str]) -> int:
         return 0
 
     if not boltz_container:
-        print("ERROR: no boltz_container in config and --boltz-container not given, "
-              "so launch.sh cannot be written. Use --prepare-only to skip it.",
+        print("ERROR: no Boltz image. Pass --boltz-container, set "
+              "boltz_container in the config, or set NEGSTEER_BOLTZ_IMG in "
+              "site.conf. Use --prepare-only to skip the run step.",
               file=sys.stderr)
         return 2
 

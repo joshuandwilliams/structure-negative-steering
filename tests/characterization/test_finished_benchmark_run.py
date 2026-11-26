@@ -4,7 +4,7 @@ These read `experiments/benchmarking/<variant>/<target>/run/`, which is
 gitignored and produced on the cluster. They skip cleanly when the tree is
 absent, so a clean checkout does not fail. Pull a run down first with
 
-    scripts/sync_from_hpc.sh --name benchmarking --results-only
+    contrib/sync_from_hpc.sh --name benchmarking --results-only
 
 Why this tier exists. The engine writes many outputs per run and the pipeline
 deliberately tolerates per-unit failure, so a truncated or partial run looks
@@ -61,7 +61,7 @@ ALL = _all_targets()
 needs_runs = pytest.mark.skipif(
     not ALL,
     reason=f"no finished runs under {BENCH}. "
-           "Pull one with scripts/sync_from_hpc.sh --name benchmarking --results-only")
+           "Pull one with contrib/sync_from_hpc.sh --name benchmarking --results-only")
 
 
 def _read(path: Path) -> list[dict]:
@@ -88,7 +88,7 @@ def test_both_variants_cover_the_same_targets():
     if not unc or not con:
         pytest.skip(
             "only one variant is synced locally — pull the other with "
-            "scripts/sync_from_hpc.sh before comparing coverage")
+            "contrib/sync_from_hpc.sh before comparing coverage")
     assert unc == con, (
         f"variants diverge. unconstrained only: {sorted(unc - con)}, "
         f"constrained only: {sorted(con - unc)}"

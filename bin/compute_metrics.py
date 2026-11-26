@@ -532,9 +532,9 @@ def find_contact_residues_heavy(
 
     Two differences from compute_interface_contacts:
       1. POSITIONAL indices, 0-based in PDB walk order, not seqid
-         residue numbers.  derive_design_region.py needs these,
-         because its design region and true interface are both in
-         positional coordinates.
+         residue numbers.  The design-region and true-interface
+         files are both in positional coordinates, so a caller
+         comparing against them needs these.
       2. The closest distance per contacting residue, used by
          downstream weighting, not a plain contact flag.
 

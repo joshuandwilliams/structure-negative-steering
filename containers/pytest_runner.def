@@ -1,6 +1,9 @@
 BootStrap: yum
 OSVersion: 9
-MirrorURL: http://yum-repos.hpccluster/AlmaLinux/9/os/$basearch/
+MirrorURL: https://repo.almalinux.org/almalinux/9/BaseOS/$basearch/os/
+# A site with its own mirror substitutes it here. The original build
+# used an internal one, which is faster and which an airgapped build
+# node needs, but which resolves nowhere else.
 Include: yum
 
 # =============================================================================
@@ -13,7 +16,7 @@ Include: yum
 #
 # WHAT THE BUILT IMAGE ACTUALLY CONTAINS, read back off it rather than
 # inferred from this file (2026-08-17,
-# /hpc-home/jowillia/singularity/pytest/pytest_runner.img):
+# read back off the built image on the cluster):
 #
 #   python 3.11.9   numpy 2.4.6      pandas 3.0.5     gemmi 0.7.5
 #   biopython 1.88  pyyaml 6.0.3     scipy 1.17.1     matplotlib 3.11.1

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
@@ -47,10 +48,12 @@ import pandas as pd
 
 HERE = Path(__file__).resolve().parent
 ANALYSIS = HERE.parent
-HPC = Path(
-    "/Volumes/HPC-Home/receptor_design/receptor-resurfacing-pipeline"
-    "/experiments/campaigns/pikp1_avrpikf/runs/crystal_full_test_contig"
-)
+# The campaign run tree, which lives in receptor-resurfacing-pipeline and is
+# not part of this repo. Point --run-root at it, or set
+# NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf. There is no default, because the
+# path is one machine's mount of one cluster.
+_ENV_ROOT = os.environ.get("NEGSTEER_CAMPAIGN_RUN_ROOT")
+HPC = Path(_ENV_ROOT) if _ENV_ROOT else None
 ARMS = {"negsteer": "results", "negsteer+constraints": "results_constrained"}
 PAE_CUTOFF = 10.0
 OUT_CSV = HERE / "mutation_excluded_ipsae.csv"
@@ -206,6 +209,9 @@ def main() -> None:
     ap.add_argument("--units", type=Path, default=None,
                     help="file of unit names, one per line; default is all present")
     args = ap.parse_args()
+    if args.run_root is None:
+        raise SystemExit("no run root. Pass --run-root, or set "
+                         "NEGSTEER_CAMPAIGN_RUN_ROOT in site.conf.")
     indices = args.indices or (args.run_root / "results" / "negative_steering" / "indices")
     if args.units:
         units = [u for u in args.units.read_text().split() if u]

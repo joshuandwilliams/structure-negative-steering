@@ -81,11 +81,38 @@ def test_the_cluster_profile_redefines_no_label_selector() -> None:
 
 @pytest.mark.logic
 def test_the_cluster_directives_live_in_the_process_block() -> None:
-    """Where the hpc profile leaves them, so they must actually be there."""
+    """Where the hpc profile leaves them, so they must actually be there.
+
+    The partition names are not hard-coded, because they differ per site. What
+    must survive is the directive itself, wired to the param that carries the
+    value. A gpu label that lost `clusterOptions` gets a bare sbatch, lands on
+    whatever partition SLURM picks with no card, and Boltz dies with "No
+    supported gpu backend found!"."""
     text = CONFIG.read_text()
     process_block = text[text.index("\nprocess {"): text.index("profiles {")]
-    for needed in ("jic-gpu", "jic-short", "--gres=gpu:1"):
-        assert needed in process_block, f"{needed} missing from the process block"
+    for needed in ("queue          = params.cpu_queue".replace("  ", " "),
+                   "queue         = params.gpu_queue".replace("  ", " "),
+                   "clusterOptions = params.gpu_cluster_options"):
+        flat = " ".join(process_block.split())
+        assert " ".join(needed.split()) in flat, f"{needed} missing"
+
+
+@pytest.mark.logic
+def test_every_site_param_has_a_default_that_works_off_this_cluster() -> None:
+    """A clone with no site.conf must resolve. A null queue makes Nextflow
+    omit `-p` entirely and take the cluster's default partition, which is the
+    only neutral answer: every site names its partitions differently.
+
+    Nextflow 25.10.4 SlurmExecutor.groovy:98 is what makes null safe, with
+    `if( task.config.queue )` guarding the directive."""
+    text = CONFIG.read_text()
+    for param in ("gpu_queue", "cpu_queue"):
+        line = next(ln for ln in text.splitlines()
+                    if ln.strip().startswith(f"{param} "))
+        assert "System.getenv(" in line, f"{param} must read the environment"
+        assert "?: null" in line, f"{param} must fall back to null, not a name"
+    assert "NEGSTEER_GPU_CLUSTER_OPTIONS') ?: '--gres=gpu:1'" in text, (
+        "the gres default must survive, because asking for no GPU is never right")
 
 
 @pytest.mark.logic
@@ -101,8 +128,8 @@ def test_the_laptop_profile_is_complete_in_itself() -> None:
 
 @pytest.mark.logic
 def test_gpu_concurrency_is_bounded_on_the_label_not_the_executor() -> None:
-    """One gpu task holds one A100, so maxForks on that label IS the share of
-    jic-gpu this repo takes. executor.queueSize cannot do the job, because it is
+    """One gpu task holds one card, so maxForks on that label IS the share of
+    the partition this repo takes. executor.queueSize cannot do it, because it is
     shared with the cpu-labelled stages and a 90-target sweep has many of those.
     Bounding only queueSize lets collect and postprocess tasks take slots that
     Boltz should be using."""
@@ -118,7 +145,7 @@ def test_queue_size_does_not_throttle_the_gpu_bound() -> None:
     GPU bound, the cpu stages would silently steal GPU concurrency and the
     maxForks value would stop meaning what it says."""
     text = CONFIG.read_text()
-    forks = int(re.search(r"^\s*max_gpu_jobs\s*=\s*(\d+)", text, flags=re.M).group(1))
+    forks = int(re.search(r"max_gpu_jobs.*\?: '(\d+)'", text).group(1))
     queue = int(re.search(r"^\s*queueSize\s*=\s*(\d+)", text, flags=re.M).group(1))
     assert queue > forks, (
         f"queueSize {queue} must exceed max_gpu_jobs {forks}, or the cpu stages "
@@ -126,9 +153,16 @@ def test_queue_size_does_not_throttle_the_gpu_bound() -> None:
 
 
 @pytest.mark.logic
-def test_the_gpu_bound_does_not_exceed_the_partition() -> None:
-    """jic-gpu has 26 A100s: 1 each on j1024n2-n3, 2 on n4-n7, 4 on n8-n11.
-    Asking for more than exists cannot help, and would only queue."""
-    forks = int(re.search(r"^\s*max_gpu_jobs\s*=\s*(\d+)",
-                          CONFIG.read_text(), flags=re.M).group(1))
-    assert 0 < forks <= 26, f"max_gpu_jobs {forks} is outside the partition's 26 A100s"
+def test_the_gpu_bound_defaults_low_and_reads_the_site() -> None:
+    """The committed default is a share nobody has to think about before their
+    first run. The real card count is site-specific, so it comes from
+    NEGSTEER_MAX_GPU_JOBS. Asking for more cards than exist cannot help, and
+    a default sized for one particular partition would monopolise a smaller
+    one."""
+    text = CONFIG.read_text()
+    line = next(ln for ln in text.splitlines()
+                if ln.strip().startswith("max_gpu_jobs"))
+    assert "NEGSTEER_MAX_GPU_JOBS" in line, "the bound must read the site setting"
+    default = int(re.search(r"\?: '(\d+)'", line).group(1))
+    assert 0 < default <= 8, (
+        f"the committed default {default} should be modest; a site raises it")

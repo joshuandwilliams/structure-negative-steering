@@ -6,10 +6,10 @@
 # chosen one down (plots, CSVs) without committing the large artefacts.
 #
 # Usage:
-#   ./scripts/sync_from_hpc.sh --name <experiment>                 # full pull
-#   ./scripts/sync_from_hpc.sh --name <experiment> --results-only  # summaries only
-#   ./scripts/sync_from_hpc.sh --name <experiment> --dry           # dry-run
-#   ./scripts/sync_from_hpc.sh --list                              # list HPC experiments
+#   ./contrib/sync_from_hpc.sh --name <experiment>                 # full pull
+#   ./contrib/sync_from_hpc.sh --name <experiment> --results-only  # summaries only
+#   ./contrib/sync_from_hpc.sh --name <experiment> --dry           # dry-run
+#   ./contrib/sync_from_hpc.sh --list                              # list HPC experiments
 #
 # --results-only pulls only the lightweight result/summary artefacts (CSV/JSON/
 # TXT/FASTA tables, plan.json, SLURM .out logs) and skips the multi-GB raw model
@@ -24,8 +24,20 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HPC_USER_HOST="slurm"
-HPC_BASE="receptor_design/structure-negative-steering"
+# Host and remote path come from site.conf, which is gitignored. HOST is
+# anything ssh accepts, including an alias from ~/.ssh/config.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/site_conf.sh
+. "${HERE}/../scripts/site_conf.sh"
+
+if [ -z "${NEGSTEER_HPC_HOST:-}" ] || [ -z "${NEGSTEER_HPC_DEST:-}" ]; then
+    echo "ERROR: set NEGSTEER_HPC_HOST and NEGSTEER_HPC_DEST in site.conf." >&2
+    echo "See site.conf.example." >&2
+    exit 1
+fi
+
+HPC_USER_HOST="${NEGSTEER_HPC_HOST}"
+HPC_BASE="${NEGSTEER_HPC_DEST%/}"
 
 DRY_RUN=""
 NAME=""

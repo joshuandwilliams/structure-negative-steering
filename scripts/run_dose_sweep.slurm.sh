@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name="nf_dosesweep"
-#SBATCH -p jic-long
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -c 2
@@ -9,13 +8,16 @@
 #SBATCH --output=nf_dosesweep_%j.out
 #SBATCH --error=nf_dosesweep_%j.err
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=jowillia@nbi.ac.uk
+#
+# The partition is not in this header. It is the one resource whose name
+# differs per site, so it comes from site.conf through scripts/submit.sh, or
+# from an sbatch -p on the command line.
 # ─────────────────────────────────────────────────────────────────────────────
 # run_dose_sweep.slurm.sh — the mutation-set dose sweep, as one batch job.
 #
-#   sbatch scripts/run_dose_sweep.slurm.sh              # all five doses
-#   sbatch scripts/run_dose_sweep.slurm.sh n10          # one dose
-#   sbatch scripts/run_dose_sweep.slurm.sh 10           # same thing
+#   ./scripts/submit.sh sweep              # all five doses
+#   ./scripts/submit.sh sweep n10          # one dose
+#   ./scripts/submit.sh sweep 10           # same thing
 #
 # A thin wrapper. It resolves the dose selector to a targets glob and hands over
 # to run_workflow.slurm.sh, which owns the Nextflow bootstrap. Running that
@@ -26,10 +28,11 @@
 # once rather than five times over. Five sessions would each claim the full
 # bound and queue behind each other while monopolising the partition.
 #
-# GPU concurrency is params.max_gpu_jobs in nextflow.config, applied as maxForks on
-# the gpu label. It is 26, every A100 on jic-gpu. Lower it on a busy weekday:
+# GPU concurrency is params.max_gpu_jobs in nextflow.config, applied as
+# maxForks on the gpu label. Set it to your partition's card count in
+# site.conf as NEGSTEER_MAX_GPU_JOBS, or lower it for one run:
 #
-#   sbatch scripts/run_dose_sweep.slurm.sh all --max_gpu_jobs 16
+#   ./scripts/submit.sh sweep all --max_gpu_jobs 16
 #
 # Sizing, from the committed benchmark's own per-target runtimes and from the
 # 6G10 workflow run:
@@ -48,10 +51,11 @@
 # load, and that overhead is real. Do not size from the committed benchmark's
 # run_one_runtime_sec.txt.
 #
-# The default header, 36 h, is sized for the full sweep at 26-way concurrency
-# with headroom for queue contention. For a single dose, trim it:
+# The default header, 36 h, is sized for the full sweep at the concurrency
+# NEGSTEER_MAX_GPU_JOBS allows, with headroom for queue contention. For a
+# single dose, trim it:
 #
-#   sbatch -p jic-medium -t 8:00:00 scripts/run_dose_sweep.slurm.sh n10
+#   sbatch -t 8:00:00 scripts/run_dose_sweep.slurm.sh n10
 #
 # If it dies partway, resubmit the identical command. run_workflow.slurm.sh
 # always passes -resume, so finished targets are skipped. The cpu-labelled
@@ -66,11 +70,9 @@ SELECTOR="${1:-all}"
 shift || true
 
 REPO_DIR="${NEGSTEER_REPO_DIR:-${SLURM_SUBMIT_DIR:-}}"
-if [ -z "${REPO_DIR}" ] || [ ! -f "${REPO_DIR}/main.nf" ]; then
-    REPO_DIR="/hpc-home/jowillia/receptor_design/structure-negative-steering"
-fi
-if [ ! -f "${REPO_DIR}/main.nf" ]; then
-    echo "ERROR: no main.nf under ${REPO_DIR}. Submit from the repo root." >&2
+if [ ! -f "${REPO_DIR:-}/main.nf" ]; then
+    echo "ERROR: no main.nf under '${REPO_DIR:-}'. Submit from the repo root," >&2
+    echo "or set NEGSTEER_REPO_DIR in site.conf." >&2
     exit 1
 fi
 

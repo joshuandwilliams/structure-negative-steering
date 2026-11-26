@@ -87,9 +87,11 @@ negsteer_postprocess_contact_cutoff:  5.0
 
 
 # ── Runtime (HPC + GPU) ───────────────────────────────────────────────
-# Path to the Boltz-2 Singularity image.  Override with --boltz-container.
-# Default points at the image the pipeline bundles on the cluster.
-boltz_container: "/hpc-home/jowillia/receptor_design/receptor-resurfacing-pipeline/containers/boltz2_negsteer.img"
+# The Boltz-2 Singularity image, built from containers/boltz2_negsteer.def.
+# Left null on purpose: set NEGSTEER_BOLTZ_IMG once in site.conf and every
+# config here resolves to it. --boltz-container, or Nextflow's
+# --boltz_container, overrides both.
+boltz_container: null
 
 # ── Interface ablation (this is the control) ───────────────────────────
 # none | alanine | scrambled. Applied by scripts/prepare_complex_inputs.py to the

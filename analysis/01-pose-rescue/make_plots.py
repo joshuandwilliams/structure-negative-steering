@@ -5,7 +5,7 @@ Negative-steering benchmark plots.
 Scans experiments/benchmarking/<TARGET>/, restricted to the 18 HMA decoy + AVR
 targets that are also covered by structure-prediction-benchmarking's Tier-1
 comparison, and produces seven plots plus a summary CSV. By default it reads the
-repo-local benchmarking tree (populated by ``scripts/sync_from_hpc.sh --name
+repo-local benchmarking tree (populated by ``contrib/sync_from_hpc.sh --name
 benchmarking --results-only``) and writes its outputs alongside this script.
 
 Per-target data sources
@@ -730,7 +730,7 @@ def main():
         raise SystemExit(
             f"ERROR: benchmarking tree not found at {args.bench}\n"
             f"Populate it first with:\n"
-            f"  scripts/sync_from_hpc.sh --name benchmarking --results-only"
+            f"  contrib/sync_from_hpc.sh --name benchmarking --results-only"
         )
 
     # Two output folders: the plots that go into the thesis chapter, and
