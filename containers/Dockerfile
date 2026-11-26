@@ -12,10 +12,13 @@
 # ordering decision below is that file's, and the comments explaining why are
 # kept rather than summarised. Two things are deliberately different:
 #
-#   1. The base image replaces 123 lines of hand-rolled NVIDIA yum-repo setup.
-#      nvidia/cuda:12.8.1-cudnn-runtime-rockylinux9 is the same RHEL 9 family
-#      as the def's AlmaLinux 9, with CUDA 12.8 runtime and cuDNN 9 already in
-#      it, which is exactly what that section installed by hand.
+#   1. The base image replaces the def's hand-rolled NVIDIA yum-repo setup,
+#      because nvidia/cuda:12.8.1-base-rockylinux9 ships cuda.repo already
+#      configured. It is the -base- variant, not -cudnn-runtime-: that one is
+#      4.73 GB uncompressed and bundles a CUDA runtime and cuDNN which the dnf
+#      list below then installs over the top, so part of it was paid for twice.
+#      -base- is 0.18 GB compressed and the dnf list adds exactly what is
+#      needed, including libcudnn9-cuda-12, which is what the def did.
 #   2. Python comes from dnf, not from source. The def compiled 3.11.9 to get
 #      sqlite support; Rocky 9 AppStream ships python3.11-3.11.13 built with
 #      it, so the compile is unnecessary. The repo's floor is 3.10.
@@ -31,15 +34,54 @@
 # compressed. This will not build on a standard GitHub-hosted runner, which
 # has 14 GB of SSD. Build it on the software node.
 # =============================================================================
-FROM nvidia/cuda:12.8.1-cudnn-runtime-rockylinux9
+FROM nvidia/cuda:12.8.1-base-rockylinux9
 
 # Fail the build on the first error in a RUN, not the last.
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-# ── Interpreter and build tools ──────────────────────────────────────────────
+# pip's wheel cache is worth 3.2 GB in this image and nothing at runtime. It
+# has to be off from the start rather than deleted later, because a Docker
+# layer only adds: removing a file in a later RUN leaves it in the earlier
+# layer and the image does not shrink.
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_ROOT_USER_ACTION=ignore
+
+# ── Interpreter, build tools, and the CUDA libraries torch dlopens ─────────
+#
+# The CUDA packages are the def's list, installed wholesale rather than
+# discovered one at a time. `import torch` dlopens several of these directly,
+# and the -cudnn-runtime- base carries only some: a build with just the base
+# fails on libcupti.so.12, and adding that alone then fails on
+# libcusparseLt.so.0. The def had already established the complete set
+# empirically, so this is that set, including libcudnn9-cuda-12, since the
+# -base- image carries no cuDNN.
+#
+# libnpp-12-8 is the one package from the def's list left out. It is NVIDIA's
+# image and signal processing library, 305 MB, and nothing here loads it:
+# removing it leaves torch, boltz, trifast, cuequivariance_torch, the engine
+# imports and `negsteer --version` all working. libnccl stays despite a
+# single-GPU task never needing collectives, because torch._C links it and
+# `import torch` fails without it.
+#
+# The base image ships NVIDIA's cuda.repo, so none of the def's repo setup is
+# needed to reach them.
+#
 # python3.11-devel is needed because trifast builds from a source distribution.
-RUN dnf install -y --setopt=install_weak_deps=False \
+RUN dnf install -y --setopt=install_weak_deps=False --setopt=obsoletes=0 \
         python3.11 python3.11-devel python3.11-pip \
+        cuda-cudart-12-8 \
+        cuda-nvrtc-12-8 \
+        libcublas-12-8 \
+        libcusparse-12-8 \
+        libcusolver-12-8 \
+        libcurand-12-8 \
+        libcufft-12-8 \
+        libnvjitlink-12-8 \
+        cuda-cupti-12-8 \
+        cuda-nvtx-12-8 \
+        libcusparselt0 \
+        libnccl \
+        libcudnn9-cuda-12 \
         gcc gcc-c++ make wget tar \
  && dnf clean all \
  && rm -rf /var/cache/dnf \
@@ -94,9 +136,6 @@ cuequivariance-ops-cu12==0.9.1
 cuequivariance-ops-torch-cu12==0.9.1
 EOF
 
-# pynvml is required by cuequivariance_ops' triton autotune cache.
-RUN pip install -c /opt/build_scratch/constraints.txt pynvml
-
 # ── cuEquivariance, which provides Boltz's CUDA kernels ─────────────────────
 # The ops packages go in with --no-deps: they declare their own nvidia wheel
 # requirements, and letting pip act on those is the deadlock again.
@@ -119,16 +158,62 @@ RUN pip install -c /opt/build_scratch/constraints.txt \
 # these constraints makes pip backtrack through older releases looking for one
 # whose dependencies it can satisfy, and the version it lands on is not the
 # one that was verified.
+# --no-deps on torch stops pip installing the nvidia-*-cu12 wheels, but only
+# while nothing re-resolves torch's requirements. Installing anything that
+# depends on torch makes pip notice they are missing and fetch all 13, at
+# torch's pinned 12.4 versions, on top of the dnf CUDA 12.8 libraries above.
+# That is 2.7 GB of a second CUDA runtime.
+#
+# They are removed in the SAME RUN rather than a later one, because a Docker
+# layer only adds: a later removal leaves the bytes in this layer and the image
+# does not shrink. Checked after removal: torch imports,
+# torch.backends.cuda.is_built() is True, and boltz imports.
 RUN pip install -c /opt/build_scratch/constraints.txt trifast==0.1.13 \
  && pip install -c /opt/build_scratch/constraints.txt boltz==2.2.1 \
  && V=$(python -c "import torch; print(torch.__version__)") \
  && case "$V" in 2.6.0+cu124|2.6.0) echo "OK torch $V preserved" ;; \
-      *) echo "FATAL: Boltz drifted torch to $V"; exit 1 ;; esac
+      *) echo "FATAL: Boltz drifted torch to $V"; exit 1 ;; esac \
+ && pip uninstall -y -q \
+        nvidia-cublas-cu12 nvidia-cuda-cupti-cu12 nvidia-cuda-nvrtc-cu12 \
+        nvidia-cuda-runtime-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 \
+        nvidia-curand-cu12 nvidia-cusolver-cu12 nvidia-cusparse-cu12 \
+        nvidia-cusparselt-cu12 nvidia-nccl-cu12 nvidia-nvjitlink-cu12 \
+        nvidia-nvtx-cu12 \
+ && python -c "import torch, boltz; assert torch.backends.cuda.is_built()" \
+ && echo "OK torch and boltz import against the system CUDA libraries"
 
-# ── What the engine itself imports, plus the orthogonal metrics ────────────
+# ── What the engine itself imports ──────────────────────────────────────────
+# The def also installed matplotlib, scikit-learn, DockQ, freesasa and
+# MDAnalysis for the orthogonal interface metrics. Those live in
+# receptor-resurfacing-pipeline: nothing under bin/ or negsteer/ imports any of
+# them, checked by grep over both trees, and removing all five leaves torch,
+# boltz, the engine imports, `negsteer --version` and `compute_metrics --help`
+# working. They are 146 MB plus their own dependency trees.
+#
+# scipy and pandas stay. pandas is boltz's own pin (>=2.2.2) and scipy comes in
+# underneath it, so neither is this repo's to drop.
 RUN pip install -c /opt/build_scratch/constraints.txt \
-        matplotlib biopython gemmi scipy scikit-learn pandas pyyaml \
- && pip install -c /opt/build_scratch/constraints.txt DockQ freesasa MDAnalysis
+        biopython gemmi scipy pandas pyyaml
+
+# nvidia-ml-py, NOT pynvml, and this is the fix for a real build failure
+# rather than a preference. cuequivariance_ops' triton autotune cache imports
+# the `pynvml` module, and nvidia-ml-py is what provides it.
+#
+# The `pynvml` distribution became a shim for nvidia-ml-py, and from 13.0.1 it
+# ships _pynvml_redirector.pth. A .pth runs at every interpreter start,
+# including inside pip's isolated build subprocess, where sys.path is minimal
+# and it fails with "No module named 'json'". That broke two source builds
+# here: boltz pins fairscale==0.4.13, which has no wheel, and this repo's own
+# wheel. Reordering only moves the failure to the next thing that builds from
+# source, so the .pth has to go rather than be worked around.
+#
+# Checked directly: nvidia-ml-py installs no .pth, `import pynvml` works from
+# it, and fairscale==0.4.13 builds with it present. The def installed pynvml
+# and built fine because in August 2026 the current release was 12.0.0, which
+# shipped no redirector.
+RUN pip install -c /opt/build_scratch/constraints.txt nvidia-ml-py \
+ && python -c "import pynvml; print('pynvml module available')"
+
 
 # ── Model weights, baked in because the cluster is airgapped ────────────────
 # 6.21 GB in three files. Without them a run reaches for HuggingFace at

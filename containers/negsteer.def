@@ -1,0 +1,91 @@
+# =============================================================================
+# negsteer.def — build the Apptainer image from the negsteer Docker image.
+#
+# No Docker anywhere in this. It bootstraps from an already-built, published
+# Docker image, so a user only runs `apptainer build`. Same pattern as
+# JoshW_Software/RoseTTAFold-All-Atom/rfaa.def, which bootstraps from a Docker
+# base image rather than assembling the stack itself.
+#
+# There is nothing to install here. The Docker image already contains Boltz-2
+# 2.2.1, torch 2.6.0+cu124, the CUDA 12.8 stack, the 6.21 GB of Boltz weights
+# and the engine itself, all built and verified by containers/Dockerfile. This
+# file converts it and sets the runtime environment. %post is deliberately
+# almost empty: anything added here would be a second place the image contents
+# are decided.
+#
+# -----------------------------------------------------------------------------
+# WHICH SOURCE TO USE
+#
+# Default: the published image on Docker Hub. Anyone with a route out gets the
+# exact image the maintainer built and tested, with no Docker daemon and no
+# account:
+#
+#   apptainer build negsteer.img containers/negsteer.def
+#
+# Airgapped node: there is no route to Docker Hub from a JIC compute node, so
+# swap the two lines below for
+#
+#   Bootstrap: docker-archive
+#   From: negsteer_2.2.1.tar
+#
+# and copy that tar next to this file. It is produced from the same image with
+#
+#   docker pull joshuandwilliams/negsteer:2.2.1
+#   docker save joshuandwilliams/negsteer:2.2.1 -o negsteer_2.2.1.tar
+#
+# on any machine that can reach the registry. The tar and the registry give a
+# byte-identical image, because both are the same manifest.
+# -----------------------------------------------------------------------------
+Bootstrap: docker
+From: joshuandwilliams/negsteer:2.2.1
+
+%labels
+    Name        negsteer
+    Boltz       2.2.1
+    Torch       2.6.0+cu124
+    CUDA        12.8
+    Source      containers/Dockerfile
+
+%environment
+    # The Docker image sets all of these already, and Apptainer does carry a
+    # Docker image's ENV across. They are repeated because `apptainer exec`
+    # with --cleanenv drops the inherited environment, and a run that loses
+    # BOLTZ_CACHE reaches for HuggingFace on a node with no route out.
+    export BOLTZ_CACHE=/opt/boltz_cache
+    export TORCH_HOME=/opt/torch_hub
+    export HF_HUB_OFFLINE=1
+
+    # Numba and matplotlib both write a cache on first import, and the image is
+    # read-only at runtime.
+    export NUMBA_CACHE_DIR=/tmp
+    export MPLCONFIGDIR=/tmp
+
+    # Put the image's CUDA 12.8 libraries ahead of anything `--nv` injects from
+    # the host. --nv binds the host driver libraries in, and an older host CUDA
+    # runtime winning over the one torch was built against shows up as a kernel
+    # that will not load. libcuda.so.1 is kernel-tied and still comes from the
+    # host, in a path this does not shadow.
+    export CUDA_HOME=/usr/local/cuda
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}
+    export PATH=/usr/local/cuda/bin:/usr/local/bin:$PATH
+
+%post
+    set -eu
+    # Only a check that the conversion kept what the engine calls. No installs:
+    # the Docker image is the single source of what is in here.
+    python -c "import boltz, torch, gemmi, Bio, yaml, numpy; print('imports OK')"
+    command -v negsteer
+    test -s /opt/boltz_cache/boltz2_conf.ckpt
+    test -s /opt/boltz_cache/boltz2_aff.ckpt
+    echo "negsteer image ready"
+
+%runscript
+    exec negsteer "$@"
+
+%test
+    # Runs at the end of `apptainer build`. A build node has no GPU, so
+    # torch.cuda.is_available() is False here and that is expected rather than
+    # a failure; the GPU path is covered by tests/test_run.slurm.sh on a GPU
+    # node.
+    python -c "import torch; print('torch', torch.__version__)"
+    negsteer --version
