@@ -1,4 +1,4 @@
-"""Two guards nothing else reaches, plus the panel guard that nothing can.
+"""The sys.path repair that nothing else reaches.
 
 bin/reversion.py repairs its own sys.path in six places, once at module level
 and once in each of five stages. Nextflow invokes the script by absolute path
@@ -14,10 +14,6 @@ repairing its path would still pass the whole suite while failing in the
 container on the first import. Each test here removes `bin/` from sys.path and
 then calls one stage. The stage's own lazy import is what proves the repair
 happened, because the insert is the only thing that puts the path back.
-
-The two uncovered lines in bin/negsteer_within_sequence_plots.py are different.
-Neither can be reached, and each is now pragma'd, so what is left to pin is the
-invariant behind one and the defect behind the other.
 """
 
 from __future__ import annotations
@@ -27,12 +23,8 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from unittest import mock
 
-import matplotlib
 import pytest
-
-matplotlib.use("Agg")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BIN = REPO_ROOT / "bin"
@@ -41,14 +33,6 @@ REFERENCE = REPO_ROOT / "data" / "reference_complexes" / "6G10.pdb"
 sys.path.insert(0, str(BIN))
 
 from test_harvest_reversions_cli import Harvest as CliHarvest  # noqa: E402
-from test_plot_branches import _seed_rec  # noqa: E402
-from test_plot_data_policy import (  # noqa: E402
-    PASSING,
-    _agg,
-    _cross,
-    _seq,
-    _write_raw,
-)
 from test_reversion_harvest import Harvest as LibHarvest  # noqa: E402
 from test_reversion_plan_staging import Stage, design, meta  # noqa: E402
 
@@ -88,12 +72,6 @@ def rev():
         yield mod
     finally:
         sys.path[:] = saved
-
-
-@pytest.fixture(scope="module")
-def nwp():
-    import negsteer_within_sequence_plots
-    return negsteer_within_sequence_plots
 
 
 def _without_bin(monkeypatch) -> None:
@@ -228,87 +206,3 @@ def test_cmd_harvest_reversions_repairs_its_path_before_harvesting(
     h = CliHarvest(tmp_path / "wd", true_interface=range(0, 40))
     assert h.slot("d0", contacts="").write().run(rev) == 0
     assert h.verdicts()["d0"]["verdict"] == "pose_holds"
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# negsteer_within_sequence_plots
-# ══════════════════════════════════════════════════════════════════════════
-
-# One seed carrying every metric the confidence grid panels, so all ten
-# panels exist and the 3x4 grid has two cells left over.
-TEN_METRICS = {"avg_plddt": 88.0, "interface_plddt": 0.81, "iptm": 0.8,
-               "ptm": 0.7, "actifptm": 0.65, "pae_pass_frac": 0.9,
-               "ipsae_min": 0.6, "ipsae_min_15": 0.62, "ipae": 3.0,
-               "pae_mean": 5.0}
-
-
-@pytest.mark.logic
-def test_the_spare_grid_cells_are_blanked_rather_than_labelled_no_data(
-        nwp, tmp_path, monkeypatch):
-    """The invariant behind the pragma on plot_composite_vs_confidence's
-    `if not xs` branch.
-
-    Ten metrics lay out as three rows of four, so two cells are spare. A
-    spare cell is an index at or above n and takes set_axis_off. Every index
-    below n names a metric that metrics_present kept, which it kept only
-    because some sequence has that metric, so the panel has at least one
-    point. Nothing is left to put "no data" on.
-
-    The figure is captured through plt.subplots rather than read back off
-    disk, because an axes labelled "no data" and an axes with its frame off
-    are not distinguishable in a PNG. ax.texts holds ax.text artists only,
-    and a title is not one of them.
-    """
-    seen = {}
-    real_subplots = nwp.plt.subplots
-
-    def spy(*args, **kwargs):
-        fig, axes = real_subplots(*args, **kwargs)
-        seen["fig"] = fig
-        return fig, axes
-
-    monkeypatch.setattr(nwp.plt, "subplots", spy)
-    nwp.plot_composite_vs_confidence(
-        {"design_0_seq_1": [_seed_rec(**TEN_METRICS)]},
-        {"design_0_seq_1": 0.7}, {"design_0_seq_1": "A"},
-        str(tmp_path / "conf.png"))
-
-    fig = seen["fig"]
-    assert len(fig.axes) == 12, "the grid shape changed, so re-check the count"
-    assert [ax.axison for ax in fig.axes].count(False) == 2
-    assert [t.get_text() for ax in fig.axes for t in ax.texts] == [], \
-        "a panel was labelled no data, so the branch is reachable after all"
-
-
-@pytest.mark.logic
-def test_every_figure_that_drew_reports_the_path_it_wrote(nwp, tmp_path,
-                                                          capsys):
-    """main reports a figure by the truth of its return value, so each plot_*
-    has to return True once it has saved.
-
-    All five used to fall off the end on success and return None, so the log
-    read "(skipped — no data)" for five figures that had just written a PNG.
-    Nextflow publishes a fixed figure list, so the stage would then be read as
-    having produced nothing on every successful run. The sibling module
-    bin/negsteer_plots.py returns True from all seven of its figures, which is
-    the contract main was written against.
-    """
-    runs = tmp_path / "runs"
-    d = _seq(runs, "design_0_seq_1", [_agg("0", ra=2.0, tj=0.8)])
-    _write_raw(d, [dict(PASSING, sequence_group="0", seed_index="0",
-                        steered_true_jaccard="0.8",
-                        steered_weighted_jaccard="0.75")])
-    cross = tmp_path / "cross.csv"
-    _cross(cross, [{"mpnn_sequence": "design_0_seq_1", "cross_tier": "A",
-                    "rep_sequence_group": "0"}])
-    out = tmp_path / "out"
-    argv = ["negsteer_within_sequence_plots.py", "--runs-dir", str(runs),
-            "--cross-summary-csv", str(cross), "--outdir", str(out)]
-    with mock.patch.object(sys, "argv", argv):
-        assert nwp.main() == 0
-
-    text = capsys.readouterr().out
-    assert len(list(out.glob("*.png"))) == 5
-    assert text.count("→") == 5, f"a drawn figure was not reported:\n{text}"
-    assert "(skipped — no data)" not in text
-    assert "FAILED" not in text

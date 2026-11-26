@@ -25,8 +25,6 @@ import boltz2_negative_steering as bns  # noqa: E402
 import extract_passing as ep  # noqa: E402
 import negsteer_aggregate as agg  # noqa: E402
 import negsteer_coldstart as cold  # noqa: E402
-import negsteer_plots as npl  # noqa: E402
-import negsteer_within_sequence_plots as nwp  # noqa: E402
 
 # ── jaccard: how interface overlap is measured everywhere ────────────────────
 
@@ -204,17 +202,6 @@ def test_position_csv_parsing(raw, expected):
     assert agg._parse_position_csv(raw) == expected
 
 
-@pytest.mark.logic
-@pytest.mark.parametrize("raw,expected", [
-    ("/A:5,7,22", [5, 7, 22]),
-    ("/B:1", [1]),
-    ("", []),
-    ("nonsense", []),
-])
-def test_chimerax_position_parsing(raw, expected):
-    assert npl._parse_chimerax_positions(raw) == expected
-
-
 # ── per-seed aggregation ─────────────────────────────────────────────────────
 
 @pytest.mark.logic
@@ -301,49 +288,6 @@ def test_maximin_of_fewer_than_k_returns_everything():
     except Exception:
         pytest.skip("maximin_select needs a distance structure not built here")
     assert len(got) == 2
-
-
-# ── plot-module helpers ──────────────────────────────────────────────────────
-
-@pytest.mark.logic
-@pytest.mark.parametrize("raw,expected", [
-    ("design_0_seq_2", "d0"), ("design_42_seq_0", "d42"),
-])
-def test_design_id_shortening(raw, expected):
-    assert nwp._design_id(raw) == expected
-
-
-@pytest.mark.logic
-@pytest.mark.parametrize("raw,expected", [
-    ("design_0_seq_3", 3), ("design_42_seq_0", 0),
-])
-def test_sequence_number_extraction(raw, expected):
-    assert nwp._seq_num(raw) == expected
-
-
-@pytest.mark.logic
-def test_short_name_shortens_the_design_prefix():
-    assert npl._short_name("design_08") == "d08"
-    assert npl._short_name("initial") == "initial"
-
-
-@pytest.mark.logic
-@pytest.mark.parametrize("name,expected", [
-    ("input_control_polyA", True),
-    ("input_control_scrambled", True),
-    ("design_0_seq_0", False),
-])
-def test_control_sequences_are_recognised(name, expected):
-    """Controls must be excluded from headline numbers, so this drives that."""
-    assert nwp._is_control(name) is expected
-
-
-@pytest.mark.logic
-@pytest.mark.parametrize("n", [1, 2, 3, 4, 6, 9, 12, 20])
-def test_grid_shape_is_big_enough_and_not_wasteful(n):
-    rows, cols = nwp._grid_shape(n)
-    assert rows * cols >= n, f"grid {rows}x{cols} cannot hold {n} panels"
-    assert (rows - 1) * cols < n, f"grid {rows}x{cols} has a wholly empty row for {n}"
 
 
 # ── extract_passing: cross-seed mutation summaries ───────────────────────────
