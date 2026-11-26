@@ -25,7 +25,7 @@ Each stage writes its elapsed seconds to its own file under `run/.stage_times.d/
 
 **`bin/` and `modules/` are owned here.** They started as a copy of the pipeline's negative-steering entry points and their import closure. They have since diverged and are no longer kept in step with it. Changes made here do not flow back to the pipeline, and pipeline changes do not flow in.
 
-**Follow-up cycles are gone, not switched off.** A cycle was a second round of negative steering on the first round's survivors. Cycle N+1 started from a parent's already-mutated receptor sequence and added more mutations at positions earlier cycles had not touched. `total_mutations` is the Hamming distance from the wild type, so it compounded per cycle. That is why follow-up cycles were abandoned. A design carrying several cycles of edits is no longer a plausible construct. The harness that submitted the next cycle with `sbatch` is in `archive/boltz2_iterate_steering_multicycle.py`. The code that read such a run is in `archive/cycle1plus_aggregation.py`, namely the pathway discovery and row builder in `cmd_aggregate`, the ancestry walk in `_populate_reverted_mutations`, and the dotted label scheme in `pathway_labels.py`. No run ever produced a cycle-1 row: all 110 `all_results_multicycle.csv` files on disk carry `cycle=0` across 4,644 rows, and every one of the 108 cycle directories under `experiments/` is `cycle_0`. `negsteer_aggregate.py` now refuses an experiment root containing a `cycle_N` directory rather than writing a table that omits its rows. Re-enabling cycles means wiring them as channels in `main.nf`, not letting Python call the scheduler from inside a task.
+**Follow-up cycles are gone, not switched off.** A cycle was a second round of negative steering on the first round's survivors. Cycle N+1 started from a parent's already-mutated receptor sequence and added more mutations at positions earlier cycles had not touched. `total_mutations` is the Hamming distance from the wild type, so it compounded per cycle. That is why follow-up cycles were abandoned. A design carrying several cycles of edits is no longer a plausible construct. The harness that submitted the next cycle with `sbatch` is in `archive/boltz2_iterate_steering_multicycle.py`. The code that read such a run is in `archive/cycle1plus_aggregation.py`, namely the pathway discovery and row builder in `cmd_aggregate`, the ancestry walk in `_populate_reverted_mutations`, and the dotted label scheme in `pathway_labels.py`. No run ever produced a cycle-1 row: all 110 `all_results_multicycle.csv` files on disk carry `cycle=0` across 4,644 rows, and every one of the 108 cycle directories in the benchmark tree is `cycle_0`. `negsteer_aggregate.py` now refuses an experiment root containing a `cycle_N` directory rather than writing a table that omits its rows. Re-enabling cycles means wiring them as channels in `main.nf`, not letting Python call the scheduler from inside a task.
 
 **Every process declares a `path` output, including the ones whose result is a value.** Nextflow hashes file content to decide what `-resume` may skip. A process that emits only `val` gives it nothing to hash, and a resumed run silently repeats hours of GPU work. Each stage therefore copies its artefact into the task directory and declares it.
 
@@ -41,11 +41,7 @@ That is a weaker requirement than a restraint, and a different one. A restraint 
 
 **Reference restraints are a ceiling, not a method.** `negsteer_boltz_constraints: true` appends the same Cα pocket and dense-contact block as `structure-prediction-benchmarking`'s `BOLTZ2_CONSTRAINED` process to every Boltz-2 call in the run. Those restraints are derived from the true interface, so they cannot run on a novel target. They show the failures are not intrinsic to Boltz-2.
 
-**The representative design is picked by reliability first, then median.** `make_plots.select_representative` ranks by how many seeds cleanly pass, so 3/3 beats 2/3 beats 1/3 regardless of median. It breaks ties on the median `ra_eff` of those seeds, computed on each seed's reversion-corrected final value rather than its raw pre-reversion prediction. This is deliberately not `cross_sequence_summary.csv`'s own `rep_ra_eff_vs_truth_median`, which is a composite selection that also weighs interface Jaccard overlap. The two mostly agree and occasionally differ.
-
 **Per-run cost is set by `negsteer_n_designs`, per-prediction cost is not.** Benchmark wall-clock uses `standalone_elapsed_s`, not `elapsed_s`, so the shared ColabFold MSA search is charged to the models that depend on it. Using `elapsed_s` understates Boltz-1 MSA, Boltz-2 MSA and ColabFold by roughly 35 min each and inverts the per-prediction conclusion.
-
-**`make_plots.py` calls `matplotlib.use("Agg")` at import.** That is correct for a headless script and wrong inside a notebook kernel, where it silently stops figures reaching the HTML. `confidence_common.restore_inline_backend` wraps the import. Do not drop it. Assign the figure helpers' return value (`_ = cc.fig_...`) or each figure is emitted twice.
 
 ## Using it as a tool
 
@@ -111,15 +107,33 @@ The HPC is airgapped, so nothing is installed there and everything runs in a con
 
 That stage is the awkward one, because the container path is what it is reading. `bin/resolve_boltz_container.sh` pulls `boltz_container:` out of the YAML as plain text, the same extraction `negative_steering.slurm.sh` has always used, and the driver then runs inside that image. A config with no container is a hard error rather than a fallback. `--allow_host_python` opens the one exception, for CI, which has PyYAML installed and no image to run anything inside.
 
+**The engine and the targets are two directories, not one.** `--targets`
+resolves against the directory Nextflow was launched from, and each target's
+`inputs/` and `run/` tree is written beside its own `config.yml`, so the
+targets can live in another repository. Two things follow. The launcher takes
+`NEGSTEER_REPO_DIR` for the engine and `NEGSTEER_LAUNCH_DIR` for where to run,
+defaulting both to the submission directory, and it invokes
+`${REPO_DIR}/main.nf` by absolute path. And every stage's `singularity exec`
+binds more than the engine: `negsteerBinds()` in `modules/negsteer_stages.nf`
+binds `params.repo_root` so the stage can run `bin/`, plus
+`params.bind_paths`, which defaults to `launchDir` and is overridable with
+`NEGSTEER_BIND_PATHS`. A container sees only what is bound, so a config or a
+`reference_pdb` outside both would not exist inside the image.
+`negsteerBinds()` drops a path already covered by an ancestor, and normalises
+rather than canonicalises, because resolving a symlinked home would bind a
+path the configs never name.
+
+`tests/characterization/test_no_host_python.py` asserts every `singularity
+exec` in the module goes through that helper, since a hand-written
+`--bind ${params.repo_root}` would work in this checkout and fail only once the
+targets moved out of it.
+
 `main.nf` is the entry point. It takes a glob, so one target and the whole benchmark are the same command. `scripts/run_workflow.slurm.sh` submits it. The Nextflow head process is CPU-only, and it parses the DAG, submits each stage to SLURM and then waits, so it runs as a batch job rather than on the login node.
 
 ```bash
-./contrib/sync_to_hpc.sh                       # from the Mac. Excludes experiments/ and analyses/
-
 # on the HPC, from the repo root. One sbatch, nothing on the login node.
 ./scripts/submit.sh workflow tests/test_run/config.yml
-./scripts/submit.sh workflow experiments/benchmarking/unconstrained/6G10/config.yml
-./scripts/submit.sh workflow 'experiments/benchmarking/**/config.yml'
+./scripts/submit.sh workflow 'my_targets/**/config.yml'
 
 # The header is a default and sbatch's own flags override it. Trim with care:
 # the head job being killed at its walltime orphans whatever it has already
@@ -148,37 +162,31 @@ Every run artefact lands in `.nextflow-reports/`. That is the trace the compute-
 
 The trace, report and timeline are written on every run. `trace.txt` is what the compute-cost analysis reads.
 
-A single target can still be run without Nextflow, which is useful when debugging one config. This is the runner that produced the 18-target `experiments/benchmarking/` cohort. The 90-unit dose sweep was run by the workflow, and the two cohorts between them account for every committed result that came from this repo. README's Status section has the full split.
+A single target can still be run without Nextflow, which is useful when debugging one config. This is the runner that produced the 18-target benchmarking cohort. The 90-unit dose sweep was run by the workflow, and the two cohorts between them account for every committed result that came from this engine. The analyses repository records which produced what.
 
 ```bash
-./scripts/submit.sh steer experiments/benchmarking/unconstrained/6G10/config.yml
+./scripts/submit.sh steer tests/test_run/config.yml
 
 # CPU-only steps need no GPU node. Run them interactively with bash:
-bash scripts/negative_steering.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml --dry-run
-bash scripts/negative_steering.slurm.sh experiments/benchmarking/unconstrained/6G10/config.yml --prepare-only
+bash scripts/negative_steering.slurm.sh <config> --dry-run
+bash scripts/negative_steering.slurm.sh <config> --prepare-only
 ```
 
-`scripts/submit_benchmarks.sh` wraps that runner for the whole benchmark, one `sbatch` per target. It directs the SLURM `.out`/`.err`, the derived `inputs/` and the `run/` workdir into each target's own folder, so nothing floats in the repo root. A bare `sbatch` writes its logs to the submission directory instead.
-
-```bash
-./scripts/submit_benchmarks.sh --dry-run                 # preview the sbatch commands
-./scripts/submit_benchmarks.sh                           # everything outstanding
-./scripts/submit_benchmarks.sh --variant constrained     # one variant
-./scripts/submit_benchmarks.sh --only 6G10               # one target, both variants
-./scripts/submit_benchmarks.sh --only constrained/6G10   # one target, one variant
-```
+`scripts/submit_benchmarks.sh`, which wrapped that runner for the whole
+benchmark with one `sbatch` per target, moved to the analyses repository with
+the benchmark itself.
 
 On the Mac the Python driver runs the CPU-only steps directly, for prepping and inspecting.
 
 ```bash
-pip install -e '.[experiments]'                 # numpy, pandas, scipy, gemmi, biopython, matplotlib, pyyaml
-./bin/negative_steering.py experiments/benchmarking/unconstrained/6G10/config.yml --dry-run
-./bin/negative_steering.py experiments/benchmarking/unconstrained/6G10/config.yml --prepare-only
+pip install -e '.[runtime]'                 # numpy, gemmi, biopython, pyyaml
+./bin/negative_steering.py <config> --dry-run
+./bin/negative_steering.py <config> --prepare-only
 ```
 
 The run splits across the container boundary. `negative_steering.py` runs inside the Boltz image, because that is where Python lives. It parses the config, calls `prepare_complex_inputs.py` to derive the FASTAs, interface and design region, then writes `run/launch.sh` with every engine argument already resolved. `negative_steering.slurm.sh` executes that on the host, because the engine orchestrator does its own `singularity exec --nv` and singularity cannot be nested. It then assigns the run's tier. `launch.sh` doubles as the record of exactly what ran.
 
-The container comes from `--container /path/to.img`, then the config's `boltz_container:`, then `NEGSTEER_BOLTZ_IMG` in `site.conf`. Every config in `experiments/` leaves the key null, so the site setting is what they resolve to.
+The container comes from `--container /path/to.img`, then the config's `boltz_container:`, then `NEGSTEER_BOLTZ_IMG` in `site.conf`. A config that leaves the key null resolves to the site setting.
 
 ### Driving the two steps by hand
 
@@ -186,8 +194,8 @@ The config driver is the supported path. `prepare_complex_inputs.py` also runs o
 
 ```bash
 ./bin/prepare_complex_inputs.py \
-    --complex experiments/6G10/6G10.pdb \
-    --outdir  experiments/6G10/inputs \
+    --complex data/reference_complexes/6G10.pdb \
+    --outdir  /tmp/6G10/inputs \
     --derive --contact-cutoff 5.0
 ```
 
@@ -196,74 +204,6 @@ Prepare writes `receptor.fasta`, `effector.fasta`, `true_interface.txt` and `des
 The interface is either derived from heavy-atom contacts with `--derive --contact-cutoff`, or supplied with `--interface-file`. Chains default to receptor A and effector B, overridden with `--receptor-chain` and `--effector-chain`. The design region takes `--design-region none|all` or `--design-region-file FILE`.
 
 **The two residue files use different index bases.** `--interface-file` takes 0-based positional indices, one per line or comma-separated, with `#` comments ignored. `--design-region-file` takes a 1-based list.
-
-## The dose sweep
-
-The benchmark runs every target at `negsteer_n_designs: 20`, so the mutation-set count is constant within it and the "Known limits" section below calls the dose axis a between-target contrast. `experiments/dose-sweep/` makes it a within-experiment one. The same 18 unconstrained targets at 3, 5, 10, 20 and 50 sets, 90 configs in all.
-
-```bash
-python3 scripts/make_dose_sweep.py            # regenerate the 90 configs
-
-./scripts/submit.sh sweep                     # all five doses, one head job
-./scripts/submit.sh sweep n10                 # one dose
-sbatch -t 12:00:00 scripts/run_dose_sweep.slurm.sh n10        # trimmed walltime
-```
-
-Each config is the tracked benchmark config with three lines changed, `name`, `reference_pdb` and `negsteer_n_designs`. Everything else is copied byte for byte, so the dose is the only thing that varies. The generator refuses to write a config that differs anywhere else, and `tests/characterization/test_dose_sweep_configs.py` asserts the same thing about what is committed. No structure is duplicated. Each config points back at `data/reference_complexes/`.
-
-`n20` is not redundant. It is the dose that matches the `experiments/benchmarking/` unconstrained arm, so it reproduces that arm under the workflow rather than under the single-job runner that produced it.
-
-One head job runs the whole sweep rather than five, so the concurrency bound applies once rather than five times over. Five sessions would each claim the full bound and queue behind each other while monopolising the partition.
-
-GPU concurrency is `params.max_gpu_jobs`, applied as `maxForks` on the `gpu` label. It reads `NEGSTEER_MAX_GPU_JOBS` from `site.conf` and defaults to 8. Set it to your partition's card count, counting cards rather than nodes, and lower it on a busy weekday with `--max_gpu_jobs 16`. It is a choice about sharing rather than a technical limit. It is a per-label bound rather than `executor.queueSize` because queueSize covers the `cpu` stages too, and a 90-target sweep has plenty of those competing for the same slots.
-
-| Dose | Configs | Predictions | Storage | GPU-hours | Wall at 26 concurrent |
-|---:|---:|---:|---:|---:|---:|
-| 3 | 18 | 135 | 1.4 GB | 13 | 0.6 h |
-| 5 | 18 | 222 | 2.0 GB | 22 | 0.9 h |
-| 10 | 18 | 432 | 3.6 GB | 42 | 1.7 h |
-| 20 | 18 | 828 | 6.5 GB | 81 | 3.2 h |
-| 50 | 18 | 1992 | 15.1 GB | 194 | 7.6 h |
-| **all** | **90** | **3609** | **~29 GB** | **~351** | **~14 h** |
-
-GPU-hours are the sum across tasks and wall is that over the concurrency cap. The per-task rate used is ~350 s, measured from the workflow, not the ~100 s the committed benchmark records. Each task now pays its own container start and model load, and that overhead is real. Sizing a workflow run from `run_one_runtime_sec.txt` understates it by roughly threefold.
-
-## Analyses
-
-One numbered folder per document, each named after the document it holds. A folder carries its `.qmd`, its rendered `.html`, its own `thesis-figures/` and `supplementary-figures/`, and the data and scripts it owns, so a figure's provenance is its directory. Where a document reads something another one owns, it names that folder explicitly rather than duplicating the file. Rendered HTML and the `*_files/` bundles are gitignored build artefacts. Quarto sets the working directory to the rendering document's folder, which is what puts figures in the right place.
-
-| Document | Asks | Data |
-|:---|:---|:---|
-| `01-pose-rescue` | does steering rescue the pose | 18 benchmark targets |
-| `02-model-choice` | steering against reference restraints | 18 targets, four variants |
-| `03-compute-cost` | what a steering run costs to run | 18 targets |
-| `04-confidence-cost` | does steering cost confidence | 18 targets, 828 predictions |
-
-`05-campaign-confidence`, `06-confidence-synthesis` and `07-ipsae-instability` draw on a cohort outside this repo. Their scope is under review and they are not described here.
-
-### Reproducing
-
-Run outputs live on the HPC and are gitignored. Pull the lightweight summaries down, roughly 16 MB with no raw model outputs, then regenerate.
-
-```bash
-contrib/sync_from_hpc.sh --list                              # what is on the HPC
-contrib/sync_from_hpc.sh --name benchmarking --results-only  # summaries only
-python3 analyses/01-pose-rescue/make_plots.py                 # benchmark_summary.csv + figures
-python3 analyses/03-compute-cost/stage_runtime_comparison.py  # runtime_comparison.csv
-cd analyses/01-pose-rescue && quarto render 01-pose-rescue.qmd
-```
-
-`make_plots.py` takes `--bench` and `--outdir` to override the input tree and output location. Every analysis falls back to its committed cached table when the source tree is absent, so all of them re-render anywhere.
-
-Two staged inputs come from outside this repo. `boltz2_benchmark_comparison.csv` holds unconstrained and reference-restrained Boltz-2 `ra_eff` per target, from `structure-prediction-benchmarking`'s `combined_metrics.csv`. `negsteer_maxrss.csv` holds peak memory from Slurm accounting, collected on the cluster by `contrib/collect_negsteer_maxrss.sh` and copied back. That script globs the cluster's own `experiments/benchmarking/`, so it re-emits any target still present there.
-
-### Known limits
-
-The dose axis is not a controlled titration. Only two budgets are well populated, 3 and 6 mutations, and budget is constant within a target. It is always a between-target contrast, so a within-target budget sweep would settle it.
-
-The benchmark generates 20 candidate steered designs per target, so the representative is the best of 20. Any comparison against a cohort run at a different depth carries that difference.
-
-Pooling per-target medians gives each target one vote regardless of how many predictions it contributed. Absence of a difference is not evidence of equivalence. These tests can exclude an effect the size of the observed pLDDT drop, not an arbitrarily small one.
 
 ## Tests
 
@@ -304,7 +244,7 @@ so the two paths are compared on identical inputs and neither can lose coverage
 to the other.
 
 It is not a benchmark configuration and its numbers must never be pooled with
-`experiments/benchmarking/`.
+the benchmark in the analyses repository.
 
 The assertions deliberately do not check the pose. One design and one seed is
 far too little sampling to expect a rescue, and asserting `ra_eff` improved

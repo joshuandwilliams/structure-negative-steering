@@ -16,17 +16,21 @@ rather than the intended one.
 
 It never says where the partner should bind. It says where it should not.
 
-This repository holds the engine, the Nextflow workflow that runs it on a
-cluster, and the analyses behind Chapter 4 of the thesis.
+This repository holds the engine, the `negsteer` command another pipeline
+calls, and the Nextflow workflow that runs it on a cluster. The benchmark that
+measured it, its run definitions and the analysis documents are in
+[`negative-steering-analyses`](https://github.com/joshuandwilliams/negative-steering-analyses).
 
 ![How negative steering decides what to mutate and what to keep](docs/negative_steering_flowchart.svg)
 
 ## Results
 
-The benchmark is 18 solved complexes, each an integrated HMA decoy domain
-(Pikp, Pikm, RGA5-HMA) bound to an AVR effector. A pose counts as correct when
-the receptor-aligned effector RMSD is under 5 Å, scored on the median of three
-seeds.
+Measured on 18 solved complexes, each an integrated HMA decoy domain (Pikp,
+Pikm, RGA5-HMA) bound to an AVR effector. A pose counts as correct when the
+receptor-aligned effector RMSD is under 5 Å, scored on the median of three
+seeds. The runs, the tables behind these counts and the nine analysis
+documents are in
+[`negative-steering-analyses`](https://github.com/joshuandwilliams/negative-steering-analyses).
 
 | Method | Correctly posed |
 |:---|---:|
@@ -47,26 +51,28 @@ the solved structure, so they cannot run on a novel target. They are here to
 show the failures are not intrinsic to Boltz-2.
 
 The 18/18 row carries that caveat twice over. It hands the model the interface
-through the restraints and through the protected set. `experiments/interface-ablation/`
-is the control for it. That arm permutes the receptor's interface residues at
-fixed composition, so a pose still landing inside the threshold is a false
-positive by construction.
+through the restraints and through the protected set. The interface-ablation
+arm in the analyses repository is the control for it. It permutes the
+receptor's interface residues at fixed composition, so a pose still landing
+inside the threshold is a false positive by construction.
 
 ## Installation
 
-The analyses and the tests run on a laptop. No predictor is installed, by
-design: Boltz-2 and its CUDA stack live in the Singularity image built from
-`containers/boltz2_negsteer.def`, on the cluster.
+The config driver, input preparation and the tests run on a laptop. No
+predictor is installed, by design: Boltz-2 and its CUDA stack live in the
+Singularity image built from `containers/boltz2_negsteer.def`, on the cluster.
+
+```bash
+pip install -e '.[runtime]'          # numpy, gemmi, biopython, PyYAML
+pip install -e '.[test]'             # the same, plus pytest
+```
+
+`environment.yml` is the same set of packages pinned, for a conda user:
 
 ```bash
 mamba env create -f environment.yml
-mamba activate negsteer-analysis
+mamba activate negsteer-dev
 ```
-
-Quarto is not a conda package here. Install it separately and keep it at
-1.9.38, the version the committed HTML was rendered with. Figures only
-regenerate byte-identically under the pinned matplotlib, so use this
-environment rather than a pip virtualenv for anything that writes one.
 
 ### Your cluster
 
@@ -83,24 +89,39 @@ which is the Singularity image, and `NEGSTEER_PARTITION_GPU`. Without a
 partition the jobs take your cluster's default, which is right for the
 Nextflow head process and usually wrong for the Boltz calls.
 
+Two settings matter when your targets live in their own repository rather than
+under this checkout. `NEGSTEER_REPO_DIR` names this engine, and
+`NEGSTEER_BIND_PATHS` names any directory the containers must also see, such as
+a `data/` tree holding reference structures. Every stage binds the engine so it
+can run `bin/`, and a container sees nothing else unless it is bound.
+
 ## Running it
 
 One target is one `config.yml`. On the cluster, one submission runs the whole
 thing and nothing is left on the login node.
 
 ```bash
-./contrib/sync_to_hpc.sh                   # optional, if you work on a laptop
-
 # on the HPC, from the repo root
-./scripts/submit.sh workflow experiments/benchmarking/unconstrained/6G10/config.yml
-./scripts/submit.sh workflow 'experiments/benchmarking/**/config.yml'
-./scripts/submit.sh sweep                  # all five doses, one head job
+./scripts/submit.sh workflow tests/test_run/config.yml
+./scripts/submit.sh workflow 'my_targets/**/config.yml'
 ```
 
 `submit.sh` is a thin wrapper that adds this site's partition and accounting
 from `site.conf`. It is not required. `sbatch scripts/run_workflow.slurm.sh
 <targets>` works too, and `--dry-run` prints the command rather than
 submitting it.
+
+`--targets` resolves against the directory you submit from, and each target's
+derived `inputs/` and `run/` tree is written beside its own `config.yml`. So a
+project keeps its targets in its own repository and submits from there, with
+`NEGSTEER_REPO_DIR` pointing at this one:
+
+```bash
+cd ~/my-project
+NEGSTEER_REPO_DIR=~/structure-negative-steering \
+    sbatch ~/structure-negative-steering/scripts/run_workflow.slurm.sh \
+    'targets/**/config.yml'
+```
 
 `-resume` is always passed, so a head job that hits its walltime can be
 resubmitted with the identical command and skips what already finished.
@@ -143,46 +164,24 @@ tool and the numbers cannot drift apart.
 | `main.nf`, `modules/` | The workflow. Wiring only, one process per stage |
 | `bin/` | The engine. Everything a workflow stage runs |
 | `negsteer/` | The `negsteer` CLI |
-| `scripts/` | What you run: cluster launchers and config generators |
-| `contrib/` | Convenience scripts nothing in the pipeline calls |
+| `scripts/` | What you run: the cluster launchers |
+| `contrib/` | A drop-in module for a downstream pipeline. Nothing here is called by this one |
 | `site.conf.example` | Every setting that is specific to one cluster |
-| `data/reference_complexes/` | The 18 solved complexes, one copy each |
-| `experiments/` | Run definitions. Outputs are HPC-authoritative and gitignored |
-| `analyses/` | One folder per analysis document, with its own figures |
+| `data/reference_complexes/` | Two solved complexes, 6G10 and 7QZD, used as test fixtures |
 | `containers/` | Singularity definitions. The images live on the cluster |
 | `tests/` | The suite, plus its cluster wrappers |
 
-Every config in every tree points at `data/reference_complexes/`, so no two
-arms can disagree about what truth is.
+`data/reference_complexes/` holds only what the tests read. The 18 benchmark
+complexes live in the analyses repository, beside the configs that point at
+them, so no two arms there can disagree about what truth is.
 
 ## Analyses
 
-Nine Quarto documents, numbered in the order Chapter 4 uses them. Each folder
-carries its own `.qmd`, figures, and the data it owns, so a figure's provenance
-is its directory. Rendered HTML is a build artefact and is gitignored.
-
-| Document | Asks |
-|:---|:---|
-| `01-pose-rescue` | does steering rescue the pose |
-| `02-model-choice` | steering against reference restraints |
-| `03-compute-cost` | what a steering run costs |
-| `04-confidence-cost` | does steering cost confidence |
-| `05-campaign-confidence` | the same question on a design campaign |
-| `06-confidence-synthesis` | the two confidence results together |
-| `07-ipsae-instability` | whether ipSAE ranks reliably at this scale |
-| `08-tier-failure-breakdown` | how often each complex is corrected, and how it fails |
-| `09-mutation-excluded-ipsae` | ipSAE with the steering mutations excluded |
-
-To regenerate, pull the summaries down from the cluster (about 16 MB, no raw
-model outputs) and re-render:
-
-```bash
-contrib/sync_from_hpc.sh --name benchmarking --results-only
-cd analyses/01-pose-rescue && quarto render 01-pose-rescue.qmd
-```
-
-Every analysis falls back to its committed cached table when the run tree is
-absent, so all of them re-render anywhere.
+The nine analysis documents, their figures and the run definitions that
+produced them are in
+[`negative-steering-analyses`](https://github.com/joshuandwilliams/negative-steering-analyses).
+That repository pins this one as a submodule, so each result records the engine
+commit that produced it.
 
 ## Tests
 
@@ -203,11 +202,10 @@ number.
 
 ## Status
 
-The benchmark is complete and the committed analyses are current. Every
-analysis renders, and every committed CSV and figure regenerates from the
-pinned environment.
+The benchmark is complete. Its status, and the provenance of each committed
+table, is recorded in the analyses repository.
 
-Two things were known to be wrong. Both are now fixed, and the first is
+One thing about this engine was known to be wrong. It is now fixed, and it is
 recorded here because it changes what the effector template does.
 
 **The effector template did not reach Boltz, and now does.**
@@ -234,35 +232,19 @@ placement, because a regression would again be silent at run time.
 needs the answer.** It is built from the ground-truth effector chain, so a
 novel target cannot use it, which is the same objection that makes reference
 restraints a ceiling rather than a rival method. `--effector-template` turns
-it on, `negsteer_effector_template: true` does the same from a config, and
-every config in `experiments/` says `false`.
+it on and `negsteer_effector_template: true` does the same from a config.
 
 Off is also what produced every committed number. The flag used to default to
 on, but the template never reached Boltz, so the runs were template-free
-whatever the config said. The configs now say what those runs actually did, so
-rerunning one reproduces it.
-
-**Half the committed results were produced by the workflow.** The earlier claim
-that all of them predate it was wrong.
-
-| cohort | runner | committed outputs |
-|:---|:---|:---|
-| `experiments/dose-sweep/` (90 target × dose units) | the Nextflow workflow, head job `nf_dosesweep` | the pose-rescue figures and `n50_pose_metrics.csv`, `dockq_scores.csv`, `dose_sweep_pass_counts.csv`, `dose_sweep_maxrss.csv`, `tier_failure_breakdown_n50.csv`, and the steered series in `02-model-choice` |
-| `experiments/benchmarking/` (18 targets × 2 arms) | the single-job runner, one `sbatch` per target | `benchmark_summary.csv`, `negsteer_maxrss.csv`, `confidence_per_prediction*.csv` |
-| the `pikp1_avrpikf` design campaign | `receptor-resurfacing-pipeline`, not this repo | `campaign_data/*.csv`, `sequence_match.csv`, `ipsae_*.csv`, `mutation_excluded_*.csv` |
-
-The provenance of each memory figure is recorded at
-`analyses/03-compute-cost/stage_runtime_comparison.py:106-122`, which is where
-the split is visible: the dose-sweep cohort's peak memory comes from a Nextflow
-trace, the 18-target cohort's from Slurm `MaxRSS` because those jobs produced
-no trace.
+whatever the config said. The benchmark configs now say what those runs
+actually did, so rerunning one reproduces it.
 
 ## Further reading
 
 [`docs/implementation-notes.md`](docs/implementation-notes.md) carries the
 engineering detail. Why every process declares a `path` output, how resume
-semantics work, the Nextflow profile trap that cost a run, the dose sweep's
-sizing table, and the per-analysis reproduction notes.
+semantics work, the Nextflow profile trap that cost a run, and what the two
+entry points do either side of the container boundary.
 
 ## Citing
 

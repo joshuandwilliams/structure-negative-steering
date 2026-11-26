@@ -1,5 +1,5 @@
-# Conda environment for everything this repo does on a laptop: rendering the
-# seven Quarto analyses, running the two local test tiers, and linting.
+# Conda environment for what this repo does on a laptop: the config driver,
+# input preparation, the two local test tiers, and linting.
 #
 # It contains NO structure predictor and no GPU stack. Boltz-2 and its CUDA
 # dependencies live in the Singularity image built from
@@ -7,16 +7,16 @@
 # prediction, by design.
 #
 #   mamba env create -f environment.yml
-#   mamba activate negsteer-analysis
-#   cd analyses/01-pose-rescue && quarto render 01-pose-rescue.qmd
+#   mamba activate negsteer-dev
+#   pytest -m logic
 #
-# Quarto itself is not a conda package here. Install it separately and keep it
-# at 1.9.38, the version the committed HTML was rendered with.
+# The analyses and their plotting stack live in negative-steering-analyses,
+# which has its own environment.
 #
 # Import names that differ from the distribution name, so a missing one is not
 # obvious from the traceback:
 #   biopython -> Bio        pyyaml -> yaml        gemmi -> gemmi
-name: negsteer-analysis
+name: negsteer-dev
 
 channels:
   - conda-forge
@@ -24,24 +24,10 @@ channels:
 
 dependencies:
   # ----- interpreter -----
-  # 3.11 matches the kernel the analyses were rendered under. bin/ uses
-  # `X | None` annotations, so 3.10 is the floor.
+  # bin/ uses `X | None` annotations, so 3.10 is the floor.
   - python=3.11.15
 
-  # ----- the analysis stack: all seven .qmd files -----
   - numpy=2.4.6
-  - pandas=3.0.3
-  - matplotlib-base=3.10.9
-  - scipy=1.17.1              # spearmanr, wilcoxon, bootstrap CIs
-
-  # ----- Quarto's jupyter engine -----
-  # Without these, `quarto render` cannot start a kernel for a .qmd.
-  - ipykernel=7.2.0
-  - jupyter_client=8.8.0
-  # Quarto's own jupyter.py imports these directly, so a render fails at kernel
-  # startup without them even though the kernel packages above are present.
-  - nbformat=5.11.0
-  - nbclient=0.11.0
 
   # ----- structure parsing, used by bin/prepare_complex_inputs.py -----
   # The engine takes gemmi OR biopython. Both are pinned so the derived

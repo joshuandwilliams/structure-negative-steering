@@ -37,7 +37,7 @@
 # `singularity exec --nv`, which is why it cannot run from inside a container.
 #
 # Usage:
-#   ./scripts/submit.sh steer experiments/benchmarking/unconstrained/6G10/config.yml
+#   ./scripts/submit.sh steer tests/test_run/config.yml
 #
 #   # CPU-only steps need no GPU node. Run them interactively with bash,
 #   # since the #SBATCH lines are just comments outside sbatch:
@@ -51,7 +51,8 @@ set -euo pipefail
 
 # REPO_ROOT is resolved AFTER the config is known (see below). Under `sbatch`
 # SLURM spools this script to /var/spool/slurmd/..., so ${BASH_SOURCE[0]} is NOT
-# the repo path. We walk up from the absolute config path to find scripts/ instead.
+# the repo path. NEGSTEER_REPO_DIR names it when the config lives in another
+# repository. Otherwise we walk up from the absolute config path to find it.
 
 CONFIG=""
 CONTAINER=""
@@ -77,12 +78,15 @@ CONFIG="$(realpath "$CONFIG")"
 [[ -f "$CONFIG" ]] || { echo "ERROR: config not found: $CONFIG" >&2; exit 2; }
 CFG_DIR="$(dirname "$CONFIG")"
 
-# Walk up from the config dir to the repo root (the directory containing
-# bin/negative_steering.py), then fall back to $SLURM_SUBMIT_DIR and finally
-# to this script's own location.
+# NEGSTEER_REPO_DIR first, then walk up from the config dir to the repo root
+# (the directory containing bin/negative_steering.py), then fall back to
+# $SLURM_SUBMIT_DIR and finally to this script's own location.
 REPO_ROOT=""
+if [[ -n "${NEGSTEER_REPO_DIR:-}" && -f "${NEGSTEER_REPO_DIR}/bin/negative_steering.py" ]]; then
+    REPO_ROOT="$(realpath "$NEGSTEER_REPO_DIR")"
+fi
 _d="$CFG_DIR"
-while [[ "$_d" != "/" ]]; do
+while [[ -z "$REPO_ROOT" && "$_d" != "/" ]]; do
     if [[ -f "$_d/bin/negative_steering.py" ]]; then REPO_ROOT="$_d"; break; fi
     _d="$(dirname "$_d")"
 done
@@ -116,7 +120,21 @@ if [[ ! -f "$CONTAINER" ]]; then
 fi
 
 # All Python runs in-container on CPU. The engine run adds --nv itself.
-SING=(singularity exec --bind "$REPO_ROOT" "$CONTAINER" python "$PY_DRIVER" "$CONFIG")
+#
+# The driver reads the config and its reference_pdb, and writes inputs/ beside
+# the config, so the config's directory is bound as well as the engine. A
+# reference_pdb outside both, as in a project whose structures sit in their own
+# data/ tree, needs its directory in NEGSTEER_BIND_PATHS, comma-separated.
+# launch.sh needs none of this: negative_steering_run_one.sh binds every
+# directory it is given.
+BINDS=(--bind "$REPO_ROOT" --bind "$CFG_DIR")
+if [[ -n "${NEGSTEER_BIND_PATHS:-}" ]]; then
+    IFS=',' read -r -a _extra <<< "$NEGSTEER_BIND_PATHS"
+    for _b in "${_extra[@]}"; do
+        [[ -n "$_b" ]] && BINDS+=(--bind "$_b")
+    done
+fi
+SING=(singularity exec "${BINDS[@]}" "$CONTAINER" python "$PY_DRIVER" "$CONFIG")
 
 if [[ -n "$DRY" ]]; then
     exec "${SING[@]}" --dry-run

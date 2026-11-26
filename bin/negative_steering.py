@@ -15,7 +15,7 @@ the orchestrator does its own `singularity exec --nv` and singularity cannot
 nest. launch.sh records what was run.
 
 Usage, normally via negative_steering.slurm.sh, but runnable on a Mac with the
-[experiments] extras:
+[runtime] extra:
 
   negative_steering.py CONFIG      # prepare + write launch.sh
 """
@@ -217,8 +217,8 @@ def main(argv: List[str]) -> int:
     run_dir = cfg_dir / "run"
     prepare_cmd = _build_prepare_cmd(cfg, cfg_dir, inputs_dir)
     # --boltz-container, then the config, then site.conf's NEGSTEER_BOLTZ_IMG.
-    # The configs in experiments/ leave the key null, so one site setting
-    # covers every one of them.
+    # A config that leaves the key null takes the site setting, so one value
+    # covers every such config.
     boltz_container = (args.boltz_container
                        or cfg.get("boltz_container")
                        or os.environ.get("NEGSTEER_BOLTZ_IMG"))

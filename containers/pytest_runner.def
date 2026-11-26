@@ -42,9 +42,9 @@ Include: yum
 #     toolchain so test code that imports 3.11-only typing features works
 #     identically inside both containers)
 #   - pytest                (test runner — markers wired up in pyproject.toml)
-#   - pandas                (the thesis-statistics tests, which rebuild each
-#                            committed table from its CSV —
-#                            tests/characterization/test_thesis_statistics.py)
+#   - pandas                (negative-steering-analyses' thesis-statistics
+#                            tests, which rebuild each committed table from its
+#                            CSV. Nothing in THIS repo imports it)
 #   - numpy                 (RMSD, contact geometry and ipSAE arithmetic — 12
 #                            test files and 7 bin/ modules)
 #   - Pillow (provides `PIL`)

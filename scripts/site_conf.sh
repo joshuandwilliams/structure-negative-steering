@@ -18,19 +18,20 @@
 # lets one run override a setting without editing the file:
 #
 #   NEGSTEER_PARTITION_GPU=gpu-long ./scripts/submit.sh steer <config>
+#
+# NEGSTEER_SITE_CONF names a different file. A project that drives this engine
+# from its own repository points it at that repository's site.conf.
 
 # Resolve the repo from this script's own location, not from the caller's cwd.
 _SITE_CONF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NEGSTEER_SITE_CONF="${NEGSTEER_SITE_CONF:-${_SITE_CONF_DIR}/site.conf}"
 
 if [ -f "${NEGSTEER_SITE_CONF}" ]; then
-    # Snapshot anything already set so the environment keeps precedence.
-    for _v in NEGSTEER_REPO_DIR NEGSTEER_PARTITION_GPU NEGSTEER_PARTITION_HEAD \
-              NEGSTEER_PARTITION_HEAD_LONG NEGSTEER_PARTITION_CPU \
-              NEGSTEER_GPU_CLUSTER_OPTIONS NEGSTEER_SLURM_ACCOUNT \
-              NEGSTEER_SLURM_QOS NEGSTEER_MAX_GPU_JOBS NEGSTEER_BOLTZ_IMG \
-              NEGSTEER_JAVA_HOME NEGSTEER_NEXTFLOW_IMG NEGSTEER_HPC_HOST \
-              NEGSTEER_HPC_DEST; do
+    # Snapshot anything already set so the environment keeps precedence. Every
+    # NEGSTEER_* variable is covered, not a fixed list, so a project that adds
+    # its own settings to its site.conf gets the same rule without this file
+    # having to name them.
+    for _v in $(compgen -v NEGSTEER_); do
         if [ -n "${!_v:-}" ]; then
             eval "_SITE_PRESET_${_v}=\${${_v}}"
         fi
@@ -39,16 +40,9 @@ if [ -f "${NEGSTEER_SITE_CONF}" ]; then
     # shellcheck source=/dev/null
     . "${NEGSTEER_SITE_CONF}"
 
-    for _v in NEGSTEER_REPO_DIR NEGSTEER_PARTITION_GPU NEGSTEER_PARTITION_HEAD \
-              NEGSTEER_PARTITION_HEAD_LONG NEGSTEER_PARTITION_CPU \
-              NEGSTEER_GPU_CLUSTER_OPTIONS NEGSTEER_SLURM_ACCOUNT \
-              NEGSTEER_SLURM_QOS NEGSTEER_MAX_GPU_JOBS NEGSTEER_BOLTZ_IMG \
-              NEGSTEER_JAVA_HOME NEGSTEER_NEXTFLOW_IMG NEGSTEER_HPC_HOST \
-              NEGSTEER_HPC_DEST; do
-        _preset="_SITE_PRESET_${_v}"
-        if [ -n "${!_preset:-}" ]; then
-            eval "${_v}=\${${_preset}}"
-        fi
+    for _preset in $(compgen -v _SITE_PRESET_NEGSTEER_); do
+        _v="${_preset#_SITE_PRESET_}"
+        eval "${_v}=\${${_preset}}"
         unset "${_preset}"
     done
     unset _v _preset
@@ -60,10 +54,11 @@ fi
 NEGSTEER_GPU_CLUSTER_OPTIONS="${NEGSTEER_GPU_CLUSTER_OPTIONS:---gres=gpu:1}"
 NEGSTEER_MAX_GPU_JOBS="${NEGSTEER_MAX_GPU_JOBS:-8}"
 
+# Every setting is exported, so a launcher that sbatches another script passes
+# them on. sbatch exports the submitting environment by default.
 export NEGSTEER_SITE_CONF NEGSTEER_GPU_CLUSTER_OPTIONS NEGSTEER_MAX_GPU_JOBS
-export NEGSTEER_REPO_DIR NEGSTEER_PARTITION_GPU NEGSTEER_PARTITION_HEAD
-export NEGSTEER_PARTITION_HEAD_LONG NEGSTEER_PARTITION_CPU
-export NEGSTEER_SLURM_ACCOUNT NEGSTEER_SLURM_QOS NEGSTEER_BOLTZ_IMG
-export NEGSTEER_JAVA_HOME NEGSTEER_NEXTFLOW_IMG
-export NEGSTEER_HPC_HOST NEGSTEER_HPC_DEST
+for _v in $(compgen -v NEGSTEER_); do
+    export "${_v}"
+done
+unset _v
 unset _SITE_CONF_DIR

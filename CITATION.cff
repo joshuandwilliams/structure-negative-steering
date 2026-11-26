@@ -1,14 +1,15 @@
 cff-version: 1.2.0
-message: "If you use this code or these analyses, please cite them as below."
+message: "If you use this software, please cite it as below."
 title: "structure-negative-steering: negative steering of Boltz-2 structure predictions"
 abstract: >-
   Negative steering mutates the receptor surface residues a structure
   prediction wrongly places in contact with its binding partner, so the model
   can no longer settle on that interface. Residues of the intended interface
   are protected from mutation, so what the method removes is a competing site
-  rather than the intended one. This repository holds the engine, the Nextflow
-  workflow that runs it, and the analyses benchmarking it against 18 solved
-  NLR integrated-HMA-domain and MAX-effector complexes.
+  rather than the intended one. This repository holds the engine, the
+  `negsteer` command line interface, and the Nextflow workflow that runs it on
+  a cluster. The benchmark against 18 solved NLR integrated-HMA-domain and
+  MAX-effector complexes is in negative-steering-analyses.
 authors:
   - family-names: Williams
     given-names: Joshua

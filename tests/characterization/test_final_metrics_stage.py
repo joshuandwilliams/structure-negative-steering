@@ -321,7 +321,7 @@ def test_a_skip_steering_run_includes_its_baseline(agg, tmp_path, capsys):
 
 # ── the confidence flag ──────────────────────────────────────────────────────
 #
-# These are the thresholds analyses/07 is about. The flag is derived after the
+# These are the thresholds the ipSAE-instability analysis is about. The flag is derived after the
 # loop so a resumed row and a fresh row are classified the same way.
 
 @pytest.mark.logic

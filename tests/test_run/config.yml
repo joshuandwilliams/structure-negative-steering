@@ -22,7 +22,7 @@
 # submitting another, so there is no config knob to set. One cycle is what runs.
 #
 # This is NOT a benchmark configuration. Its numbers are not comparable with
-# anything under experiments/benchmarking/ and must never be pooled with them.
+# the benchmark in negative-steering-analyses and must never be pooled with it.
 # =============================================================================
 
 name: "6G10_test_run"

@@ -20,6 +20,28 @@
 nextflow.enable.dsl = 2
 
 
+// The --bind flags every singularity call carries. The engine checkout is
+// always bound, because every stage runs a script from its bin/. The targets
+// are not necessarily under it. A config, its run/ tree and its reference_pdb
+// can live in another repository, and a container sees only what is bound, so
+// params.bind_paths adds those. It defaults to the launch directory.
+//
+// A path that is the same as, or under, another one is dropped. Its parent's
+// bind already exposes it, and binding a path twice is redundant. Paths are
+// normalised but not canonicalised. Resolving a symlinked home directory would
+// bind a path the configs never name, and the container would not see theirs.
+def negsteerBinds() {
+    def extra = params.bind_paths ? params.bind_paths.toString().tokenize(',') : []
+    def paths = ([params.repo_root.toString()] + extra)
+        .collect { p -> new File(p.trim()).toPath().normalize().toString() }
+        .unique()
+    def kept = paths.findAll { p ->
+        !paths.any { q -> q != p && p.startsWith(q + File.separator) }
+    }
+    return kept.collect { p -> "--bind ${p}" }.join(' ')
+}
+
+
 // The one stage that cannot assume a container, because the container path is
 // what it is reading. It resolves that path as plain text first, then runs the
 // driver inside it like every other stage does. Running the driver on the host
@@ -45,7 +67,7 @@ process NEGSTEER_READ_CONFIG {
         "\$CFG" "${params.boltz_container ?: ''}")"
 
     if [ -n "\$CONTAINER" ] && [ -f "\$CONTAINER" ]; then
-        singularity exec --bind ${params.repo_root} --bind "\$(dirname "\$CFG")" \\
+        singularity exec ${negsteerBinds()} --bind "\$(dirname "\$CFG")" \\
             "\$CONTAINER" \\
             python ${params.repo_root}/bin/negative_steering.py "\$CFG" --emit-json
     elif [ "${params.allow_host_python}" = "true" ]; then
@@ -83,7 +105,7 @@ process NEGSTEER_PREPARE {
     mkdir -p ${run_dir}/.stage_times.d
 
     _t0=\$SECONDS
-    singularity exec --bind ${params.repo_root} ${container} \\
+    singularity exec ${negsteerBinds()} ${container} \\
         python ${params.repo_root}/bin/negative_steering.py \\
             ${config} --prepare-only
     printf 'prepare %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/prepare
@@ -115,7 +137,7 @@ process NEGSTEER_PLAN {
     script:
     """
     _t0=\$SECONDS
-    singularity exec --nv --bind ${params.repo_root} ${container} \\
+    singularity exec --nv ${negsteerBinds()} ${container} \\
         python ${params.repo_root}/bin/boltz2_negative_steering.py plan \\
             --workdir ${run_dir}/cycle_0 \\
             --boltz-container ${container} \\
@@ -123,7 +145,7 @@ process NEGSTEER_PLAN {
     printf 'plan %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/plan
 
     cp ${run_dir}/cycle_0/plan.json .
-    singularity exec --bind ${params.repo_root} --bind "\$PWD" ${container} \\
+    singularity exec ${negsteerBinds()} --bind "\$PWD" ${container} \\
         python -c "
 import json, sys
 plan = json.load(open('plan.json'))
@@ -155,7 +177,7 @@ process NEGSTEER_PREDICT_ONE {
     script:
     """
     _t0=\$SECONDS
-    singularity exec --nv --bind ${params.repo_root} ${container} \\
+    singularity exec --nv ${negsteerBinds()} ${container} \\
         python ${params.repo_root}/bin/boltz2_negative_steering.py predict-one \\
             --workdir ${run_dir}/cycle_0 --index ${index}
     printf 'predict_one_${index} %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/predict_one_${index}
@@ -182,7 +204,7 @@ process NEGSTEER_COLLECT {
     script:
     """
     _t0=\$SECONDS
-    singularity exec --bind ${params.repo_root} ${container} \\
+    singularity exec ${negsteerBinds()} ${container} \\
         python ${params.repo_root}/bin/boltz2_negative_steering.py collect \\
             --workdir ${run_dir}/cycle_0
     printf 'collect %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/collect
@@ -215,7 +237,7 @@ process NEGSTEER_REVERSION_PREP {
     COLD=${params.repo_root}/bin/negsteer_coldstart.py
     REV=${params.repo_root}/bin/reversion.py
     AGG=${params.repo_root}/bin/negsteer_aggregate.py
-    SING="singularity exec --bind ${params.repo_root} --bind \$PWD ${container} python"
+    SING="singularity exec ${negsteerBinds()} --bind \$PWD ${container} python"
 
     _t0=\$SECONDS
     \$SING \$COLD kickoff-distances  --experiment-root ${run_dir} 1>&2
@@ -256,7 +278,7 @@ process NEGSTEER_PREDICT_REVERSION {
     script:
     """
     _t0=\$SECONDS
-    singularity exec --nv --bind ${params.repo_root} ${container} \\
+    singularity exec --nv ${negsteerBinds()} ${container} \\
         python ${params.repo_root}/bin/reversion.py \\
             predict-reversion-one --workdir ${run_dir}/cycle_0 --index ${index}
     printf 'predict_reversion_${index} %s\\n' "\$((SECONDS - _t0))" > ${run_dir}/.stage_times.d/predict_reversion_${index}
@@ -287,7 +309,7 @@ process NEGSTEER_HARVEST {
     COLD=${params.repo_root}/bin/negsteer_coldstart.py
     REV=${params.repo_root}/bin/reversion.py
     AGG=${params.repo_root}/bin/negsteer_aggregate.py
-    SING="singularity exec --bind ${params.repo_root} ${container} python"
+    SING="singularity exec ${negsteerBinds()} ${container} python"
 
     _t0=\$SECONDS
     \$SING \$REV harvest-reversions --workdir ${run_dir}/cycle_0
@@ -331,7 +353,7 @@ process NEGSTEER_POSTPROCESS {
     COLD=${params.repo_root}/bin/negsteer_coldstart.py
     REV=${params.repo_root}/bin/reversion.py
     AGG=${params.repo_root}/bin/negsteer_aggregate.py
-    SING="singularity exec --bind ${params.repo_root} ${container} python"
+    SING="singularity exec ${negsteerBinds()} ${container} python"
 
     _t0=\$SECONDS
     \$SING \$AGG aggregate --experiment-root ${run_dir}
@@ -392,7 +414,7 @@ process NEGSTEER_CROSS_SUMMARY {
 
     script:
     """
-    singularity exec --bind ${params.repo_root} ${container} \\
+    singularity exec ${negsteerBinds()} ${container} \\
         python ${params.repo_root}/bin/cross_summary.py \\
             --passing-summary "${name}=${run_dir}/passing_summary.csv" \\
             --output ${run_dir}/cross_sequence_summary.csv

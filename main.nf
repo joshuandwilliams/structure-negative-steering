@@ -1,8 +1,13 @@
 #!/usr/bin/env nextflow
-// Negative steering over one or more benchmark targets.
+// Negative steering over one or more targets, one config.yml each.
 //
-//   nextflow run main.nf --targets "experiments/benchmarking/**/config.yml"
 //   nextflow run main.nf --targets tests/test_run/config.yml
+//   nextflow run /path/to/structure-negative-steering/main.nf \
+//       --targets "my_targets/**/config.yml"
+//
+// --targets resolves against the launch directory, so the targets need not sit
+// inside this checkout. Each one's run/ tree is written beside its config.yml.
+// params.bind_paths in nextflow.config is what lets the containers see them.
 //
 // The two fan-outs, one Boltz call per steered design and one per reverted
 // design, were bash loops inside a single SLURM job. They are channels now, so
@@ -39,7 +44,7 @@ include {
 workflow {
 
     if( !params.targets )
-        error "Pass --targets, for example --targets 'experiments/benchmarking/**/config.yml'"
+        error "Pass --targets, for example --targets 'my_targets/**/config.yml'"
 
     // One JSON blob per target, produced by the Python driver.
     cfg = NEGSTEER_READ_CONFIG( Channel.fromPath(params.targets, checkIfExists: true) )

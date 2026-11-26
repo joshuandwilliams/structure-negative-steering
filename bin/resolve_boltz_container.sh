@@ -5,8 +5,8 @@
 #   resolve_boltz_container.sh CONFIG [OVERRIDE]
 #
 # OVERRIDE wins, then the config's boltz_container, then NEGSTEER_BOLTZ_IMG
-# from site.conf. The configs in experiments/ leave the key null, so the site
-# setting is what they resolve to.
+# from site.conf. A config that leaves the key null resolves to the site
+# setting.
 #
 # The airgapped HPC has no PyYAML on the host, so the container path cannot be
 # read with a YAML parser. It has to come out of the file as plain text, because
@@ -71,7 +71,7 @@ case "${VALUE}" in
 esac
 
 # A null or empty value is the committed default, so fall back to the site
-# setting. Every config in experiments/ relies on this.
+# setting.
 case "${VALUE}" in
     ""|null|Null|NULL|"~")
         printf '%s' "${NEGSTEER_BOLTZ_IMG:-}"

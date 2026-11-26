@@ -41,7 +41,7 @@ def _deps() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    not _deps(), reason="needs numpy and biopython (pip install -e '.[experiments]')")
+    not _deps(), reason="needs numpy and biopython (pip install -e '.[runtime]')")
 
 
 @pytest.fixture(scope="module")

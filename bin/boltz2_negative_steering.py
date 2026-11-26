@@ -973,8 +973,8 @@ def find_contact_residues_heavy(
     ``compute_metrics.find_contact_residues_heavy``, used only by
     ``bin/prepare_complex_inputs.py``, is a second implementation
     with the same signature and the same icode-aware bucketing.  On a
-    well-formed structure the two agree exactly: over all 18 complexes
-    in ``data/reference_complexes/`` they return the same contact set
+    well-formed structure the two agree exactly: over all 18 benchmark
+    complexes, in negative-steering-analyses, they return the same contact set
     and the same distances to within 0.001 A.  They differ in two ways
     that matter.
 

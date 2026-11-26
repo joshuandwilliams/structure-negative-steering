@@ -21,8 +21,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DRIVER = REPO_ROOT / "bin" / "negative_steering.py"
-REAL_CONFIG = (REPO_ROOT / "experiments" / "benchmarking" / "unconstrained"
-               / "6G10" / "config.yml")
 
 
 @pytest.fixture(scope="module")
@@ -222,35 +220,6 @@ def test_ablation_does_not_touch_the_ground_truth(drv, tmp_path):
     assert "--ablate" not in run
 
 
-@pytest.mark.logic
-def test_every_ablation_config_is_translatable(drv):
-    """Each control must ablate, and its arm must match its constraints toggle.
-
-    A restrained control that ran unrestrained, or the reverse, would be the
-    control for the other claim, which is the one mix-up this tree exists to
-    avoid.
-    """
-    root = REPO_ROOT / "experiments" / "interface-ablation"
-    configs = sorted(root.glob("*/*/config.yml"))
-    if not configs:
-        pytest.skip("interface-ablation tree not generated")
-    for c in configs:
-        variant = c.parent.parent.name
-        cfg = drv._load_yaml(c)
-        assert cfg["interface_ablation"] in ("alanine", "scrambled"), c
-        prepare = drv._build_prepare_cmd(cfg, c.parent, c.parent / "inputs")
-        assert prepare[prepare.index("--ablate") + 1] == cfg["interface_ablation"]
-        run = drv._build_run_cmd(cfg, c.parent, c.parent / "inputs",
-                                 c.parent / "run", "/fake.img")
-        plan = run[run.index("--plan-extra-args") + 1]
-        assert "--protected-set-source true_interface" in plan, c
-        assert variant.endswith(("_restrained", "_unrestrained")), c
-        expected = variant.endswith("_restrained")
-        assert ("--boltz-constraints" in plan) == expected, \
-            f"{c}: constraints flag does not match the arm in its directory"
-        assert cfg["name"].endswith(variant.removeprefix("smoke_")), c
-
-
 # ── launch.sh ────────────────────────────────────────────────────────────────
 
 @pytest.mark.logic
@@ -289,47 +258,6 @@ def test_dry_run_reports_when_no_container_is_configured(drv, tmp_path, capsys):
 def test_missing_prepared_inputs_are_detected(drv, tmp_path):
     with pytest.raises(SystemExit, match="prepare did not produce"):
         drv._check_inputs_present(tmp_path)
-
-
-# ── the committed configs ────────────────────────────────────────────────────
-
-@pytest.mark.logic
-@pytest.mark.skipif(not REAL_CONFIG.is_file(), reason="benchmark config not present")
-def test_committed_config_produces_the_expected_engine_call(drv):
-    """The shipped 6G10 config still translates to the run that produced the results."""
-    cfg = drv._load_yaml(REAL_CONFIG)
-    cmd = drv._build_run_cmd(cfg, REAL_CONFIG.parent,
-                             REAL_CONFIG.parent / "inputs",
-                             REAL_CONFIG.parent / "run", "/fake.img")
-    plan = cmd[cmd.index("--plan-extra-args") + 1]
-    assert cmd[cmd.index("--seq-name") + 1] == "6G10"
-    assert "--mode mild" in plan
-    assert "--n-designs 20" in plan
-    assert "--num-seeds 3" in plan
-    assert "--boltz-constraints" not in plan
-
-
-@pytest.mark.logic
-def test_every_committed_config_is_translatable(drv):
-    """No target's config can silently fail to build an engine command."""
-    root = REPO_ROOT / "experiments" / "benchmarking"
-    configs = sorted(root.glob("*/*/config.yml"))
-    if not configs:
-        pytest.skip("benchmarking tree not present")
-    constrained = 0
-    for c in configs:
-        cfg = drv._load_yaml(c)
-        cmd = drv._build_run_cmd(cfg, c.parent, c.parent / "inputs",
-                                 c.parent / "run", "/fake.img")
-        assert cmd[0] == "bash"
-        plan = cmd[cmd.index("--plan-extra-args") + 1]
-        if "--boltz-constraints" in plan:
-            constrained += 1
-        # The constraints toggle must follow the directory it lives in.
-        assert ("--boltz-constraints" in plan) == (c.parent.parent.name == "constrained"), \
-            f"{c}: constraints flag does not match its variant directory"
-    assert constrained == len(configs) // 2, \
-        f"expected half the configs constrained, got {constrained}/{len(configs)}"
 
 
 # ── the full main() path ─────────────────────────────────────────────────────
@@ -414,8 +342,8 @@ def test_run_without_a_container_is_rejected_after_prepare(drv, tmp_path, monkey
 @pytest.mark.logic
 def test_the_environment_supplies_the_container_when_the_config_does_not(
         drv, tmp_path, monkeypatch):
-    """Every config in experiments/ leaves boltz_container null, so this
-    fallback is what makes all 167 of them runnable from one site setting."""
+    """A config that leaves boltz_container null relies on this fallback. It
+    is what makes a whole tree of such configs runnable from one site setting."""
     monkeypatch.setenv("NEGSTEER_BOLTZ_IMG", "/img/boltz.img")
     cfg = _minimal_config(tmp_path)
     _stub_prepare(drv, monkeypatch)
