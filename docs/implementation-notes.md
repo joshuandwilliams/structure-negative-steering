@@ -25,7 +25,7 @@ Each stage writes its elapsed seconds to its own file under `run/.stage_times.d/
 
 **`bin/` and `modules/` are owned here.** They started as a copy of the pipeline's negative-steering entry points and their import closure. They have since diverged and are no longer kept in step with it. Changes made here do not flow back to the pipeline, and pipeline changes do not flow in.
 
-**Follow-up cycles are gone, not switched off.** A cycle was a second round of negative steering on the first round's survivors. Cycle N+1 started from a parent's already-mutated receptor sequence and added more mutations at positions earlier cycles had not touched. `total_mutations` is the Hamming distance from the wild type, so it compounded per cycle. That is why follow-up cycles were abandoned. A design carrying several cycles of edits is no longer a plausible construct. The harness that submitted the next cycle with `sbatch` is in `archive/boltz2_iterate_steering_multicycle.py`. The code that read such a run is in `archive/cycle1plus_aggregation.py`, namely the pathway discovery and row builder in `cmd_aggregate`, the ancestry walk in `_populate_reverted_mutations`, and the dotted label scheme in `pathway_labels.py`. No run ever produced a cycle-1 row: all 110 `all_results_multicycle.csv` files on disk carry `cycle=0` across 4,644 rows, and every one of the 108 cycle directories in the benchmark tree is `cycle_0`. `negsteer_aggregate.py` now refuses an experiment root containing a `cycle_N` directory rather than writing a table that omits its rows. Re-enabling cycles means wiring them as channels in `main.nf`, not letting Python call the scheduler from inside a task.
+**Follow-up cycles are gone, not switched off.** A cycle was a second round of negative steering on the first round's survivors. Cycle N+1 started from a parent's already-mutated receptor sequence and added more mutations at positions earlier cycles had not touched. `total_mutations` is the Hamming distance from the wild type, so it compounded per cycle. That is why follow-up cycles were abandoned. A design carrying several cycles of edits is no longer a plausible construct. The harness that submitted the next cycle with `sbatch`, and the code that read such a run, are not in this repository: they are kept outside it, in a gitignored `archive/`, as the only record of the multi-cycle design. What went with them was the pathway discovery and row builder in `cmd_aggregate`, the ancestry walk in `_populate_reverted_mutations`, and the dotted label scheme. `bin/pathway_labels.py` survives under that name but holds different code now, the mutation-table reader and Boltz sidecar lookup that `reversion.py` and `negsteer_aggregate.py` import. No run ever produced a cycle-1 row: all 110 `all_results_multicycle.csv` files on disk carry `cycle=0` across 4,644 rows, and every one of the 108 cycle directories in the benchmark tree is `cycle_0`. `negsteer_aggregate.py` now refuses an experiment root containing a `cycle_N` directory rather than writing a table that omits its rows. Re-enabling cycles means wiring them as channels in `main.nf`, not letting Python call the scheduler from inside a task.
 
 **Every process declares a `path` output, including the ones whose result is a value.** Nextflow hashes file content to decide what `-resume` may skip. A process that emits only `val` gives it nothing to hash, and a resumed run silently repeats hours of GPU work. Each stage therefore copies its artefact into the task directory and declares it.
 
@@ -86,7 +86,7 @@ Everything else has a default. `--n-designs`, `--num-seeds`, `--diffusion-sample
 
 `contrib/negative_steering.nf` is a drop-in Nextflow module for `receptor-resurfacing-pipeline`, replacing the copy of the engine it carries today.
 
-The CLI runs the same nine stages, in the same order, with the same arguments as `bin/negative_steering_run_one.sh`, which produced the committed benchmark. That equivalence is asserted by `tests/characterization/test_negsteer_cli.py`, so the tool and the runner behind the published numbers cannot drift apart.
+The CLI runs the same stages, in the same order, with the same arguments as `bin/negative_steering_run_one.sh`, which produced the committed benchmark. Thirteen invocations always run, plus one `predict-one` per steered design and one `predict-reversion-one` per reversion. `tests/characterization/test_negsteer_cli.py` holds that list as `EXPECTED_STAGES` and asserts the equivalence, so the tool and the runner behind the published numbers cannot drift apart.
 
 Nesting is not a problem. The engine detects `SINGULARITY_NAME` and calls `boltz` directly when it is already inside a container. That is why `negsteer` runs in-container where the old shell orchestrator could not. `--boltz-container` is only needed on a bare host.
 
@@ -211,11 +211,11 @@ Two tiers, one marker each. A marker says what a test needs, not where it happen
 
 | Tier | Needs | Covers |
 |:---|:---|:---|
-| `logic` | Python and the `test` extra | pure helpers on synthetic input, plus the committed fixtures and reference structures |
+| `logic` | Python and the `test` extra | pure helpers on synthetic input, plus the committed fixtures and the two reference structures |
 | `check_test_run` | the output of a real run | a finished run tree on disk |
 
 ```bash
-mamba env create -f environment.yml && mamba activate negsteer-analysis
+mamba env create -f environment.yml && mamba activate negsteer-dev
 pytest -m logic                  # everything that needs no run
 pytest                           # adds check_test_run, against a run already on disk
 ./scripts/submit.sh test-run     # produce a fresh run, then assert on it

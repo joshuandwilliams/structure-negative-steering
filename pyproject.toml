@@ -61,10 +61,12 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-# archive/prerepo_scripts/ holds superseded pre-repo scripts, kept verbatim as the
-# only record of the sequence-walk and seed-variance diagnostics. Reformatting
-# them to satisfy a linter would edit the thing being preserved, and nothing
-# imports them, so they are excluded rather than fixed.
+# archive/ is not in this repository and is gitignored. It holds superseded
+# pre-repo scripts, kept verbatim as the only record of the sequence-walk and
+# seed-variance diagnostics. The exclusion is for a working tree that has one:
+# reformatting them to satisfy a linter would edit the thing being preserved,
+# and nothing imports them. A clean clone has no archive/ and this does
+# nothing.
 exclude = ["archive"]
 
 [tool.ruff.lint]

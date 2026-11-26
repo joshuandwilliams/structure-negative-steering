@@ -152,10 +152,11 @@ Read `negsteer_result.json` rather than globbing the directory. It names every
 output and carries a `contract_version` to pin against. Files it does not name
 are internals and may move.
 
-The CLI runs the same nine stages, in the same order, with the same arguments
-as the shell runner that produced the committed benchmark.
-`tests/characterization/test_negsteer_cli.py` asserts that equivalence, so the
-tool and the numbers cannot drift apart.
+The CLI runs the same stages, in the same order, with the same arguments as
+the shell runner that produced the committed benchmark. Thirteen invocations
+always run, plus one per steered design and one per reversion.
+`tests/characterization/test_negsteer_cli.py` pins that list and asserts the
+equivalence, so the tool and the numbers cannot drift apart.
 
 ## What is here
 
