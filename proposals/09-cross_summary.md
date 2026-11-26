@@ -1,7 +1,8 @@
 # 09 — `bin/cross_summary.py`, 940 lines
 
-**Proposal: one small factorisation, plus a defect I found while verifying it.
-Read the defect section first.**
+**Proposal: accept one small factorisation. Separately, a defect I found
+while verifying it, which is your call rather than mine. Read the defect
+section first.**
 
 ---
 

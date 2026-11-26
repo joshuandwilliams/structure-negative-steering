@@ -1,0 +1,1632 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simplification proposals</title>
+<style>
+:root{--bg:#fbfbfa;--fg:#1d1d1b;--mute:#6b6b66;--line:#e2e2dd;
+      --code:#f3f3f0;--accent:#2d6a4f;--rej:#9a3f3f;--mix:#8a6d1f;
+      --sidebar:#f4f4f1}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+      --bg:#17171a;--fg:#e8e8e4;--mute:#9a9a94;--line:#2e2e33;
+      --code:#1f1f24;--accent:#74c69d;--rej:#e07a7a;--mix:#d9b64e;
+      --sidebar:#1c1c20}}
+:root[data-theme="dark"]{--bg:#17171a;--fg:#e8e8e4;--mute:#9a9a94;
+      --line:#2e2e33;--code:#1f1f24;--accent:#74c69d;--rej:#e07a7a;
+      --mix:#d9b64e;--sidebar:#1c1c20}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+#wrap{display:flex;align-items:flex-start}
+aside{position:sticky;top:0;height:100vh;overflow-y:auto;flex:0 0 272px;
+  background:var(--sidebar);border-right:1px solid var(--line);padding:22px 0}
+aside h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--mute);margin:0 0 10px 20px}
+aside ol{list-style:none;margin:0;padding:0}
+aside a{display:flex;gap:9px;align-items:baseline;padding:7px 20px;
+  text-decoration:none;color:var(--fg);font-size:14px;border-left:3px solid transparent}
+aside a:hover{background:rgba(127,127,127,.09)}
+aside a.here{border-left-color:var(--accent);background:rgba(127,127,127,.11);font-weight:600}
+.num{color:var(--mute);font-variant-numeric:tabular-nums;font-size:12px;min-width:17px}
+.t{flex:1}
+.v{font-size:10px;letter-spacing:.05em;text-transform:uppercase;padding:1px 5px;
+  border-radius:3px;border:1px solid currentColor}
+.v.accept{color:var(--accent)}.v.reject{color:var(--rej)}.v.mixed{color:var(--mix)}
+main{flex:1;min-width:0;padding:46px 8vw 60vh;max-width:none}
+h1.top{font-size:26px;margin:0 0 6px}
+p.lede{color:var(--mute);margin:0 0 42px;max-width:62ch}
+section{border-top:1px solid var(--line);padding-top:34px;margin-top:34px;
+  max-width:78ch;scroll-margin-top:18px}
+section:first-of-type{border-top:0;margin-top:0}
+p.src{font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mute);
+  margin:0 0 14px}
+h2{font-size:21px;margin:0 0 14px;line-height:1.3}
+h3{font-size:16px;margin:30px 0 10px}
+h4{font-size:14px;margin:22px 0 8px;color:var(--mute);
+  letter-spacing:.03em;text-transform:uppercase}
+p,li{max-width:74ch}
+code{background:var(--code);padding:.12em .34em;border-radius:3px;
+  font:13.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+pre{background:var(--code);border:1px solid var(--line);border-radius:6px;
+  padding:13px 15px;overflow-x:auto}
+pre code{background:none;padding:0;font-size:13px;line-height:1.55}
+table{border-collapse:collapse;margin:16px 0;font-size:14px;display:block;
+  overflow-x:auto;max-width:100%}
+th,td{border:1px solid var(--line);padding:6px 11px;text-align:left}
+th{background:var(--code);font-weight:600}
+td:not(:first-child),th:not(:first-child){font-variant-numeric:tabular-nums}
+blockquote{margin:14px 0;padding:2px 0 2px 15px;border-left:3px solid var(--line);
+  color:var(--mute)}
+hr{border:0;border-top:1px solid var(--line);margin:30px 0}
+a{color:var(--accent)}
+.pager{display:flex;justify-content:space-between;margin-top:34px;
+  font-size:14px}
+.pager a{text-decoration:none}
+#bar{position:fixed;top:0;left:272px;right:0;height:2px;background:var(--accent);
+  transform-origin:0 50%;transform:scaleX(0);z-index:9}
+button#th{position:fixed;right:16px;top:12px;z-index:10;background:var(--sidebar);
+  color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 10px;
+  font-size:12px;cursor:pointer}
+@media (max-width:900px){
+  #wrap{flex-direction:column}
+  aside{position:static;height:auto;flex:none;width:100%;border-right:0;
+    border-bottom:1px solid var(--line)}
+  main{padding:26px 16px 40vh}
+  #bar{left:0}
+  section{max-width:none}
+}
+</style></head>
+<body><div id="bar"></div>
+<button id="th">theme</button>
+<div id="wrap">
+<aside><h2>Read in order</h2><ol><li><a href="#s00" data-n="00"><span class="num">00</span><span class="t">README</span></a></li>
+<li><a href="#s01" data-n="01"><span class="num">01</span><span class="t">sum_stage_times</span><span class="v reject">reject</span></a></li>
+<li><a href="#s02" data-n="02"><span class="num">02</span><span class="t">pipeline_thresholds</span><span class="v reject">reject</span></a></li>
+<li><a href="#s03" data-n="03"><span class="num">03</span><span class="t">pathway_labels</span><span class="v accept">accept</span></a></li>
+<li><a href="#s04" data-n="04"><span class="num">04</span><span class="t">compute_metrics sidecars</span><span class="v accept">accept</span></a></li>
+<li><a href="#s05" data-n="05"><span class="num">05</span><span class="t">negsteer_coldstart plan lookup</span><span class="v accept">accept</span></a></li>
+<li><a href="#s06" data-n="06"><span class="num">06</span><span class="t">extract_passing</span><span class="v accept">accept</span></a></li>
+<li><a href="#s07" data-n="07"><span class="num">07</span><span class="t">negative_steering</span><span class="v reject">reject</span></a></li>
+<li><a href="#s08" data-n="08"><span class="num">08</span><span class="t">prepare_complex_inputs</span><span class="v reject">reject</span></a></li>
+<li><a href="#s09" data-n="09"><span class="num">09</span><span class="t">cross_summary</span><span class="v accept">accept</span></a></li>
+<li><a href="#s10" data-n="10"><span class="num">10</span><span class="t">negsteer_aggregate</span><span class="v accept">accept</span></a></li>
+<li><a href="#s11" data-n="11"><span class="num">11</span><span class="t">reversion</span><span class="v accept">accept</span></a></li>
+<li><a href="#s12" data-n="12"><span class="num">12</span><span class="t">boltz2_negative_steering</span><span class="v reject">reject</span></a></li></ol></aside>
+<main>
+<h1 class="top">Simplification proposals</h1>
+<p class="lede">One file per script in <code>bin/</code>, ascending risk.
+Rendered from <code>proposals/*.md</code>. Nothing here is applied.
+Press <code>j</code> and <code>k</code> to step between proposals.</p>
+<section id="s00">
+<p class="src">proposals/00-README.md</p>
+<h2 id="simplification-proposals-one-file-per-script">Simplification
+proposals, one file per script</h2>
+<p>Read these in number order. Each is independent, so you can accept
+one and reject the next. Nothing here is applied to
+<code>bin/</code>.</p>
+<h3 id="what-i-measured-and-what-i-did-not">What I measured, and what I
+did not</h3>
+<p>Two goals, and they pull in different directions often enough to be
+worth separating.</p>
+<p><strong>Shorter and plainer.</strong> Measured as lines, and as how
+many of those lines are mechanical:
+<code>out["x"] = r.get("x", "")</code> repeated forty times is forty
+lines carrying one idea. The repo-wide count of that pattern is 191
+assignments.</p>
+<p><strong>Faster.</strong> Measured by benchmark, not by reasoning.
+This matters less than it sounds, and the reason is worth stating once:
+every stage's wall-clock is dominated by
+<code>singularity exec … boltz predict</code>, which is minutes to
+hours. From
+<code>analysis/03-compute-cost/runtime_comparison.csv</code>, one
+steered benchmark target is 19.5 to 263 minutes depending on dose.
+Python that reads a few thousand CSV rows is milliseconds against that.
+So <strong>shaving Python almost never shows up in a run</strong>, and I
+have not pretended otherwise in these files.</p>
+<p>The exception is algorithmic: a loop that re-reads a file, or
+re-walks a directory tree, once per item. Two of those exist and both
+are in here. They are the only changes where the speed claim is the
+point rather than a footnote.</p>
+<p>Where a rewrite would be slower, I say so and do not propose it.</p>
+<h3 id="how-each-proposal-is-verified">How each proposal is
+verified</h3>
+<p>Every proposal that changes behaviour-bearing code carries two checks
+before it is offered:</p>
+<ol type="1">
+<li><strong>Fixture equality.</strong> The old and new implementations
+run over every relevant input the repo holds, and their outputs are
+compared field by field. For row builders that is 151
+<code>aggregated_results.csv</code> rows; for structure readers it is
+the 18 complexes in <code>data/reference_complexes/</code>.</li>
+<li><strong>Randomised equality.</strong> Thousands of generated inputs
+covering each branch, including the outcome classes and absent keys,
+since the fixtures do not reach every path.</li>
+</ol>
+<p>Then the suite runs, and coverage has to stay at 100%. A proposal
+that fails any of those is not in this folder.</p>
+<h3 id="order-and-why">Order, and why</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th style="text-align: left;">File</th>
+<th style="text-align: right;">Lines</th>
+<th style="text-align: left;">Proposal</th>
+<th style="text-align: left;">Risk</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>01</td>
+<td style="text-align: left;"><code>sum_stage_times.py</code></td>
+<td style="text-align: right;">47</td>
+<td style="text-align: left;">nothing to do</td>
+<td style="text-align: left;">none</td>
+</tr>
+<tr>
+<td>02</td>
+<td style="text-align: left;"><code>pipeline_thresholds.py</code></td>
+<td style="text-align: right;">158</td>
+<td style="text-align: left;">nothing to do</td>
+<td style="text-align: left;">none</td>
+</tr>
+<tr>
+<td>03</td>
+<td style="text-align: left;"><code>pathway_labels.py</code></td>
+<td style="text-align: right;">137</td>
+<td style="text-align: left;">one helper inlined</td>
+<td style="text-align: left;">low</td>
+</tr>
+<tr>
+<td>04</td>
+<td style="text-align: left;"><code>compute_metrics.py</code> sidecar
+lookup</td>
+<td style="text-align: right;">1,485</td>
+<td style="text-align: left;"><strong>96× faster</strong>, 24 lines
+shorter</td>
+<td style="text-align: left;">low</td>
+</tr>
+<tr>
+<td>05</td>
+<td style="text-align: left;"><code>negsteer_coldstart.py</code> plan
+lookup</td>
+<td style="text-align: right;">633</td>
+<td style="text-align: left;">one file read instead of N</td>
+<td style="text-align: left;">low</td>
+</tr>
+<tr>
+<td>06</td>
+<td style="text-align: left;"><code>extract_passing.py</code></td>
+<td style="text-align: right;">629</td>
+<td style="text-align: left;">the column spec, 243 → 161</td>
+<td style="text-align: left;">low</td>
+</tr>
+<tr>
+<td>07</td>
+<td style="text-align: left;"><code>negative_steering.py</code></td>
+<td style="text-align: right;">296</td>
+<td style="text-align: left;">print blocks folded</td>
+<td style="text-align: left;">low</td>
+</tr>
+<tr>
+<td>08</td>
+<td
+style="text-align: left;"><code>prepare_complex_inputs.py</code></td>
+<td style="text-align: right;">329</td>
+<td style="text-align: left;">writer helpers merged</td>
+<td style="text-align: left;">low</td>
+</tr>
+<tr>
+<td>09</td>
+<td style="text-align: left;"><code>cross_summary.py</code></td>
+<td style="text-align: right;">940</td>
+<td style="text-align: left;">tier and rank tables</td>
+<td style="text-align: left;">medium</td>
+</tr>
+<tr>
+<td>10</td>
+<td style="text-align: left;"><code>negsteer_aggregate.py</code></td>
+<td style="text-align: right;">2,580</td>
+<td style="text-align: left;">the column families, 47 assignments</td>
+<td style="text-align: left;">medium</td>
+</tr>
+<tr>
+<td>11</td>
+<td style="text-align: left;"><code>reversion.py</code></td>
+<td style="text-align: right;">1,826</td>
+<td style="text-align: left;">the argv builders</td>
+<td style="text-align: left;">medium</td>
+</tr>
+<tr>
+<td>12</td>
+<td
+style="text-align: left;"><code>boltz2_negative_steering.py</code></td>
+<td style="text-align: right;">3,339</td>
+<td style="text-align: left;"><code>cmd_plan</code>'s reporting</td>
+<td style="text-align: left;">high</td>
+</tr>
+</tbody>
+</table>
+<p>The order is ascending risk, not ascending size. 01 and 02 come first
+because they are the answer to "is every line necessary" being yes,
+which is worth knowing before reading eleven files that say otherwise.
+04 and 05 come next because they are the only two with a measured speed
+win. Then the mechanical column work, which is the bulk of the saving.
+12 is last and is the one I would leave alone.</p>
+<h3 id="the-honest-summary">The honest summary</h3>
+<p>Across all twelve, the available saving is about 1,100 lines of
+12,399, under 10%. There is no single large win left: the large wins
+were the 6,890 lines of design-campaign code already removed. What
+remains is column bookkeeping, which is repetitive rather than
+complicated, and two directory walks that are genuinely inefficient.</p>
+<p>If you only take two, take 04 and 06.</p>
+
+<nav class="pager"><span></span><a class="pn" href="#s01">01 &rarr;</a></nav>
+</section><section id="s01">
+<p class="src">proposals/01-sum_stage_times.md</p>
+<h2 id="01--binsum_stage_timespy-47-lines">01 —
+<code>bin/sum_stage_times.py</code>, 47 lines</h2>
+<p><strong>Proposal: change nothing.</strong></p>
+<p>This is the whole file minus its docstring: 24 statements, two
+functions.</p>
+<pre class="python"><code>def total_seconds(stage_times: Path) -&gt; int:
+    if not stage_times.is_file():
+        return 0
+    total = 0
+    for line in stage_times.read_text().splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].lstrip(&quot;-&quot;).isdigit():
+            total += int(parts[1])
+    return total
+
+
+def main(argv: list[str]) -&gt; int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(&quot;--stage-times&quot;, type=Path, required=True)
+    ap.add_argument(&quot;--output&quot;, type=Path, required=True)
+    args = ap.parse_args(argv)
+    args.output.write_text(f&quot;{total_seconds(args.stage_times)}\n&quot;)
+    return 0</code></pre>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>Yes. Taking them in turn:</p>
+<ul>
+<li><code>is_file()</code> guard: a missing <code>.stage_times</code>
+has to give 0 rather than raise, because POSTPROCESS runs it
+unconditionally and a stub run has no stage times. Removing it turns an
+expected case into a stage failure.</li>
+<li><code>len(parts) == 2</code>: the file is appended to concurrently
+by tasks on different nodes over a shared filesystem, so a torn line is
+possible. The module docstring records that one <code>predict_one</code>
+line was lost that way on the first cluster run. A line that is not
+exactly two fields is skipped rather than guessed at.</li>
+<li><code>lstrip("-").isdigit()</code>: skips a non-numeric second field
+without raising. Same reason.</li>
+<li><code>total += int(parts[1])</code> inside the loop rather than
+<code>sum(...)</code> over a comprehension: a comprehension would need
+the same two guards in a filter and would read worse, not better.</li>
+</ul>
+<h3 id="could-it-be-shorter">Could it be shorter</h3>
+<p>Marginally, and it would be worse. The comprehension version:</p>
+<pre class="python"><code>return sum(int(p[1]) for p in (l.split() for l in text.splitlines())
+           if len(p) == 2 and p[1].lstrip(&quot;-&quot;).isdigit())</code></pre>
+<p>That is one line instead of six and I would not take it. The guard
+conditions are the interesting part of this function, and burying them
+in a nested generator makes the one thing worth reading hard to
+find.</p>
+<h3 id="speed">Speed</h3>
+<p>Irrelevant and not worth measuring. The file it reads has one line
+per stage, so ten lines on a real run. This runs once per target.</p>
+
+<nav class="pager"><a class="pn" href="#s00">&larr; 00</a><a class="pn" href="#s02">02 &rarr;</a></nav>
+</section><section id="s02">
+<p class="src">proposals/02-pipeline_thresholds.md</p>
+<h2 id="02--binpipeline_thresholdspy-158-lines">02 —
+<code>bin/pipeline_thresholds.py</code>, 158 lines</h2>
+<p><strong>Proposal: change nothing.</strong></p>
+<p>This file is 44 statements in 158 lines, a ratio of 3.6, the highest
+in <code>bin/</code>. That ratio is normally the signal of padding. Here
+it is not: the file is one frozen dataclass with 25 fields and three
+methods, and the lines that are not statements are the comments
+explaining what each threshold gates.</p>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>I asked the sharper version of that question: <strong>is every
+threshold used?</strong> Searching every tracked <code>.py</code>
+outside this module and <code>tests/</code> for each field name, 12 of
+the 25 are read somewhere in this repo and <strong>13 are
+not</strong>:</p>
+<pre><code>orthogonal_sc_min                   orthogonal_bsa_min
+orthogonal_ddg_max                  orthogonal_af3_ra_max
+orthogonal_plddt_min_informational  composite_ra_eff_weight
+interface_plddt_trim_threshold      controls_warning_ipsae_max
+controls_warning_ra_eff_min         max_poly_x
+min_pct_identity                    max_pct_identity
+sc_threshold</code></pre>
+<p>That looks like 13 removable fields. It is not, and this is why the
+proposal is to change nothing. Every one of the 13 is read by
+<code>receptor-resurfacing-pipeline</code>, which ships its own copy of
+this module:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Field</th>
+<th style="text-align: right;">Files using it there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>sc_threshold</code></td>
+<td style="text-align: right;">46</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_poly_x</code>,
+<code>min_pct_identity</code>, <code>max_pct_identity</code></td>
+<td style="text-align: right;">31 each</td>
+</tr>
+<tr>
+<td
+style="text-align: left;"><code>interface_plddt_trim_threshold</code></td>
+<td style="text-align: right;">31</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>controls_warning_ipsae_max</code>,
+<code>controls_warning_ra_eff_min</code></td>
+<td style="text-align: right;">30 each</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>orthogonal_af3_ra_max</code></td>
+<td style="text-align: right;">5</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>orthogonal_sc_min</code>,
+<code>orthogonal_bsa_min</code>, <code>orthogonal_ddg_max</code></td>
+<td style="text-align: right;">3 each</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>composite_ra_eff_weight</code></td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td
+style="text-align: left;"><code>orthogonal_plddt_min_informational</code></td>
+<td style="text-align: right;">1</td>
+</tr>
+</tbody>
+</table>
+<p>The module's own docstring says what it is for: "one catalogue
+holding every research threshold that used to be hard-coded across
+<code>bin/</code>", and "Changing a threshold here is a change to the
+research methodology". Its value is that both repos read one catalogue.
+Deleting the fields this repo happens not to read would fork it, and the
+next time the two are compared the diff would look like a methodology
+change rather than a deletion.</p>
+<p>So the honest answer to "is every line necessary for the tool" is
+<strong>no, 13 fields are not needed by this tool</strong> — and they
+should stay anyway, because the thing they serve is the shared catalogue
+rather than this repo's engine.</p>
+<h3 id="what-i-would-do-instead">What I would do instead</h3>
+<p>One comment, at the top of the class, saying that. Right now a reader
+who greps for <code>sc_threshold</code> and finds nothing has no way to
+learn why it exists. That is three lines, not a refactor, and I have not
+written it as a diff because it is the kind of sentence you may want to
+word yourself.</p>
+<h3 id="speed">Speed</h3>
+<p>Not applicable. The dataclass is constructed once per process via
+<code>PipelineInternalThresholds.default()</code>.</p>
+
+<nav class="pager"><a class="pn" href="#s01">&larr; 01</a><a class="pn" href="#s03">03 &rarr;</a></nav>
+</section><section id="s03">
+<p class="src">proposals/03-pathway_labels.md</p>
+<h2 id="03--binpathway_labelspy-137-lines">03 —
+<code>bin/pathway_labels.py</code>, 137 lines</h2>
+<p><strong>Proposal: accept.</strong> 137 → 110 lines, and 1.25 to 1.58×
+faster on the function that does the work.</p>
+<p>Both changes are in <code>_locate_boltz_sidecar_pdb</code>.
+<code>read_mutations_tsv_full</code> is left alone: like
+<code>sum_stage_times</code>, it is guard conditions and those are the
+interesting part.</p>
+<h3 id="what-changes">What changes</h3>
+<h4 id="1-the-directory-routing-19-lines--8">1. The directory routing,
+19 lines → 8</h4>
+<p>The current code picks the directory to search with a three-branch
+<code>if/elif/else</code>, where two branches differ only in how they
+build the suffix:</p>
+<pre class="python"><code>if prediction_pdb.name == &quot;initial_prediction.pdb&quot;:
+    experiment_root = prediction_pdb.parent
+    initial_dir = experiment_root / &quot;initial&quot;
+    if initial_dir.is_dir():
+        design_dir = initial_dir
+    else:
+        design_dir = experiment_root
+elif (prediction_pdb.name.startswith(&quot;initial_prediction_s&quot;)
+      and prediction_pdb.name.endswith(&quot;.pdb&quot;)):
+    experiment_root = prediction_pdb.parent
+    suffix = prediction_pdb.name[len(&quot;initial_prediction_&quot;):-len(&quot;.pdb&quot;)]
+    seed_dir = experiment_root / f&quot;initial_{suffix}&quot;
+    if seed_dir.is_dir():
+        design_dir = seed_dir
+    else:
+        design_dir = experiment_root
+else:
+    design_dir = prediction_pdb.parent</code></pre>
+<p>The two initial cases are one case.
+<code>initial_prediction.pdb</code> has an empty suffix and
+<code>initial_prediction_s2.pdb</code> has <code>_s2</code>, so slicing
+after <code>initial_prediction</code> rather than after
+<code>initial_prediction_</code> gives both:</p>
+<pre class="python"><code>def _sidecar_search_dir(prediction_pdb: Path) -&gt; Path:
+    &quot;&quot;&quot;Where to look for the nested model PDB.
+
+    A design&#39;s sidecars are under the design directory. The cold-start
+    baselines are not: boltz2_negative_steering.py writes
+    `&lt;root&gt;/initial_prediction.pdb` with sidecars in `&lt;root&gt;/initial/`, and
+    `&lt;root&gt;/initial_prediction_s&lt;N&gt;.pdb` with sidecars in
+    `&lt;root&gt;/initial_s&lt;N&gt;/`. Routing each to its own seed directory is what
+    stops the glob picking up a sibling seed&#39;s PDBs.
+    &quot;&quot;&quot;
+    name = prediction_pdb.name
+    if not name.startswith(&quot;initial_prediction&quot;) or not name.endswith(&quot;.pdb&quot;):
+        return prediction_pdb.parent
+    root = prediction_pdb.parent
+    suffix = name[len(&quot;initial_prediction&quot;):-len(&quot;.pdb&quot;)]   # &quot;&quot; or &quot;_s1&quot;
+    seed_dir = root / f&quot;initial{suffix}&quot;
+    return seed_dir if seed_dir.is_dir() else root</code></pre>
+<p>Pulling it out as its own function is what makes the docstring
+possible. In place it was a comment block in the middle of a longer
+function.</p>
+<h4 id="2-resolve-hoisted-out-of-the-loop--this-is-the-speed-part">2.
+<code>resolve()</code> hoisted out of the loop — this is the speed
+part</h4>
+<pre class="python"><code>for p in design_dir.rglob(&quot;*.pdb&quot;):
+    if p.resolve() == prediction_pdb.resolve():      # ← right-hand side
+        continue                                     #   never changes</code></pre>
+<p><code>Path.resolve()</code> makes syscalls.
+<code>prediction_pdb</code> is the function's argument, so the
+right-hand side is the same on every iteration. Hoisting it:</p>
+<pre class="python"><code>target = prediction_pdb.resolve()
+candidates = [p for p in search_dir.rglob(&quot;*.pdb&quot;)
+              if p.resolve() != target and &quot;msa&quot; not in p.parts]</code></pre>
+<p>Measured over 20 calls each, on a tree with N nested PDBs:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Nested PDBs</th>
+<th style="text-align: right;">Current</th>
+<th style="text-align: right;">Proposed</th>
+<th style="text-align: right;">Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">2.13 ms</td>
+<td style="text-align: right;">1.63 ms</td>
+<td style="text-align: right;">1.31×</td>
+</tr>
+<tr>
+<td style="text-align: right;">25</td>
+<td style="text-align: right;">6.07 ms</td>
+<td style="text-align: right;">4.86 ms</td>
+<td style="text-align: right;">1.25×</td>
+</tr>
+<tr>
+<td style="text-align: right;">125</td>
+<td style="text-align: right;">26.92 ms</td>
+<td style="text-align: right;">17.08 ms</td>
+<td style="text-align: right;">1.58×</td>
+</tr>
+</tbody>
+</table>
+<p>Small in absolute terms. It is in here because it costs nothing to
+take: the list comprehension is also the shorter form.</p>
+<h4 id="3-the-duplicated-sort-key-two-copies--one-named-function">3. The
+duplicated sort key, two copies → one named function</h4>
+<pre class="python"><code>with_conf.sort(key=lambda p: (&quot;model_0&quot; not in p.name and &quot;rank_0&quot; not in p.name, str(p)))
+...
+candidates.sort(key=lambda p: (&quot;model_0&quot; not in p.name and &quot;rank_0&quot; not in p.name, str(p)))
+return candidates[0]</code></pre>
+<p>Two identical five-line lambdas, each followed by taking element
+zero. That is <code>min</code> with a named key:</p>
+<pre class="python"><code>def _sidecar_rank(pdb: Path) -&gt; tuple:
+    &quot;&quot;&quot;Sort key preferring Boltz&#39;s first-ranked model.&quot;&quot;&quot;
+    return (&quot;model_0&quot; not in pdb.name and &quot;rank_0&quot; not in pdb.name, str(pdb))
+
+with_conf = [p for p in candidates if _has_confidence(p)]
+return min(with_conf or candidates, key=_sidecar_rank)</code></pre>
+<p><code>min</code> rather than <code>sort</code> also stops doing an
+O(n log n) sort to read one element.
+<code>with_conf or candidates</code> is the whole of the preference
+rule: use the ones with a confidence JSON if there are any, else all of
+them.</p>
+<p><code>_has_confidence</code> moves from a nested function to a
+module-level one, because it closes over nothing and is six lines of
+<code>or</code> rather than two <code>if</code>s and a
+<code>return False</code>.</p>
+<h3 id="verification">Verification</h3>
+<ul>
+<li>Every <code>.pdb</code> in
+<code>tests/characterization/fixtures</code>, 4 of them: identical
+results.</li>
+<li>Synthetic trees covering all three routing branches × sidecar
+directory present or absent, 6 cases: identical results.</li>
+</ul>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>In the proposed version, yes. The one thing I considered cutting and
+did not is the <code>"msa" not in p.parts</code> filter. It skips cached
+reference structures that Boltz writes under <code>msa/</code>, and
+without it a cached reference can win the <code>_sidecar_rank</code>
+comparison and send <code>compute_metrics</code> at the wrong structure.
+The comment on it says "skip cached reference structures", which is the
+reason, so it stays.</p>
+
+<nav class="pager"><a class="pn" href="#s02">&larr; 02</a><a class="pn" href="#s04">04 &rarr;</a></nav>
+</section><section id="s04">
+<p class="src">proposals/04-compute_metrics-sidecars.md</p>
+<h2 id="04--bincompute_metricspy-the-sidecar-lookup">04 —
+<code>bin/compute_metrics.py</code>, the sidecar lookup</h2>
+<p><strong>Proposal: accept.</strong> This is the one change where speed
+is the point. <strong>96× faster</strong> at the benchmark's own model
+count, and 24 lines shorter.</p>
+<h3 id="the-problem">The problem</h3>
+<p><code>parse_boltz2</code> walks <code>pred_dir</code> once to find
+the model PDBs, then for each PDB looks up three sidecars:
+<code>confidence_&lt;name&gt;.json</code>,
+<code>plddt_&lt;name&gt;.npz</code> and
+<code>pae_&lt;name&gt;.npz</code>. Each lookup is three globs chained
+together, and the third one is recursive:</p>
+<pre class="python"><code>conf_files = _dedup_paths(
+    glob.glob(os.path.join(pdb_dir, f&quot;confidence_{name}.json&quot;)) +
+    glob.glob(os.path.join(pdb_dir, &quot;..&quot;, &quot;confidence&quot;, f&quot;confidence_{name}.json&quot;)) +
+    glob.glob(os.path.join(pred_dir, &quot;**&quot;, f&quot;confidence_{name}.json&quot;), recursive=True)
+)</code></pre>
+<p><code>pred_dir</code> does not change across the loop. So that third
+glob walks the whole output tree, and it happens three times per PDB. At
+25 models — 5 seeds × 5 diffusion samples, the benchmark's own setting
+from <code>experiments/benchmarking/*/config.yml</code> — that is
+<strong>75 recursive walks of the same directory</strong>.</p>
+<h3 id="the-change">The change</h3>
+<p>Walk once before the loop, index by filename, look up by key.</p>
+<pre class="python"><code>def _sidecar_index(pred_dir):
+    &quot;&quot;&quot;Map every filename under pred_dir to its paths, nearest first.&quot;&quot;&quot;
+    index = {}
+    for dirpath, _dirnames, filenames in os.walk(pred_dir):
+        for nm in filenames:
+            index.setdefault(nm, []).append(os.path.join(dirpath, nm))
+    for paths in index.values():
+        paths.sort(key=lambda p: (p.count(os.sep), p))
+    return index
+
+
+def _sidecar(index, pdb_dir, name, kind, ext):
+    &quot;&quot;&quot;The best path for one sidecar, or None.&quot;&quot;&quot;
+    filename = f&quot;{kind}_{name}.{ext}&quot;
+    candidates = index.get(filename, ())
+    if not candidates:
+        return None
+    here = os.path.join(pdb_dir, filename)
+    sibling = os.path.normpath(os.path.join(pdb_dir, &quot;..&quot;, kind, filename))
+    for preferred in (here, sibling):
+        for c in candidates:
+            if os.path.normpath(c) == preferred:
+                return c
+    return candidates[0]</code></pre>
+<p>Then each of the three lookups becomes one line:</p>
+<pre class="python"><code>conf_file  = _sidecar(index, pdb_dir, name, &quot;confidence&quot;, &quot;json&quot;)
+plddt_file = _sidecar(index, pdb_dir, name, &quot;plddt&quot;, &quot;npz&quot;)
+pae_file   = _sidecar(index, pdb_dir, name, &quot;pae&quot;, &quot;npz&quot;)</code></pre>
+<p>The three <code>kind</code> values are also the sibling directory
+names, which is Boltz's own convention: <code>confidence_x.json</code>
+lives either beside the PDB or in a sibling <code>confidence/</code>.
+That is what lets one helper serve all three and removes the only use of
+<code>_dedup_paths</code>.</p>
+<p><strong>Preference order is preserved exactly</strong>, which is the
+thing that had to be got right because the caller takes element zero.
+The old order was: beside the PDB, then the sibling category directory,
+then anywhere in the tree. The new code checks those two explicit
+locations first and falls back to the shallowest remaining path.</p>
+<h3 id="speed-measured">Speed, measured</h3>
+<p>Built a Boltz-shaped output tree and timed the three lookups across
+all PDBs:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Models</th>
+<th style="text-align: right;">Files in tree</th>
+<th style="text-align: right;">Current</th>
+<th style="text-align: right;">Proposed</th>
+<th style="text-align: right;">Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">60</td>
+<td style="text-align: right;">12.8 ms</td>
+<td style="text-align: right;">0.8 ms</td>
+<td style="text-align: right;">16×</td>
+</tr>
+<tr>
+<td style="text-align: right;">25</td>
+<td style="text-align: right;">300</td>
+<td style="text-align: right;">78.3 ms</td>
+<td style="text-align: right;">0.8 ms</td>
+<td style="text-align: right;"><strong>96×</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">125</td>
+<td style="text-align: right;">1,300</td>
+<td style="text-align: right;">559.4 ms</td>
+<td style="text-align: right;">2.3 ms</td>
+<td style="text-align: right;">244×</td>
+</tr>
+</tbody>
+</table>
+<p>The honest context: <code>negsteer_aggregate.py</code> runs
+<code>compute_metrics.py</code> as a subprocess per passing row, so a
+benchmark target makes tens to low hundreds of these calls. At 78 ms
+each that is a few seconds per target against a run of 19.5 to 263
+minutes. <strong>So this does not shorten a run noticeably.</strong> It
+is worth taking because the code is shorter as well, not because it
+saves time.</p>
+<p>Where it would matter is a dose-sweep arm at n=50 with many passing
+rows, and on a shared filesystem where each <code>stat</code> is a
+network round trip rather than a local one. I have not measured that,
+and I will not claim it.</p>
+<h3 id="verification">Verification</h3>
+<ul>
+<li>Both Boltz output trees in
+<code>tests/characterization/fixtures</code>: 3 lookups per PDB,
+identical paths.</li>
+<li>300 synthetic trees with the sidecar randomly present beside the
+PDB, in a sibling <code>confidence/</code>, deeper in the tree, or in
+several of those at once: 906 lookups total, zero differences.</li>
+</ul>
+<h3 id="line-count">Line count</h3>
+<p>24 lines out. The three 5-line glob chains become three 1-line calls,
+<code>_dedup_paths</code> and its docstring go, and the two new helpers
+cost 30 lines including their docstrings.</p>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p><code>os.path.normpath</code> on both sides of the comparison is.
+Without it <code>a/pdb/../confidence/x.json</code> and
+<code>a/confidence/x.json</code> are different strings for the same
+file, and the sibling-directory preference would never match. That is
+exactly what the old <code>glob</code> did implicitly by resolving the
+pattern.</p>
+
+<nav class="pager"><a class="pn" href="#s03">&larr; 03</a><a class="pn" href="#s05">05 &rarr;</a></nav>
+</section><section id="s05">
+<p class="src">proposals/05-negsteer_coldstart-plan-lookup.md</p>
+<h2 id="05--binnegsteer_coldstartpy-the-reversion-plan-lookup">05 —
+<code>bin/negsteer_coldstart.py</code>, the reversion-plan lookup</h2>
+<p><strong>Proposal: accept.</strong> The second of the two changes
+where speed is the point. 40× at the benchmark's dose, 77× at n=50, and
+four lines shorter.</p>
+<h3 id="the-problem">The problem</h3>
+<p>Inside <code>cmd_kickoff_finalize</code>'s loop over candidates, for
+every candidate whose verdict is <code>pose_holds</code>:</p>
+<pre class="python"><code>rp_path = cycle0_dir / &quot;reversion_plan.json&quot;
+if rp_path.exists():
+    rp = json.loads(rp_path.read_text())
+    for entry in rp.get(&quot;entries&quot;, []):
+        if entry.get(&quot;label&quot;) == label:
+            reverted_fasta = Path(entry[&quot;reverted_receptor_fasta&quot;])
+            break</code></pre>
+<p><code>cycle0_dir</code> is fixed for the whole stage, so this
+re-reads and re-parses the same JSON file once per candidate, then
+linearly scans its entries. Both costs grow with the number of designs,
+so the whole thing is O(n²) in designs.</p>
+<h3 id="the-change">The change</h3>
+<p>Read it once before the loop and index by label:</p>
+<pre class="python"><code># reversion_plan.json is read once rather than per candidate: the file is
+# the same for the whole stage, and scanning its entries per candidate made
+# the lookup quadratic in the number of designs.
+reverted_fasta_by_label = {}
+rp_path = cycle0_dir / &quot;reversion_plan.json&quot;
+if rp_path.exists():
+    for entry in json.loads(rp_path.read_text()).get(&quot;entries&quot;, []):
+        reverted_fasta_by_label.setdefault(
+            entry.get(&quot;label&quot;), entry.get(&quot;reverted_receptor_fasta&quot;))</code></pre>
+<p>and in the loop:</p>
+<pre class="python"><code>fasta = reverted_fasta_by_label.get(label)
+reverted_fasta = Path(fasta) if fasta else None</code></pre>
+<p><code>setdefault</code> rather than <code>[...] =</code> is
+deliberate: the old loop <code>break</code>s on the first matching
+label, so a duplicated label took the first entry.
+<code>setdefault</code> keeps that. Plain assignment would silently take
+the last, which is a different answer on a malformed plan.</p>
+<h3 id="speed-measured">Speed, measured</h3>
+<p>Entries are 3 per design, one per seed, which is what
+<code>write_reversion_plan</code> emits. Timed over the full candidate
+list:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Designs</th>
+<th style="text-align: right;">Plan entries</th>
+<th style="text-align: right;">Current</th>
+<th style="text-align: right;">Proposed</th>
+<th style="text-align: right;">Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">1.6 ms</td>
+<td style="text-align: right;">0.20 ms</td>
+<td style="text-align: right;">8×</td>
+</tr>
+<tr>
+<td style="text-align: right;">20</td>
+<td style="text-align: right;">60</td>
+<td style="text-align: right;">14.1 ms</td>
+<td style="text-align: right;">0.35 ms</td>
+<td style="text-align: right;">40×</td>
+</tr>
+<tr>
+<td style="text-align: right;">50</td>
+<td style="text-align: right;">150</td>
+<td style="text-align: right;">46.2 ms</td>
+<td style="text-align: right;">0.60 ms</td>
+<td style="text-align: right;">77×</td>
+</tr>
+</tbody>
+</table>
+<p>20 designs is <code>negsteer_n_designs</code> in the committed
+benchmark configs; 50 is the n50 dose-sweep arm. The results were
+asserted equal inside the benchmark, so the measurement and the
+correctness check are the same run.</p>
+<p>Same honest context as 04: 46 ms is nothing against a run of hours.
+It is worth taking because the code is shorter and the quadratic term
+goes away, so it will not surprise anyone at a larger dose.</p>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>The <code>rp_path.exists()</code> guard is. A run where no design was
+contaminated writes no <code>reversion_plan.json</code>, and
+<code>cmd_kickoff_finalize</code> runs regardless, so the missing file
+is an expected case rather than an error. Without the guard that run
+raises instead of finalising.</p>
+<p>The <code>if fasta else None</code> is, for the same reason: a label
+with no plan entry is the <code>missing_verdict</code> path a few lines
+above, which is handled rather than fatal.</p>
+
+<nav class="pager"><a class="pn" href="#s04">&larr; 04</a><a class="pn" href="#s06">06 &rarr;</a></nav>
+</section><section id="s06">
+<p class="src">proposals/06-extract_passing.md</p>
+<h2 id="06--binextract_passingpy-629-lines">06 —
+<code>bin/extract_passing.py</code>, 629 lines</h2>
+<p><strong>Proposal: accept.</strong> 6.1× faster per row, 243 → 161
+lines on the part that changes, and it closes a defect that grows
+<code>sys.path</code> without bound.</p>
+<p>This file is where I started, and the benchmark found something I was
+not looking for. Read the second change first: it is the important
+one.</p>
+<p>Code for all three parts is in
+<code>proposals/code/06-*.py</code>.</p>
+<hr />
+<h3
+id="change-2-first-_compute_confidence_flag-re-imports-on-every-call">Change
+2 first: <code>_compute_confidence_flag</code> re-imports on every
+call</h3>
+<pre class="python"><code>if pass_frac_min is None or iptm_min is None or ...:
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from pipeline_thresholds import PipelineInternalThresholds
+        _t = PipelineInternalThresholds.default()</code></pre>
+<p>This runs <strong>once per row</strong>. Three consequences, in order
+of seriousness.</p>
+<p><strong>It grows <code>sys.path</code> without bound.</strong> There
+is no <code>if not in sys.path</code> guard, so every call appends
+another copy of <code>bin/</code>. Measured: 500 calls add 500 duplicate
+entries. Every import after that searches a longer path.</p>
+<p>The repo already asserts this must not happen. From
+<code>tests/characterization/test_modules_repair_sys_path.py:66</code>:</p>
+<blockquote>
+<p><code>test_a_module_already_on_the_path_does_not_duplicate_it</code>
+— "The guard is there so a repeated import cannot grow
+<code>sys.path</code> without bound."</p>
+</blockquote>
+<p>That test covers the module-level inserts. This function has the same
+bug and no guard.</p>
+<p><strong>It dominates the runtime.</strong> Profiling
+<code>extract_row</code> over the fixture rows:
+<code>_compute_confidence_flag</code> is 1.634 s of 2.005 s cumulative,
+<strong>82%</strong>. Inside it, <code>Path.resolve()</code> →
+<code>realpath</code> → <code>_joinrealpath</code> is about 1.0 s,
+<strong>half of <code>extract_row</code>'s total time</strong>, spent
+re-resolving <code>__file__</code>.</p>
+<p><strong>The fix</strong> resolves the thresholds once at import and
+turns the four near-identical
+<code>try</code>/<code>float</code>/<code>compare</code> blocks into one
+table:</p>
+<pre class="python"><code>_CONFIDENCE_CHECKS = (
+    (&quot;pae_pass_frac_median&quot;, &quot;&lt;&quot;, _DEFAULT_PASS_FRAC_MIN, &quot;low_pass_frac&quot;, 1),
+    (&quot;iptm_median&quot;, &quot;&lt;&quot;, _DEFAULT_IPTM_MIN, &quot;low_iptm&quot;, 1),
+    (&quot;complex_plddt_median&quot;, &quot;&lt;&quot;, _DEFAULT_COMPLEX_PLDDT_MIN, &quot;low_plddt&quot;, 1),
+    (&quot;ipae_median&quot;, &quot;&gt;&quot;, _DEFAULT_IPAE_MAX, &quot;high_ipae&quot;, 0),
+)</code></pre>
+<p>The last column is the value used when the metric is absent, chosen
+so a missing metric does not trigger. That was implicit in the old
+code's <code>out.get("iptm_median", 1)</code> versus
+<code>out.get("ipae_median", 0)</code>, and it is easy to get backwards,
+so it is now written down.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;"></th>
+<th style="text-align: right;">Current</th>
+<th style="text-align: right;">Proposed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">per call</td>
+<td style="text-align: right;">66.89 µs</td>
+<td style="text-align: right;">0.81 µs</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sys.path</code> entries added per
+500 calls</td>
+<td style="text-align: right;">500</td>
+<td style="text-align: right;">0</td>
+</tr>
+</tbody>
+</table>
+<p><strong>82× faster</strong>, and 24,000 randomised cases — every
+combination of the four metrics at threshold boundaries, absent, empty,
+and non-numeric, with and without explicit overrides — give identical
+flags.</p>
+<hr />
+<h3 id="change-1-the-column-spec">Change 1: the column spec</h3>
+<p><code>extract_row</code> is 152 lines for 62 statements, and 39 of
+those statements are <code>out["x"] = r.get("x", "")</code>. The 46
+column names are also written out a second time in
+<code>OUTPUT_FIELDS</code>, so 93 name-spellings for 47 columns.</p>
+<p>One ordered list of <code>(column, rule)</code> replaces both, and
+<code>OUTPUT_FIELDS</code> is derived from it:</p>
+<pre class="python"><code>OUTPUT_FIELDS = [c + &quot;_median&quot; if rule is CONF else c for c, rule in COLUMNS]</code></pre>
+<p>That matches the committed 47-entry list exactly, in order. Each
+column name is written once, and the two lists can no longer drift —
+which matters in one direction: <code>csv.DictWriter</code> raises on a
+key that is not a fieldname, but writes a blank for a fieldname the row
+never set, so a column <code>extract_row</code> forgot was silent.</p>
+<p><code>extract_row</code>'s body becomes one loop per rule, six
+loops:</p>
+<pre class="python"><code>out = {}
+for c in _AS_IS_COLS:
+    out[c] = r.get(c, &quot;&quot;)
+for c in _STEERED_COLS:
+    out[c] = r.get(&quot;steered_&quot; + c, &quot;&quot;)
+...</code></pre>
+<h4 id="i-tried-three-forms-and-measured-all-of-them">I tried three
+forms and measured all of them</h4>
+<p>This is where the speed constraint changed the answer:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Form</th>
+<th style="text-align: right;">µs/row</th>
+<th style="text-align: right;">vs current</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">current, 39 straight assignments</td>
+<td style="text-align: right;">87.1</td>
+<td style="text-align: right;">1.00×</td>
+</tr>
+<tr>
+<td style="text-align: left;">branch per column inside one loop</td>
+<td style="text-align: right;">104.0</td>
+<td style="text-align: right;"><strong>1.19× slower</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>out.update({...})</code> per
+rule</td>
+<td style="text-align: right;">113.0</td>
+<td style="text-align: right;"><strong>1.30× slower</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">plain <code>for</code> per rule, assigning
+into <code>out</code></td>
+<td style="text-align: right;">102.2</td>
+<td style="text-align: right;">1.00×</td>
+</tr>
+</tbody>
+</table>
+<p>The first two are the obvious ways to write it and both are
+meaningfully slower: a 47-iteration <code>if</code>/<code>elif</code>
+chain costs more than straight-line assignment, and
+<code>.update()</code> builds an intermediate dict and merges it, which
+is two passes. Only the plain per-rule loop is free, because it does
+exactly what the current code does with the column name coming from a
+tuple instead of a literal.</p>
+<p>So the proposed form is the third one. I would have shipped the first
+without the benchmark.</p>
+<hr />
+<h3 id="change-3-the-mutation-columns">Change 3: the mutation
+columns</h3>
+<p>The seven <code>SEEDS</code> columns are filled in an
+<code>if per_seed_rows:</code> branch and blanked in an
+<code>else:</code> that spells all seven out again.
+<code>dict.fromkeys</code> does the blanking, and the whole thing moves
+to its own function so the docstring can say why the steered set takes
+the first seed while the reverted set is summarised across seeds.</p>
+<hr />
+<h3 id="combined-effect">Combined effect</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;"></th>
+<th style="text-align: right;">Current</th>
+<th style="text-align: right;">Proposed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>extract_row</code> per row</td>
+<td style="text-align: right;">91.7 µs</td>
+<td style="text-align: right;">15.0 µs (<strong>6.1×</strong>)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>extract_row</code> lines</td>
+<td style="text-align: right;">152</td>
+<td style="text-align: right;">40</td>
+</tr>
+<tr>
+<td style="text-align: left;">spec + <code>extract_row</code> lines</td>
+<td style="text-align: right;">243</td>
+<td style="text-align: right;">161</td>
+</tr>
+<tr>
+<td style="text-align: left;">column names written</td>
+<td style="text-align: right;">93</td>
+<td style="text-align: right;">47</td>
+</tr>
+</tbody>
+</table>
+<h3 id="verification">Verification</h3>
+<ul>
+<li>151 <code>aggregated_results.csv</code> rows from the fixtures, with
+and without seed rows: identical.</li>
+<li>4,000 randomised rows across all six outcome classes with randomly
+absent keys on both the <code>steered_</code> and <code>reverted_</code>
+sides: identical.</li>
+<li>24,000 randomised confidence-flag cases: identical.</li>
+<li><code>OUTPUT_FIELDS</code> derived from <code>COLUMNS</code> equals
+the committed list, in order.</li>
+</ul>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>The <code>try</code>/<code>except (ValueError, TypeError)</code>
+around each <code>float()</code> is. The columns arrive from a CSV, so
+<code>""</code> and <code>"nan"</code> are both possible, and a flag
+computation that raises would fail the stage after the GPU time is
+spent. The <code>continue</code> on a parse failure is the same decision
+as before: an unreadable metric is not evidence of low confidence.</p>
+
+<nav class="pager"><a class="pn" href="#s05">&larr; 05</a><a class="pn" href="#s07">07 &rarr;</a></nav>
+</section><section id="s07">
+<p class="src">proposals/07-negative_steering.md</p>
+<h2 id="07--binnegative_steeringpy-296-lines">07 —
+<code>bin/negative_steering.py</code>, 296 lines</h2>
+<p><strong>Proposal: change nothing.</strong> I went in expecting to
+fold the four validation guards and concluded against it. The reasoning
+is below, because the reason not to is the useful part.</p>
+<h3 id="what-i-expected-to-find-and-did-not">What I expected to find,
+and did not</h3>
+<p>296 lines with 20 <code>print</code> calls looked like a
+reporting-heavy file. It is not. The prints are four <code>ERROR:</code>
+guards, one JSON emission, four <code>--dry-run</code> lines, and a
+six-line run summary. Each says something different. There is no
+repetition to fold.</p>
+<h3 id="the-one-change-worth-taking-the-four-validation-guards">The one
+change worth taking: the four validation guards</h3>
+<pre class="python"><code>if not cfg_path.is_file():
+    print(f&quot;ERROR: config not found: {cfg_path}&quot;, file=sys.stderr)
+    return 2
+...
+missing = [k for k in REQUIRED if not cfg.get(k)]
+if missing:
+    print(f&quot;ERROR: config missing required keys: {&#39;, &#39;.join(missing)}&quot;, file=sys.stderr)
+    return 2
+...
+if not complex_pdb.is_file():
+    print(f&quot;ERROR: reference_pdb not found: {complex_pdb}&quot;, file=sys.stderr)
+    return 2
+if not ORCHESTRATOR.is_file():
+    print(f&quot;ERROR: engine orchestrator not found: {ORCHESTRATOR}&quot;, file=sys.stderr)
+    return 2</code></pre>
+<p>Three of the four are the same shape: check a path, print, return 2.
+One line each with a helper:</p>
+<pre class="python"><code>def _require_file(path, what):
+    &quot;&quot;&quot;None when the path is a file, else the error message to print.&quot;&quot;&quot;
+    return None if path.is_file() else f&quot;ERROR: {what} not found: {path}&quot;</code></pre>
+<p>That saves 6 lines of 296 and I am <strong>not proposing it</strong>,
+for one reason: the four guards fire in a required order.
+<code>cfg_path</code> has to be checked before <code>_load_yaml</code>
+reads it, <code>missing</code> before <code>cfg["reference_pdb"]</code>
+is indexed, and <code>complex_pdb</code> after the config is parsed. A
+list of checks run in a loop would either lose that ordering or need the
+loop interleaved with the parsing, which is longer than what is there
+now.</p>
+<p>The straight-line version makes the order obvious. That is worth six
+lines.</p>
+<h3 id="what-i-would-change">What I would change</h3>
+<p>Nothing. This file is 135 statements in 296 lines and the gap is
+docstrings and the <code>--dry-run</code> help text, both of which earn
+their space.</p>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>One thing is close to unnecessary and I checked it.
+<code>_load_engine_helpers</code> in
+<code>prepare_complex_inputs.py</code> (see 08) has an unguarded
+<code>sys.path.insert</code> that adds an entry per call. In this file
+the equivalent is at module level and runs once, so the same pattern is
+harmless here.</p>
+<h3 id="speed">Speed</h3>
+<p>Measured nothing, because there is nothing to measure. The file
+parses one YAML file of about 60 keys and writes one shell script. It
+runs twice per target, once for <code>--emit-json</code> in READ_CONFIG
+and once in PREPARE.</p>
+
+<nav class="pager"><a class="pn" href="#s06">&larr; 06</a><a class="pn" href="#s08">08 &rarr;</a></nav>
+</section><section id="s08">
+<p class="src">proposals/08-prepare_complex_inputs.md</p>
+<h2 id="08--binprepare_complex_inputspy-329-lines">08 —
+<code>bin/prepare_complex_inputs.py</code>, 329 lines</h2>
+<p><strong>Proposal: reject the merge.</strong> My own byte-comparison
+killed it, which is the reason this file is worth reading.</p>
+<h3 id="what-looked-mergeable">What looked mergeable</h3>
+<p><code>_write_true_interface</code> and
+<code>_write_design_region</code> are 16 and 14 lines of the same shape:
+open a file, write six or five <code>#</code> header lines, write the
+values.</p>
+<pre class="python"><code>with path.open(&quot;w&quot;) as f:
+    f.write(f&quot;# derived from complex {complex_pdb}\n&quot;)
+    f.write(f&quot;# interface source: {source}\n&quot;)
+    f.write(f&quot;# receptor chain: {receptor_chain}\n&quot;)
+    f.write(f&quot;# effector chain: {effector_chain}\n&quot;)
+    f.write(f&quot;# n contacts: {len(idx0)}\n&quot;)
+    f.write(&quot;# coordinate system: 0-based positional indices on the receptor &quot;
+            &quot;chain, PDB walk order\n&quot;)
+    for p in idx0:
+        f.write(f&quot;{p}\n&quot;)</code></pre>
+<p>So I wrote the obvious helper: take a <code>dict</code> of header
+keys and a body string, emit <code># {key}: {value}</code> per
+entry.</p>
+<h3 id="why-it-is-rejected">Why it is rejected</h3>
+<p>The byte-comparison failed on all 16 cases, and the diff is one
+character:</p>
+<pre><code>original:  # derived from complex /c/x.pdb
+generic:   # derived from complex: /c/x.pdb</code></pre>
+<p><strong>The first header line has no colon and the other five
+do.</strong> A generic <code># {key}: {value}</code> helper cannot emit
+that without a special case for the first key, and a helper with a
+special case for one of six keys is longer and worse than the two
+explicit writers.</p>
+<p>The colon is cosmetic. <code>#</code> lines are skipped by the
+reader, at <code>boltz2_negative_steering.py:1210</code>. So I could
+change it and nothing would break. I am not proposing that either: it
+would alter the first line of every index file a future run writes, for
+no gain beyond letting a helper be slightly shorter, and index files are
+the inputs the engine's positional indices are read from. Changing their
+format to tidy a writer is the wrong trade.</p>
+<h3 id="what-i-would-take-instead">What I would take instead</h3>
+<p>Add the missing colon, as a one-character consistency fix, and leave
+the two writers alone. That is a cosmetic change to a committed output
+format, so it is your call rather than mine, and it is not in a diff
+here.</p>
+<h3 id="the-one-real-defect-in-this-file">The one real defect in this
+file</h3>
+<p><code>_load_engine_helpers</code> has an unguarded
+<code>sys.path.insert</code>:</p>
+<pre class="python"><code>def _load_engine_helpers():
+    sys.path.insert(0, str(ENGINE_BIN))
+    try:
+        from boltz2_negative_steering import get_chain_sequence</code></pre>
+<p>Measured: 200 calls add 201 entries to <code>sys.path</code>. It is
+called once, at line 217, so in practice it adds one entry per process
+and costs nothing. It is the same latent bug as the one in 06 that
+<em>was</em> costing something, so the guard is worth adding for
+consistency:</p>
+<pre class="python"><code>if str(ENGINE_BIN) not in sys.path:
+    sys.path.insert(0, str(ENGINE_BIN))</code></pre>
+<p>Two lines for one, and it matches what every other module in
+<code>bin/</code> does — 11 of the 14 insert sites already have that
+guard.</p>
+<h3 id="speed">Speed</h3>
+<p>Nothing measured beyond the <code>sys.path</code> count. The file
+reads one PDB and writes four small text files, once per target.</p>
+
+<nav class="pager"><a class="pn" href="#s07">&larr; 07</a><a class="pn" href="#s09">09 &rarr;</a></nav>
+</section><section id="s09">
+<p class="src">proposals/09-cross_summary.md</p>
+<h2 id="09--bincross_summarypy-940-lines">09 —
+<code>bin/cross_summary.py</code>, 940 lines</h2>
+<p><strong>Proposal: accept one small factorisation. Separately, a
+defect I found while verifying it, which is your call rather than mine.
+Read the defect section first.</strong></p>
+<hr />
+<h3 id="the-defect-tied-ranks-are-not-reproducible">The defect: tied
+ranks are not reproducible</h3>
+<p><code>_assign_cross_ranks</code> breaks ties with
+<code>id(rec)</code>:</p>
+<pre class="python"><code>def _composite_rank_key(item):
+    comp, rec = item
+    tier_order = _TIER_ORDER[rec[&quot;cross_tier&quot;]]
+    # Negated so higher composites come first within a tier.  id()
+    # breaks ties as stably as Python&#39;s own sort would.
+    return (tier_order, -comp, id(rec))</code></pre>
+<p><code>id()</code> is the object's memory address. For two records
+with the same tier and the same composite, the rank order therefore
+depends on where Python happened to allocate the dicts.</p>
+<p>Demonstrated: four records with identical tier and identical metrics,
+ranked three times in one process on freshly built objects.</p>
+<pre><code>ranks: [3, 2, 4, 1]
+ranks: [3, 1, 4, 2]
+ranks: [2, 3, 4, 1]</code></pre>
+<p>Three different answers for the same input.
+<code>cross_rank_by_composite</code> and
+<code>cross_rank_by_ra_eff</code> are columns in the committed
+<code>cross_sequence_summary.csv</code>, so a rerun of a cohort
+containing tied rows emits different ranks and the file does not
+reproduce.</p>
+<p>The comment says <code>id()</code> "breaks ties as stably as Python's
+own sort would". That is not right. Python's sort is stable, meaning it
+<strong>preserves input order</strong> for equal keys. Using
+<code>id()</code> as a third key replaces that stability with an
+arbitrary order, so the comment describes the opposite of what the code
+does.</p>
+<p><strong>The fix is to delete the third key.</strong>
+<code>list.sort</code> is stable, so dropping <code>id(rec)</code> makes
+tied records keep the order they arrived in, which is the order the
+passing-summary inputs were read in, which is deterministic. That is one
+line removed and it makes the output reproducible.</p>
+<p>I have not folded that into the proposal below, because it
+<strong>changes the committed output</strong> for any cohort with ties,
+and that is your call rather than mine. For the benchmark the question
+is narrow: each target is one sequence, so there is nothing to tie. For
+a campaign cohort with 128 sequences it is live.</p>
+<hr />
+<h3 id="the-factorisation">The factorisation</h3>
+<p>The two rankings are the same five lines twice:</p>
+<pre class="python"><code>def _composite_rank_key(item):
+    comp, rec = item
+    tier_order = _TIER_ORDER[rec[&quot;cross_tier&quot;]]
+    return (tier_order, -comp, id(rec))
+scored_composite.sort(key=_composite_rank_key)
+for rank_idx, (_, rec) in enumerate(scored_composite, start=1):
+    rec[&quot;cross_rank_by_composite&quot;] = rank_idx
+
+def _ra_rank_key(item):
+    ra, rec = item
+    tier_order = _TIER_ORDER[rec[&quot;cross_tier&quot;]]
+    return (tier_order, ra, id(rec))
+scored_ra.sort(key=_ra_rank_key)
+for rank_idx, (_, rec) in enumerate(scored_ra, start=1):
+    rec[&quot;cross_rank_by_ra_eff&quot;] = rank_idx</code></pre>
+<p>One helper, called twice:</p>
+<pre class="python"><code>def _stamp_ranks(scored, column: str) -&gt; None:
+    &quot;&quot;&quot;Sort (value, rec) pairs tier-first and stamp 1-based ranks.
+
+    `value` is already signed so that ascending order is &quot;better first&quot;, so
+    the caller negates a composite and leaves an ra_eff alone.
+    &quot;&quot;&quot;
+    scored.sort(key=lambda pair: (_TIER_ORDER[pair[1][&quot;cross_tier&quot;]],
+                                  pair[0], id(pair[1])))
+    for rank_idx, (_value, rec) in enumerate(scored, start=1):
+        rec[column] = rank_idx</code></pre>
+<p>with <code>scored_composite.append((-comp, rec))</code> and
+<code>scored_ra.append((ra, rec))</code> carrying the sign. 16 lines →
+10, and the "better first" convention is stated once instead of implied
+twice.</p>
+<p><strong>What I did not merge.</strong> My first attempt replaced the
+whole function with a loop over the two metrics. It was wrong: the two
+rankings share a filter (<code>row_type == "steered"</code> and
+<code>cross_tier in ("A","B","C")</code>) but the composite branch also
+computes a derived value from two columns and stamps
+<code>cross_composite_score</code> as a side effect. A generic loop lost
+all three. The filter and the side effect stay written out.</p>
+<h3 id="verification">Verification</h3>
+<p>3,000 randomised cohorts of 1 to 8 records across all four tiers, all
+three row types, with empty, <code>nan</code> and numeric metrics:
+<strong>identical</strong>, with one condition — metric values must be
+unique.</p>
+<p>With ties allowed, 152 of 3,000 differed. That is not the
+factorisation: it is the <code>id()</code> tie-break above, comparing
+two deep copies at different addresses. Finding that is the only reason
+this file has a defect section.</p>
+<h3 id="speed">Speed</h3>
+<p>Not measured, and I would not expect a difference. Both forms do one
+<code>list.sort</code> per ranking. A cohort is 1 record for the
+benchmark and 128 for a campaign.</p>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>The <code>rec.get("row_type", "steered") != "steered"</code> filter
+is. Control and cold-start rows are in the same record list and must not
+be ranked against steered designs — the docstring on
+<code>_tier_for_row</code> explains that controls "sit outside the
+cohort ranking by design". Removing the filter would rank a polyA
+control alongside a real design.</p>
+
+<nav class="pager"><a class="pn" href="#s08">&larr; 08</a><a class="pn" href="#s10">10 &rarr;</a></nav>
+</section><section id="s10">
+<p class="src">proposals/10-negsteer_aggregate.md</p>
+<h2 id="10--binnegsteer_aggregatepy-2580-lines">10 —
+<code>bin/negsteer_aggregate.py</code>, 2,580 lines</h2>
+<p><strong>Proposal: accept one change, 24 lines out. The bigger-looking
+targets do not hold up.</strong></p>
+<p>This is the largest file after the engine and it has the most literal
+assignments in <code>bin/</code>, 47. I expected the biggest win here.
+It is not.</p>
+<h3 id="where-the-47-assignments-are">Where the 47 assignments are</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Function</th>
+<th style="text-align: right;">Assignments</th>
+<th style="text-align: right;">Lines</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td
+style="text-align: left;"><code>cmd_aggregate_per_sequence</code></td>
+<td style="text-align: right;">14</td>
+<td style="text-align: right;">419</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cmd_aggregate</code></td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">291</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>_process_passing_row</code></td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">202</td>
+</tr>
+<tr>
+<td
+style="text-align: left;"><code>_populate_reverted_mutations</code></td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">191</td>
+</tr>
+</tbody>
+</table>
+<p>Unlike <code>extract_passing.extract_row</code>, these are
+<strong>not</strong> a column-copying block. They are scattered through
+long functions, one or two at a time, each setting a different thing at
+a different point. There is no list of names to factor out, because the
+assignments do not form a group.</p>
+<h3 id="the-one-real-repetition-eight-identical-failure-returns">The one
+real repetition: eight identical failure returns</h3>
+<p><code>_process_passing_row</code> has this shape eight times, at
+lines 2009, 2045, 2109, 2114, 2124, 2130, 2141 and 2147:</p>
+<pre class="python"><code>msg = f&quot;pdb not found: {pdb_path_str}&quot;
+print(f&quot;    ERROR: {msg}&quot;)
+out_row[&quot;steered_error&quot;] = msg
+return out_row, &quot;failed&quot;</code></pre>
+<p>Four lines, eight times, differing only in the message and in whether
+the print carries the progress prefix. A closure over
+<code>out_row</code> collapses each to one line:</p>
+<pre class="python"><code>def fail(msg, *, prefix=False):
+    &quot;&quot;&quot;Record the failure on the row and return the caller&#39;s result.
+
+    One failure costs one design rather than the whole stage: the row comes
+    back with steered_error set and the metric columns blank, which the
+    aggregate CSV carries so the loss is visible rather than silent.
+    &quot;&quot;&quot;
+    where = (f&quot;  [{passing_progress}/{n_passing_total}] {pathway_label}: SKIP&quot;
+             if prefix else &quot;    ERROR:&quot;)
+    print(f&quot;{where} ({msg})&quot; if prefix else f&quot;{where} {msg}&quot;)
+    out_row[&quot;steered_error&quot;] = msg
+    return out_row, &quot;failed&quot;</code></pre>
+<p>Then:</p>
+<pre class="python"><code>if pdb_path is None or not pdb_path.exists():
+    return fail(f&quot;pdb not found: {pdb_path_str}&quot;, prefix=True)
+...
+if not cm_rows:
+    return fail(&quot;compute_metrics.py CSV was empty&quot;)</code></pre>
+<p><strong>24 lines out</strong>, and the invariant that every failure
+path leaves the row recoverable is stated once rather than implied eight
+times.</p>
+<p>The one case that keeps its own code is the
+<code>returncode != 0</code> branch, because it also prints
+<code>proc.stdout</code> under <code>--verbose</code>. Forcing that
+through the helper would mean a second keyword argument used once.</p>
+<h3 id="what-i-rejected">What I rejected</h3>
+<p><strong><code>cmd_aggregate_per_sequence</code>, 419 lines, 14
+assignments.</strong> I read it looking for a column group. The 14
+assignments set <code>pathway</code>, <code>parent_pathway</code>,
+<code>cycle</code>, <code>min_dist_to_upstream</code> and nine per-seed
+aggregates, at six different points, interleaved with the grouping logic
+that decides what a sequence group even is. There is no shared rule to
+name. Breaking the function up is a different proposal from this one,
+and a riskier one, because the grouping logic is what decides which
+prediction a thesis figure reports.</p>
+<p><strong>The three copies of the <code>compute_metrics.py</code> argv
+builder.</strong> Earlier analysis flagged
+<code>negsteer_aggregate.py:2073</code>, <code>reversion.py:884</code>
+and <code>reversion.py:1298</code> as three places building the same
+subprocess command line. They share eight flags, but each adds different
+ones and two of them are in a different file, so factoring means a new
+shared module for one function. See 11 for why I did not.</p>
+<h3 id="speed">Speed</h3>
+<p>Measured nothing here, because nothing changes in a loop. The
+<code>fail</code> closure is created once per call to
+<code>_process_passing_row</code>, which also spawns a subprocess
+running <code>compute_metrics.py</code> — tens of milliseconds against a
+closure's microsecond.</p>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>The eight failure paths are. Each one is a different thing going
+wrong with one design: a missing PDB, a subprocess timeout, a non-zero
+exit, a missing CSV, an unreadable CSV, an empty CSV. They exist because
+the alternative is losing the whole aggregate stage after the GPU time
+is already spent, and the message distinguishes them in the CSV so a
+failure can be diagnosed without rerunning. Collapsing them into one
+generic <code>except Exception</code> would save another 10 lines and
+lose that.</p>
+
+<nav class="pager"><a class="pn" href="#s09">&larr; 09</a><a class="pn" href="#s11">11 &rarr;</a></nav>
+</section><section id="s11">
+<p class="src">proposals/11-reversion.md</p>
+<h2 id="11--binreversionpy-1826-lines">11 —
+<code>bin/reversion.py</code>, 1,826 lines</h2>
+<p><strong>Proposal: accept the argv builder. 18 lines out, and the flag
+ordering stops being a thing you have to keep in your head.</strong></p>
+<h3 id="the-repetition">The repetition</h3>
+<p><code>reversion.py</code> builds the same
+<code>compute_metrics.py</code> command line twice, at line 884 in
+<code>harvest_reversion_results</code> and line 1298 in
+<code>cmd_build_contaminated</code>. Ten flags are identical, in the
+same order:</p>
+<pre class="python"><code>cmd = [
+    sys.executable, str(compute_metrics_script),
+    &quot;--model&quot;, &quot;boltz2&quot;,
+    &quot;--prediction-dir&quot;, str(rev_dir),
+    &quot;--chain-lengths&quot;, str(rec_len), str(eff_len),
+    &quot;--output-csv&quot;, str(per_row_csv),
+    &quot;--pae-cutoff&quot;, str(pae_cutoff),
+    &quot;--receptor-chain&quot;, pred_rec,
+    &quot;--effector-chain&quot;, pred_eff,
+    &quot;--contact-cutoff&quot;, str(contact_cutoff),
+    ...
+]</code></pre>
+<p>They differ only in which of three optional flags they add:
+<code>--native-pdb</code> at the harvest site,
+<code>--effector-atom-filter-json</code> at both but conditionally at
+one, <code>--mutated-positions</code> at the build-contaminated
+site.</p>
+<h3 id="the-change">The change</h3>
+<p>One builder with the ten shared flags and three keyword arguments for
+the optional ones. The important part is that each optional flag keeps
+its own comment, because each exists for a different reason:</p>
+<pre class="python"><code>def _compute_metrics_cmd(script, prediction_dir, *, rec_len, eff_len,
+                         output_csv, pae_cutoff, receptor_chain,
+                         effector_chain, contact_cutoff,
+                         native_pdb=None, effector_atom_filter=None,
+                         mutated_positions=None):
+    &quot;&quot;&quot;The compute_metrics.py command line both reversion stages build.
+
+    The ten shared flags are here. The three optional ones are not shared:
+
+      native_pdb              harvest only. Without it intact_core,
+                              weighted_jaccard and interface_plddt come out
+                              blank. The steered side passes the cycle_0
+                              ground truth too, so the two stay comparable.
+      effector_atom_filter    restricts contact detection to the effector
+                              interface-atom set in cycle_0/plan.json. An
+                              empty list there leaves detection unfiltered,
+                              which compute_metrics.py handles.
+      mutated_positions       build-contaminated only, for the contamination
+                              check.
+    &quot;&quot;&quot;</code></pre>
+<p>Each call site becomes one call:</p>
+<pre class="python"><code>cmd = _compute_metrics_cmd(
+    compute_metrics_script, rev_dir, rec_len=rec_len, eff_len=eff_len,
+    output_csv=per_row_csv, pae_cutoff=pae_cutoff,
+    receptor_chain=pred_rec, effector_chain=pred_eff,
+    contact_cutoff=contact_cutoff, native_pdb=ground_truth_pdb,
+    effector_atom_filter=cycle0_plan_path)</code></pre>
+<p>Keyword-only after the first two arguments, which is the point: ten
+positional arguments in a row would be worse than the duplication.</p>
+<h3 id="verification">Verification</h3>
+<p>Both call sites reconstructed from the committed source and compared
+element-by-element against the builder's output: <strong>identical
+argument lists</strong>, including order.</p>
+<p>That is the whole check, and it is sufficient here: the function's
+only output is a list of strings handed to <code>subprocess.run</code>,
+so list equality is behaviour equality.</p>
+<h3 id="what-i-rejected">What I rejected</h3>
+<p><strong>The third copy, in
+<code>negsteer_aggregate.py:2073</code>.</strong> Earlier analysis
+flagged three copies of this argv builder across two files. Factoring
+all three means putting the builder in a module both files import, and
+the only candidates are <code>compute_metrics.py</code> itself — which
+would make the caller import the thing it is about to run as a
+subprocess — or a new module holding one function. Neither is better
+than one duplicated block across a file boundary. The two copies
+<strong>inside</strong> <code>reversion.py</code> are worth merging; the
+third is not.</p>
+<p><strong><code>cmd_build_contaminated</code>, 299 lines.</strong> The
+largest function in the file. I read it for a column group or a repeated
+block and found neither: it is the CL-3 majority gate, the per-seed
+contamination check and the scratch-directory bookkeeping, interleaved
+because the gate's result decides whether the rest runs. Splitting it is
+a real refactor with real risk to the gate that decides which designs
+get reverted, and 299 lines of straight-line logic is not what is wrong
+with this repo.</p>
+<h3 id="speed">Speed</h3>
+<p>No measurable change. The builder returns a list that is immediately
+handed to <code>subprocess.run</code>, which spawns a Python interpreter
+— tens of milliseconds against the microsecond the list construction
+costs. Called once per candidate.</p>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>The three optional flags are, and the comments on them more so. The
+<code>--native-pdb</code> comment records that without it three metric
+columns come out blank, which is the kind of thing that is invisible
+until a figure has a hole in it. Moving them into the docstring keeps
+them attached to the flag rather than to one of the two call sites.</p>
+
+<nav class="pager"><a class="pn" href="#s10">&larr; 10</a><a class="pn" href="#s12">12 &rarr;</a></nav>
+</section><section id="s12">
+<p class="src">proposals/12-boltz2_negative_steering.md</p>
+<h2 id="12--binboltz2_negative_steeringpy-3339-lines">12 —
+<code>bin/boltz2_negative_steering.py</code>, 3,339 lines</h2>
+<p><strong>Proposal: change nothing. This is the one I would leave
+alone.</strong></p>
+<p>It is last in the order because it is the biggest file, has the
+biggest function, and is the one where a mistake is most expensive. It
+is also the one where I found the least worth changing, and that is the
+finding rather than a failure to look.</p>
+<h3 id="cmd_plan-872-lines"><code>cmd_plan</code>, 872 lines</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;"></th>
+<th style="text-align: right;">Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">lines</td>
+<td style="text-align: right;">872</td>
+</tr>
+<tr>
+<td style="text-align: left;">statements</td>
+<td style="text-align: right;">357</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>print</code> calls</td>
+<td style="text-align: right;">92</td>
+</tr>
+<tr>
+<td style="text-align: left;">comment-only lines</td>
+<td style="text-align: right;">195</td>
+</tr>
+<tr>
+<td style="text-align: left;">blank lines</td>
+<td style="text-align: right;">56</td>
+</tr>
+</tbody>
+</table>
+<p>872 lines for 357 statements is 2.44 lines per statement, the highest
+of any large function in <code>bin/</code>. 195 comment lines is 22% of
+the function.</p>
+<h3 id="why-the-92-prints-are-not-bloat">Why the 92 prints are not
+bloat</h3>
+<p>I went in expecting to fold them. They are the run's log, and on a
+cluster they are the only record of what the stage decided. Reading them
+in order:</p>
+<pre><code>  Wrote effector template: …
+  Wrote wild-type YAML: …
+  Initial receptor_aligned_effector_rmsd: 35.981 Å
+  Initial independent_receptor_rmsd:       1.204 Å
+  Initial independent_effector_rmsd:       2.117 Å
+  Running 2 additional cold-start predictions…
+    seed 1: ra_eff=34.772 Å …
+  Using pre-computed TRUE interface …
+  73 receptor residues at the TRUE interface
+  Cold-start: 2/3 seeds clean — …
+  61 receptor residues at the wrong interface
+  design region: 24 positions …</code></pre>
+<p>Each line is a different decision with a different number. There is
+no group of three or more that share a shape, so there is nothing to put
+in a loop. The three <code>Initial *_rmsd</code> lines are the closest,
+and folding them into a loop over a tuple of labels would save two lines
+and lose the aligned columns.</p>
+<h3 id="what-i-considered-and-rejected">What I considered and
+rejected</h3>
+<p><strong>Splitting <code>cmd_plan</code>.</strong> It runs the cold
+start, decides whether steering is needed at all, derives the true
+interface, derives the wrong interface, computes the protected set,
+picks the mutations and stages the designs. Those are separable on
+paper. In the code they are not independent: the cold-start result
+decides whether the rest runs, the true interface feeds the protected
+set, and the wrong interface is computed against the cold-start pose. A
+split would need the intermediate state passed between five functions,
+which is either a long parameter list or a context object.</p>
+<p>The argument against is sharper than the argument for. This function
+decides which residues get mutated, which is the method. Every committed
+number depends on it, and I cannot verify a restructure the way I
+verified the others — there is no fixture that exercises a full
+<code>cmd_plan</code> without a GPU, because the function's core is a
+Boltz call. I would be changing the most important function in the repo
+on the strength of the test suite alone.</p>
+<p><strong>The 195 comment lines.</strong> I read them looking for
+restatement. They are not restatement: they record why a threshold is
+what it is, which past bug a guard exists for, and what the coordinate
+system of each index list is. Examples of the kind of thing that is in
+there and should stay:</p>
+<ul>
+<li>which prefix <code>skip_steering</code> writes and why it is
+<code>all_seeds_clean</code> rather than a majority rule</li>
+<li>that the 4.5 Å naive pool and the 6 Å CA fallback leave a band where
+neither applies</li>
+<li>that <code>pick_mutant_residue</code>'s pool is never a single
+residue, which is why its backstop carries a pragma</li>
+</ul>
+<p>A prose pass already ran over this file: 7,497 words down to 5,206, a
+31% cut. What is left is load-bearing.</p>
+<h3 id="the-one-thing-i-would-do-and-it-is-not-a-refactor">The one thing
+I would do, and it is not a refactor</h3>
+<p><code>extract_effector_template_cif</code> is 182 lines and its
+docstring is 35 of them. That docstring is the best thing in the file:
+it explains why gemmi leaves <code>Entity.full_sequence</code> unset
+when reading a PDB, what AF3 does with <code>label_seq_id='.'</code>,
+and the exact <code>ValueError</code> that follows. I would not touch
+it.</p>
+<h3 id="speed">Speed</h3>
+<p>Nothing to propose. The function's wall-clock is one to several
+<code>boltz predict</code> calls, each minutes. From
+<code>analysis/03-compute-cost/</code>, 20.6 seconds per prediction is
+the median and 28.7 the worst. Python that runs for microseconds between
+those calls is not measurable.</p>
+<p>I did check the one thing that could have mattered:
+<code>run_boltz</code> calls <code>out_dir.rglob('*')</code> inside a
+loop at line 795. It is bounded by the number of output files Boltz
+wrote for one prediction, and it runs once per prediction, after a call
+that took minutes. Not worth touching.</p>
+<h3 id="is-every-line-necessary">Is every line necessary</h3>
+<p>For 3,339 lines I cannot claim to have justified each one
+individually, and I will not pretend to. What I did check:</p>
+<ul>
+<li>every function is reached by a workflow stage except
+<code>_read_ca_seq_from_chain</code>, 5 lines, covered in the orphans PR
+and kept because it is a per-chain variant of a live reader</li>
+<li>the 41 string literals of eight or more elements are the column-name
+lists, which belong to the output schema rather than to this file's
+logic</li>
+<li>the 125 <code>print</code> calls are the stage log, with no group of
+three sharing a shape</li>
+</ul>
+<p>That is the honest extent of it.</p>
+
+<nav class="pager"><a class="pn" href="#s11">&larr; 11</a><span></span></nav>
+</section>
+</main></div>
+<script>
+const links=[...document.querySelectorAll('aside a')];
+const secs=[...document.querySelectorAll('section')];
+const bar=document.getElementById('bar');
+function mark(){
+  const y=window.scrollY+140; let cur=secs[0];
+  for(const s of secs){ if(s.offsetTop<=y) cur=s; }
+  links.forEach(a=>a.classList.toggle('here', a.hash==='#'+cur.id));
+  const h=document.documentElement;
+  const p=h.scrollTop/Math.max(1,h.scrollHeight-h.clientHeight);
+  bar.style.transform='scaleX('+p+')';
+}
+addEventListener('scroll',mark,{passive:true}); addEventListener('resize',mark); mark();
+// j / k and arrows step between proposals
+addEventListener('keydown',e=>{
+  if(e.metaKey||e.ctrlKey||e.altKey) return;
+  const y=window.scrollY+140;
+  let i=0; secs.forEach((s,n)=>{ if(s.offsetTop<=y) i=n; });
+  if(e.key==='j'||e.key==='ArrowDown'&&e.shiftKey){ e.preventDefault();
+    secs[Math.min(i+1,secs.length-1)].scrollIntoView({behavior:'smooth'}); }
+  if(e.key==='k'||e.key==='ArrowUp'&&e.shiftKey){ e.preventDefault();
+    secs[Math.max(i-1,0)].scrollIntoView({behavior:'smooth'}); }
+});
+const b=document.getElementById('th');
+b.onclick=()=>{ const r=document.documentElement;
+  const dark=getComputedStyle(r).getPropertyValue('--bg').trim()!=='#fbfbfa';
+  r.setAttribute('data-theme', dark?'light':'dark'); };
+</script>
+</body></html>

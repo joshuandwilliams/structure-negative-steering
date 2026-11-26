@@ -1,6 +1,8 @@
 # 07 — `bin/negative_steering.py`, 296 lines
 
-**Proposal: take one small change, reject the obvious one.**
+**Proposal: change nothing.** I went in expecting to fold the four
+validation guards and concluded against it. The reasoning is below,
+because the reason not to is the useful part.
 
 ## What I expected to find, and did not
 

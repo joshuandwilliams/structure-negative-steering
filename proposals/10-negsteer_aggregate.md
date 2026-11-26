@@ -1,7 +1,7 @@
 # 10 — `bin/negsteer_aggregate.py`, 2,580 lines
 
-**Proposal: one change, 24 lines out. The bigger-looking targets do not hold
-up.**
+**Proposal: accept one change, 24 lines out. The bigger-looking targets do
+not hold up.**
 
 This is the largest file after the engine and it has the most literal
 assignments in `bin/`, 47. I expected the biggest win here. It is not.
