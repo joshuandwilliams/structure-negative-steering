@@ -2003,11 +2003,25 @@ def _process_passing_row(
         out_row.setdefault(k, "")
     out_row.setdefault("steered_error", "")
 
-    if pdb_path is None or not pdb_path.exists():
-        msg = f"pdb not found: {pdb_path_str}"
-        print(f"  [{passing_progress}/{n_passing_total}] {pathway_label}: SKIP ({msg})")
+    def fail(msg, *, skip=False):
+        """Record the failure on the row and return the caller's result.
+
+        One failure costs one design rather than the whole stage: the row
+        comes back with steered_error set and the metric columns blank,
+        which the aggregate CSV carries, so the loss is visible rather than
+        silent.  `skip` picks the progress-prefixed SKIP line the first
+        call site uses; the rest print a plain ERROR.
+        """
+        if skip:
+            print(f"  [{passing_progress}/{n_passing_total}] "
+                  f"{pathway_label}: SKIP ({msg})")
+        else:
+            print(f"    ERROR: {msg}")
         out_row["steered_error"] = msg
         return out_row, "failed"
+
+    if pdb_path is None or not pdb_path.exists():
+        return fail(f"pdb not found: {pdb_path_str}", skip=True)
 
     # compute_metrics.py's Boltz-2 parser looks for
     # confidence_<stem>.json, pae_<stem>.npz and plddt_<stem>.npz
@@ -2039,11 +2053,8 @@ def _process_passing_row(
             rec_len = rec_len or ordered[0][1]
             eff_len = eff_len or ordered[1][1]
     if rec_len == 0 or eff_len == 0:
-        msg = (f"could not determine chain lengths from {metric_pdb.name} "
-               f"(CA counts: {ca_counts})")
-        print(f"  [{passing_progress}/{n_passing_total}] {pathway_label}: SKIP ({msg})")
-        out_row["steered_error"] = msg
-        return out_row, "failed"
+        return fail(f"could not determine chain lengths from "
+                    f"{metric_pdb.name} (CA counts: {ca_counts})", skip=True)
 
     # One output CSV per row in the scratch dir, keyed on cycle plus
     # design name so the filename stays short and safe.
@@ -2104,17 +2115,15 @@ def _process_passing_row(
             timeout=args.subprocess_timeout,
         )
     except subprocess.TimeoutExpired:
-        msg = f"compute_metrics.py timed out after {args.subprocess_timeout}s"
-        print(f"    ERROR: {msg}")
-        out_row["steered_error"] = msg
-        return out_row, "failed"
+        return fail("compute_metrics.py timed out after "
+                    f"{args.subprocess_timeout}s")
     except Exception as e:
-        msg = f"subprocess failed: {e}"
-        print(f"    ERROR: {msg}")
-        out_row["steered_error"] = msg
-        return out_row, "failed"
+        return fail(f"subprocess failed: {e}")
 
     if proc.returncode != 0:
+        # Not through fail(): this one prints the subprocess stdout after
+        # its ERROR line under --verbose, and routing it through the helper
+        # would either reorder the log or need a parameter used once.
         msg = (f"compute_metrics.py exited with {proc.returncode}: "
                f"{(proc.stderr or '').strip()[:300]}")
         print(f"    ERROR: {msg}")
@@ -2125,10 +2134,7 @@ def _process_passing_row(
         return out_row, "failed"
 
     if not per_row_csv.exists():
-        msg = f"compute_metrics.py produced no CSV at {per_row_csv}"
-        print(f"    ERROR: {msg}")
-        out_row["steered_error"] = msg
-        return out_row, "failed"
+        return fail(f"compute_metrics.py produced no CSV at {per_row_csv}")
 
     # With multiple models in the CSV, which one-design-per-dir should
     # prevent, take the row whose model_name matches the pdb stem.
@@ -2136,16 +2142,10 @@ def _process_passing_row(
         with open(per_row_csv) as f:
             cm_rows = list(csv.DictReader(f))
     except Exception as e:
-        msg = f"could not read {per_row_csv}: {e}"
-        print(f"    ERROR: {msg}")
-        out_row["steered_error"] = msg
-        return out_row, "failed"
+        return fail(f"could not read {per_row_csv}: {e}")
 
     if not cm_rows:
-        msg = "compute_metrics.py CSV was empty"
-        print(f"    ERROR: {msg}")
-        out_row["steered_error"] = msg
-        return out_row, "failed"
+        return fail("compute_metrics.py CSV was empty")
 
     chosen = None
     for cr in cm_rows:
