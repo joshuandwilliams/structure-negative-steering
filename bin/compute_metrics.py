@@ -416,27 +416,6 @@ def compute_effector_interface_residues(
     return interface_residues
 
 
-def compute_effector_interface_atom_mask(
-    ground_truth_pdb,
-    true_interface_residues_1b,
-    receptor_chain,
-    effector_chain,
-    cutoff_angstroms=8.0,
-):
-    """Deprecated alias returning a dict keyed by (resseq, atom_name),
-    kept so modules still importing it keep working.
-
-    Filtering happens at residue level only, so each residue gets a
-    sentinel atom_name of None, meaning "match every atom with this
-    resseq".  Prefer compute_effector_interface_residues.
-    """
-    residues = compute_effector_interface_residues(
-        ground_truth_pdb, true_interface_residues_1b,
-        receptor_chain, effector_chain, cutoff_angstroms,
-    )
-    return {(r, None): (0.0, 0.0, 0.0) for r in residues}
-
-
 def compute_interface_contacts(
     pdb_path,
     receptor_chain,
@@ -649,74 +628,6 @@ def parse_mutated_positions(spec):
         except ValueError:
             print(f"  WARNING: ignoring non-integer mutated position {tok!r}")
     return sorted(set(out))
-
-
-def parse_position_list(spec):
-    """Parse a position-list CLI argument with range support.
-
-    Accepts plain ints, inclusive ranges, a leading ChimeraX "/A:"
-    chain spec and whitespace inside tokens, mixed in one
-    comma-separated call such as "/A:5, 30 - 78, 92".
-
-    This is a superset of parse_mutated_positions, and the two stay
-    separate on purpose.  --mutated-positions keeps the strict
-    comma-list form, because a range would read as misleading on a
-    small mutation set.  --design-region-positions gets ranges, far
-    easier for regions spanning 40 or more residues.
-
-    Returns a sorted list of unique ints, or [] for empty input.
-    """
-    if not spec:
-        return []
-    s = spec.strip()
-    if s.startswith("/"):
-        colon = s.find(":")
-        if colon != -1:
-            s = s[colon + 1:]
-    out = []
-    for tok in s.split(","):
-        tok = tok.strip()
-        if not tok:
-            continue
-        if "-" in tok:
-            parts = tok.split("-", 1)
-            try:
-                a = int(parts[0].strip())
-                b = int(parts[1].strip())
-            except ValueError:
-                print(f"  WARNING: ignoring malformed range {tok!r}")
-                continue
-            if a > b:
-                a, b = b, a
-            out.extend(range(a, b + 1))
-        else:
-            try:
-                out.append(int(tok))
-            except ValueError:
-                print(f"  WARNING: ignoring non-integer position {tok!r}")
-    return sorted(set(out))
-
-
-def load_positions_file(path):
-    """Load a position list from a text file.
-
-    Each line holds one or more integers, separated by whitespace or
-    commas.  A '#' starts a comment that runs to end of line.  Range
-    syntax works as parse_position_list handles it.
-    """
-    if not path:
-        return []
-    tokens = []
-    with open(path) as f:
-        for line in f:
-            if "#" in line:
-                line = line.split("#", 1)[0]
-            line = line.strip()
-            if not line:
-                continue
-            tokens.append(line)
-    joined = ",".join(tokens)
-    return parse_position_list(joined)
 
 
 def classify_mutation_reliance(

@@ -1,4 +1,4 @@
-"""Tests for compute_metrics' position parsers and the contamination check.
+"""Tests for compute_metrics' position parser and the contamination check.
 
 classify_mutation_reliance is the authoritative contamination check for the
 whole pipeline. If a steering mutation is contacting the effector in the
@@ -6,10 +6,9 @@ predicted pose, the wet-lab construct will not carry that residue, so the
 pose's metrics are invalid unless reversion recovers them. Missing one
 contaminated position lets an invalid pose through as a result.
 
-Everything it compares comes out of these parsers, and both CLI position
-arguments are 1-based residue numbers. A parser that drops a token, or
-expands a range off by one, changes which positions are checked without
-changing the shape of anything.
+Everything it compares comes out of this parser, and --mutated-positions is
+1-based residue numbers. A parser that drops a token changes which positions
+are checked without changing the shape of anything.
 """
 
 from __future__ import annotations
@@ -76,63 +75,6 @@ def test_a_leading_slash_without_a_colon_is_not_treated_as_a_chain(cm, capsys):
     character from a position."""
     assert cm.parse_mutated_positions("/5,26") == [26]
     assert "non-integer" in capsys.readouterr().out
-
-
-# ── the range-capable list ───────────────────────────────────────────────────
-
-@pytest.mark.logic
-@pytest.mark.parametrize("spec,want", [
-    ("5,26", [5, 26]),
-    ("30-33", [30, 31, 32, 33]),             # inclusive at both ends
-    ("5,30-32,92", [5, 30, 31, 32, 92]),
-    ("/A:5,30-32", [5, 30, 31, 32]),
-    ("5, 30 - 32", [5, 30, 31, 32]),         # whitespace inside a token
-    ("33-30", [30, 31, 32, 33]),             # reversed range still works
-    ("7-7", [7]),
-    ("", []),
-    (None, []),
-])
-def test_position_lists_parse(cm, spec, want):
-    assert cm.parse_position_list(spec) == want
-
-
-@pytest.mark.logic
-def test_overlapping_ranges_are_merged(cm):
-    assert cm.parse_position_list("30-32,31-33") == [30, 31, 32, 33]
-
-
-@pytest.mark.logic
-def test_a_malformed_range_is_skipped_with_a_warning(cm, capsys):
-    assert cm.parse_position_list("30-x,5") == [5]
-    assert "malformed range" in capsys.readouterr().out
-
-
-@pytest.mark.logic
-def test_a_non_integer_outside_a_range_is_skipped(cm, capsys):
-    assert cm.parse_position_list("5,nope,7") == [5, 7]
-    assert "non-integer" in capsys.readouterr().out
-
-
-# ── the file form ────────────────────────────────────────────────────────────
-
-@pytest.mark.logic
-def test_a_positions_file_reads_lines_comments_and_ranges(cm, tmp_path):
-    f = tmp_path / "pos.txt"
-    f.write_text("# a header\n5, 7\n30-32   # inline comment\n\n92\n")
-    assert cm.load_positions_file(f) == [5, 7, 30, 31, 32, 92]
-
-
-@pytest.mark.logic
-def test_an_empty_or_absent_path_is_an_empty_list(cm, tmp_path):
-    assert cm.load_positions_file(None) == []
-    assert cm.load_positions_file("") == []
-
-
-@pytest.mark.logic
-def test_a_file_of_only_comments_is_an_empty_list(cm, tmp_path):
-    f = tmp_path / "pos.txt"
-    f.write_text("# nothing here\n\n")
-    assert cm.load_positions_file(f) == []
 
 
 # ── the contamination check ──────────────────────────────────────────────────
