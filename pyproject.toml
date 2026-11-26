@@ -28,6 +28,15 @@ test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
 ]
+# The linter, pinned rather than floored. An unpinned ruff picks up new default
+# rules on release and fails CI on code that passed locally, so CI and a local
+# run have to agree on the version. This is the one place it is written down;
+# .github/workflows/lint.yml installs this extra rather than naming a version
+# of its own.
+dev = [
+    "structure-negative-steering[test]",
+    "ruff==0.15.21",
+]
 
 [project.scripts]
 # The tool interface. Installing this repo puts `negsteer` on PATH, which is
@@ -67,12 +76,7 @@ target-version = "py310"
 # reformatting them to satisfy a linter would edit the thing being preserved,
 # and nothing imports them. A clean clone has no archive/ and this does
 # nothing.
-#
-# proposals/code/ IS in this repository. It holds fragments of proposed
-# rewrites, quoted in the markdown beside them. They reference names from the
-# module each one would go into, so they do not lint as standalone files and
-# are not meant to.
-exclude = ["archive", "proposals"]
+exclude = ["archive"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]

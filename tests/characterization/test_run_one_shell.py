@@ -12,8 +12,9 @@ invoked, so argument forwarding, the two loop bounds and the failure policy are
 all pinned.
 
 Requires bash >= 4.4. The script expands empty arrays under `set -u`, which is
-an error in bash 3.2, still the system bash on macOS. environment.yml pins
-bash 5.2.37 so the conda environment supplies it; CI runs bash 5 already.
+an error in bash 3.2, still the system bash on macOS. CI and the test image
+both run bash 5. On a Mac the tests look in an active conda prefix first, then
+PATH, and skip with a reason if neither supplies one.
 """
 
 from __future__ import annotations
@@ -34,9 +35,10 @@ SCRIPT = REPO_ROOT / "bin" / "negative_steering_run_one.sh"
 def _modern_bash() -> str | None:
     """The active conda environment first, then PATH.
 
-    environment.yml pins bash 5.2.37 precisely so this is self-contained, so
-    look there before anything system-wide. On Linux and CI there is no conda
-    prefix to find and PATH already supplies bash 5.
+    A Mac's system bash is 3.2, so a conda prefix that happens to carry a
+    newer one is worth preferring over anything system-wide. On Linux, in CI
+    and in the test image there is no conda prefix to find and PATH already
+    supplies bash 5.
     """
     for cand in (str(Path(sys.prefix) / "bin" / "bash"), shutil.which("bash")):
         if not cand or not Path(cand).exists():
@@ -50,7 +52,7 @@ def _modern_bash() -> str | None:
 
 BASH = _modern_bash()
 needs_bash = pytest.mark.skipif(
-    BASH is None, reason="needs bash >= 4.4; environment.yml pins it, so create/update that env")
+    BASH is None, reason="needs bash >= 4.4; macOS system bash is 3.2")
 
 # Records every call as one tab-separated line, and fabricates whatever the real
 # singularity would have produced. Control it through the STUB_* environment.

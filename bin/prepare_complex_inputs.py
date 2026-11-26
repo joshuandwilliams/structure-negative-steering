@@ -142,7 +142,14 @@ def _write_true_interface(path: Path, idx0: List[int], *, complex_pdb: Path,
     """Write 0-based indices, one per line.
 
     The format the design pipeline's true-interface files use, which is
-    what --true-interface-indices-file parses."""
+    what --true-interface-indices-file parses.
+
+    Do not fold this and _write_design_region into a generic header writer.
+    It was tried, and a byte comparison failed on all 16 cases for one
+    character: the first header line is `# derived from complex <path>` with
+    no colon, and the other five are `# key: value`. A generic
+    `# {key}: {value}` writer adds that colon, which rewrites every committed
+    derived file while looking like a pure refactor."""
     with path.open("w") as f:
         f.write(f"# derived from complex {complex_pdb}\n")
         f.write(f"# interface source: {source}\n")

@@ -168,12 +168,18 @@ echo "=== engine finished in $((END - START)) s ==="
 # Assert on what it produced. Without this the job is just a run, not a test.
 echo
 echo "=== asserting on the run ==="
-# The Boltz image now carries pytest, pytest-cov and coverage, so the
-# assertions run in the SAME image the engine ran in. That is what makes
-# coverage possible: coverage has to be installed in the process that
-# executes the code, and the engine executes inside this image.
-TEST_CONTAINER="${NEGSTEER_TEST_CONTAINER:-$(grep -E '^[[:space:]]*boltz_container:' "$CONFIG" \
-    | head -1 | sed -E 's/.*:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/')}"
+# Two images, and this needs the test one. The runtime image built from
+# containers/Dockerfile carries no pytest, by design: one image runs the
+# thing, one image tests it. So NEGSTEER_TEST_CONTAINER names the image built
+# from containers/Dockerfile.test, and there is no fall back to the config's
+# boltz_container, because that image would fail at `python -m pytest` with a
+# module-not-found error rather than saying what was wrong.
+#
+# Engine coverage is the one case that needs them in one image: coverage has
+# to be installed in the process that executes the code, and the engine
+# executes inside the runtime image. NEGSTEER_COVERAGE below is only usable
+# with a runtime image that has coverage added to it.
+TEST_CONTAINER="${NEGSTEER_TEST_CONTAINER:-}"
 if [ -f "$TEST_CONTAINER" ]; then
     # The same assertions run against whichever path produced the run.
     # NEGSTEER_SINGLE_RUN_DIR is how test_engine_single_run.py is pointed elsewhere.
@@ -211,7 +217,12 @@ if [ -f "$TEST_CONTAINER" ]; then
     fi
     exit $PYTEST_RC
 else
-    echo "WARNING: no image at ${TEST_CONTAINER}, skipping the assertions." >&2
-    echo "         Build it from containers/boltz2_negsteer_testing.def, or:" >&2
+    if [ -z "$TEST_CONTAINER" ]; then
+        echo "WARNING: NEGSTEER_TEST_CONTAINER is not set, skipping the assertions." >&2
+    else
+        echo "WARNING: no image at ${TEST_CONTAINER}, skipping the assertions." >&2
+    fi
+    echo "         Build one from containers/Dockerfile.test, or run them" >&2
+    echo "         anywhere against the finished run tree:" >&2
     echo "         pytest -m check_test_run tests/characterization/test_engine_single_run.py" >&2
 fi
