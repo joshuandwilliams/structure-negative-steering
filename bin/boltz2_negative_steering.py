@@ -970,14 +970,31 @@ def find_contact_residues_heavy(
     steered prediction is caught at source rather than silently giving
     wrong indices.
 
-    ``compute_metrics.find_contact_residues_heavy``, used by
+    ``compute_metrics.find_contact_residues_heavy``, used only by
     ``scripts/prepare_complex_inputs.py``, is a second implementation
-    with the same signature, the same icode-aware bucketing and the
-    same (per-chain 0-based index, distance) pairs.  This copy also
-    sorts by distance and uses ``read_residue_heavy_atoms``, whose
-    per-atom-name keying the per-residue weighting downstream of
-    contamination detection needs.  A future refactor should collapse
-    both behind one shared pdb_atom_io helper.
+    with the same signature and the same icode-aware bucketing.  On a
+    well-formed structure the two agree exactly: over all 18 complexes
+    in ``data/reference_complexes/`` they return the same contact set
+    and the same distances to within 0.001 A.  They differ in two ways
+    that matter.
+
+    This copy sorts by distance, so a caller can take the N strongest
+    contacts, and returns full-precision distances.  That copy sorts by
+    index and rounds to 3 dp.
+
+    More importantly, this copy RAISES on a malformed structure where
+    that one degrades.  A missing receptor chain, or a residue number
+    that will not parse, is a ValueError here and an empty list or a
+    skipped atom there.  Both are deliberate and separately tested, at
+    test_engine_branches.py:1015 and
+    test_compute_metrics_branches.py:548.  The reason is where each one
+    runs: this is the engine mid-run, where bad inputs mean stopping
+    before more GPU time is spent, and that is setup, where one bad
+    line should not lose the whole preparation.
+
+    So the two are not interchangeable and collapsing them would need a
+    strictness flag.  Earlier versions of this docstring called for the
+    merge without noticing the failure modes differ.
     """
     residues = read_residue_heavy_atoms(pdb_path)
     rec_residues = [r for r in residues if r.chain == rec_chain]

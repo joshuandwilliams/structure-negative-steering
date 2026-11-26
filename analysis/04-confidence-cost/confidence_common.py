@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
+from scipy.stats import spearmanr
 
 RA_EFF_THRESHOLD = 5.0   # Angstrom; a pose at or below this is correct
 
@@ -275,7 +276,16 @@ def signed_rank_p(diffs, n=20000, seed=0) -> float:
 
     The statistic is the sum of signed ranks of |d| and the null is built by
     randomly flipping each pair's sign, which is exactly the Wilcoxon
-    construction. Done by permutation because scipy is not a dependency here.
+    construction.
+
+    By permutation rather than scipy.stats.wilcoxon, which IS available:
+    scipy is declared at pyproject.toml:21 and 07-ipsae-instability.qmd
+    imports it. An earlier version of this docstring said otherwise and was
+    wrong. At these sample sizes scipy's default is the exact distribution,
+    so it would be the more accurate of the two, and the committed figures
+    and tables carry these permutation estimates. Swapping it is a decision
+    about the chapter, not a refactor.
+
     A median statistic is too coarse at n = 15 and a mean is dragged around by
     one or two large-effect units.
     """
@@ -323,11 +333,20 @@ def rank_sum_p(a, b, n=20000, seed=0) -> float:
 
 
 def spearman(a, b) -> float:
+    """Spearman rho over the pairs where both values are present.
+
+    scipy's own, rather than np.corrcoef over ranks. The two agree to
+    machine precision, and 07-ipsae-instability.qmd already imports
+    scipy.stats.spearmanr, so one path is better than two.
+
+    Fewer than four usable pairs gives nan rather than a rho from three
+    points.
+    """
     a, b = pd.Series(a).reset_index(drop=True), pd.Series(b).reset_index(drop=True)
     ok = a.notna() & b.notna()
     if ok.sum() < 4:
         return np.nan
-    return float(np.corrcoef(a[ok].rank(), b[ok].rank())[0, 1])
+    return float(spearmanr(a[ok], b[ok]).statistic)
 
 
 def effect_table(entries) -> pd.DataFrame:

@@ -539,10 +539,16 @@ def find_contact_residues_heavy(
          downstream weighting, not a plain contact flag.
 
     ``boltz2_negative_steering.find_contact_residues_heavy`` is a second
-    implementation with the same signature, also insertion-code aware
-    and returning identical indices, which additionally sorts by
-    distance and keeps richer per-residue bookkeeping.  A future
-    refactor could share one pdb_atom_io helper.
+    implementation with the same signature, also insertion-code aware,
+    and the two agree exactly on a well-formed structure: the same
+    contact set and the same distances over all 18 complexes in
+    ``data/reference_complexes/``.
+
+    It sorts by distance rather than by index and returns full-precision
+    distances, and it RAISES on a malformed structure where this one
+    degrades.  This copy is the lenient one on purpose, because it runs
+    at setup rather than mid-run.  They are therefore not
+    interchangeable.  Its own docstring has the full account.
 
     When `expected_rec_seq` is supplied, a residue count unequal to its
     length raises ValueError.  That catches PDB-versus-FASTA
