@@ -507,6 +507,29 @@ def _read_row_type_sidecar(source_path: Path) -> str:
     return row_type
 
 
+def _stamp_ranks(scored, column: str) -> None:
+    """Sort (value, rec) pairs tier-first and stamp 1-based ranks.
+
+    Tier first in both rankings: a tier B record with a slightly higher raw
+    composite still ranks below every tier A record, because tier is a
+    reliability measure and the composite is not.
+
+    `value` is already signed so that ascending order is "better first", so
+    the caller negates a composite and leaves an ra_eff alone.
+
+    id() is the third key, which is what the two separate rank functions did
+    before this was factored out.  It is a memory address, so two records
+    tied on tier and value rank in an order that depends on allocation.
+    Dropping it would make list.sort's own stability decide, which is input
+    order and reproducible.  That changes committed output for any cohort
+    containing ties, so it is left as it was.
+    """
+    scored.sort(key=lambda pair: (_TIER_ORDER[pair[1]["cross_tier"]],
+                                  pair[0], id(pair[1])))
+    for rank_idx, (_value, rec) in enumerate(scored, start=1):
+        rec[column] = rank_idx
+
+
 def _assign_cross_ranks(records: List[Dict]) -> None:
     """Compute and stamp cross_rank_by_composite / cross_rank_by_ra_eff in place."""
     scored_ra = []       # list of (ra_eff_value, rec) for ra-eff rank
@@ -525,32 +548,13 @@ def _assign_cross_ranks(records: List[Dict]) -> None:
             comp = _composite_score(rep_cols)
             if comp is not None:
                 rec["cross_composite_score"] = f"{comp:.6f}"
-                scored_composite.append((comp, rec))
+                scored_composite.append((-comp, rec))   # higher is better
             ra = _try_float(rep_cols["ra_eff_vs_truth_median"])
             if ra is not None:
-                scored_ra.append((ra, rec))
+                scored_ra.append((ra, rec))             # lower is better
 
-    # Tier first, then descending score.  A tier B record with a slightly
-    # higher raw composite still ranks below every tier A record, because
-    # tier is a reliability measure and the composite is not.
-    def _composite_rank_key(item):
-        comp, rec = item
-        tier_order = _TIER_ORDER[rec["cross_tier"]]
-        # Negated so higher composites come first within a tier.  id()
-        # breaks ties as stably as Python's own sort would.
-        return (tier_order, -comp, id(rec))
-    scored_composite.sort(key=_composite_rank_key)
-    for rank_idx, (_, rec) in enumerate(scored_composite, start=1):
-        rec["cross_rank_by_composite"] = rank_idx
-
-    # Tier first, then ra_eff ascending, since lower is better.
-    def _ra_rank_key(item):
-        ra, rec = item
-        tier_order = _TIER_ORDER[rec["cross_tier"]]
-        return (tier_order, ra, id(rec))
-    scored_ra.sort(key=_ra_rank_key)
-    for rank_idx, (_, rec) in enumerate(scored_ra, start=1):
-        rec["cross_rank_by_ra_eff"] = rank_idx
+    _stamp_ranks(scored_composite, "cross_rank_by_composite")
+    _stamp_ranks(scored_ra, "cross_rank_by_ra_eff")
 
 
 def _emit_aggregate_summary(records: List[Dict], output_path: Path) -> None:
