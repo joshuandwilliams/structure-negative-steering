@@ -78,8 +78,8 @@ def test_quoting_and_spacing_are_stripped(tmp_path: Path, line: str) -> None:
 
 
 @pytest.mark.logic
-def test_the_single_job_runner_uses_this_resolver_rather_than_its_own() -> None:
-    """scripts/negative_steering.slurm.sh must not extract boltz_container itself.
+def test_no_shell_entry_point_extracts_the_container_itself() -> None:
+    """No launcher may extract boltz_container with grep and sed.
 
     It used to, with grep and sed, and that silently broke every committed
     config. They all carry `boltz_container: null`; the extraction returned the
@@ -88,8 +88,14 @@ def test_the_single_job_runner_uses_this_resolver_rather_than_its_own() -> None:
     workflow path was unaffected because it already went through this resolver,
     so the two entry points disagreed about what a null config means.
     """
-    runner = (REPO_ROOT / "scripts" / "negative_steering.slurm.sh").read_text()
-    assert "resolve_boltz_container.sh" in runner, \
-        "the runner must resolve the image through bin/resolve_boltz_container.sh"
-    assert "grep -E '^[[:space:]]*boltz_container:'" not in runner, \
-        "the runner extracts boltz_container itself again; that ignores `null`"
+    # Every shell entry point, not just the one that failed first. The
+    # orchestrator runner was fixed in #40 and tests/test_run.slurm.sh still
+    # carried its own copy, which only --via-cli reaches, so it failed on the
+    # cluster with "FATAL: could not open image .../null" the first time that
+    # path ran. Checking all of them is what stops a third copy hiding.
+    for rel in ("scripts/negative_steering.slurm.sh", "tests/test_run.slurm.sh"):
+        body = (REPO_ROOT / rel).read_text()
+        assert "resolve_boltz_container.sh" in body, \
+            f"{rel} must resolve the image through bin/resolve_boltz_container.sh"
+        assert "grep -E '^[[:space:]]*boltz_container:'" not in body, \
+            f"{rel} extracts boltz_container itself; that returns the string 'null'"
