@@ -117,8 +117,22 @@ if [ -n "$VIA_CLI" ]; then
         bash "$ENTRY" "$CONFIG" --prepare-only
     fi
 
-    CONTAINER="$(grep -E '^[[:space:]]*boltz_container:' "$CONFIG" | head -1 \
-        | sed -E 's/^[^:]*:[[:space:]]*//; s/^"//; s/"[[:space:]]*$//')"
+    # Through bin/resolve_boltz_container.sh, the same resolver the workflow
+    # and scripts/negative_steering.slurm.sh use. This used to extract the
+    # YAML line here with grep and sed, which returned the literal string
+    # "null" for every committed config and handed it to singularity:
+    #
+    #   FATAL: could not open image .../null
+    #
+    # The orchestrator path had the identical bug and was fixed in #40; this
+    # copy was missed because only --via-cli reaches it, and nothing had run
+    # that path on the cluster.
+    CONTAINER="$(bash "${REPO_DIR}/bin/resolve_boltz_container.sh" "$CONFIG" "")"
+    if [ -z "$CONTAINER" ]; then
+        echo "ERROR: no Boltz image. The config leaves boltz_container null," >&2
+        echo "       so set NEGSTEER_BOLTZ_IMG in site.conf." >&2
+        exit 2
+    fi
     # Read the reference from the config rather than hardcoding a target. The
     # config used to be 6Q76 and is now 6G10; a literal path silently pointed
     # the CLI run at a different complex than the orchestrator run it is
