@@ -9,11 +9,20 @@ contamination and reversion harvest in reversion, and extract_passing.
 These skip cleanly when no single-run test is present. Point elsewhere with
 NEGSTEER_SINGLE_RUN_DIR.
 
-What is deliberately NOT asserted: the pose. One design, one seed and one
-diffusion sample is far too little sampling to expect a rescue, and asserting
-`ra_eff` improved would make the test flaky for a reason unrelated to whether
-the engine works. What is asserted is that every stage ran, wrote what it
-promises to write, and that the numbers it wrote are internally consistent.
+What is deliberately NOT asserted: the pose. The config's sampling is far too
+little to expect a rescue, and asserting `ra_eff` improved would make the test
+flaky for a reason unrelated to whether the engine works. What is asserted is
+that every stage ran, wrote what it promises to write, and that the numbers it
+wrote are internally consistent.
+
+Every expected value is READ FROM tests/test_run/config.yml rather than written
+here. The previous version hardcoded 6Q76 at one design, one seed and one
+diffusion sample. Commit 8429e44 changed the config to 6G10 at 3 x 3 x 5 and
+did not update these assertions, so five of them failed against a perfectly
+good run: the receptor length, the plan's recorded sequence, the seed count,
+the cross-summary key and the launch.sh flags. Nobody saw it for the same
+reason the tier exists, which is that running it needs a finished GPU run.
+Deriving the numbers removes the chance of that happening again.
 """
 
 from __future__ import annotations
@@ -21,6 +30,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -41,6 +51,33 @@ def _read(path: Path) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
+def _config() -> dict[str, str]:
+    """The run's own config.yml, as plain key to string value.
+
+    Hand-parsed rather than via PyYAML: this module is imported on the laptop
+    tier too, where yaml is in the `runtime` extra but this file has no other
+    reason to need it. Only scalar `key: value` lines matter here.
+    """
+    cfg: dict[str, str] = {}
+    path = SINGLE_RUN / "config.yml"
+    if not path.is_file():
+        return cfg
+    for line in path.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line or ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        cfg[k.strip()] = v.strip().strip('"').strip("'")
+    return cfg
+
+
+CFG = _config()
+N_DESIGNS = int(CFG.get("negsteer_n_designs", 0) or 0)
+NUM_SEEDS = int(CFG.get("negsteer_num_seeds", 0) or 0)
+DIFFUSION = int(CFG.get("negsteer_diffusion_samples", 0) or 0)
+RUN_NAME = CFG.get("name", "")
+
+
 # ── the prepare stage ────────────────────────────────────────────────────────
 
 @pytest.mark.check_test_run
@@ -53,9 +90,13 @@ def test_prepare_derived_all_four_engine_inputs():
 
     rec = (inputs / "receptor.fasta").read_text().splitlines()[1]
     eff = (inputs / "effector.fasta").read_text().splitlines()[1]
-    # 6Q76 is receptor A at 73 residues, effector B at 68.
-    assert len(rec) == 73, f"receptor is {len(rec)} residues, expected 73"
-    assert len(eff) == 68, f"effector is {len(eff)} residues, expected 68"
+    # 6G10 is receptor A at 76 residues and effector B at 83, which is the
+    # same pair test_prepare_complex_inputs.py asserts against the committed
+    # data/reference_complexes/6G10.pdb. Both numbers are here rather than
+    # derived because they are a property of the structure, not the config,
+    # and a silent change to either is worth failing on.
+    assert len(rec) == 76, f"receptor is {len(rec)} residues, expected 76"
+    assert len(eff) == 83, f"effector is {len(eff)} residues, expected 83"
 
 
 # ── boltz2_negative_steering: the plan stage ─────────────────────────────────
@@ -71,7 +112,7 @@ def test_plan_stage_predicted_a_cold_start_and_found_the_wrong_interface():
     assert 0.0 < float(rmsd) < 200.0, f"implausible cold-start RMSD {rmsd}"
 
     seq = plan.get("wild_type_receptor_seq", "")
-    assert len(seq) == 73, f"plan recorded a {len(seq)}-residue receptor, expected 73"
+    assert len(seq) == 76, f"plan recorded a {len(seq)}-residue receptor, expected 76"
 
     for f in ("true_interface_residues.txt", "wrong_interface_residues.txt"):
         assert (CYCLE0 / f).is_file(), f"plan stage did not write {f}"
@@ -137,12 +178,20 @@ def test_every_configured_design_and_seed_produced_a_row():
 
     steered = [r for r in rows if r.get("design") != "initial"]
     seeds = {r["seed_index"] for r in steered}
-    assert len(seeds) <= 1, \
-        f"config asked for 1 seed, steered rows have {len(seeds)}: {seeds}"
+    assert len(seeds) <= NUM_SEEDS, \
+        f"config asked for {NUM_SEEDS} seed(s), steered rows have {len(seeds)}: {seeds}"
 
-    designs = {r["design"] for r in steered}
-    assert len(designs) <= 1, \
-        f"config asked for 1 design, table has {len(designs)}: {designs}"
+    # The `design` column is design AND seed in one string, `design_00_s0`, so
+    # it holds n_designs x num_seeds distinct values rather than n_designs.
+    # The previous assertion compared it against 1 and passed only because the
+    # old config was one design by one seed, where the two collapse to the same
+    # number. Both are checked separately here.
+    units = {re.sub(r"_s\d+$", "", r["design"]) for r in steered}
+    assert len(units) <= N_DESIGNS, \
+        f"config asked for {N_DESIGNS} design(s), table has {len(units)}: {units}"
+    assert len(steered) <= N_DESIGNS * NUM_SEEDS, \
+        (f"config asked for {N_DESIGNS} x {NUM_SEEDS} = "
+         f"{N_DESIGNS * NUM_SEEDS} steered rows, table has {len(steered)}")
 
 
 @pytest.mark.check_test_run
@@ -171,8 +220,8 @@ def test_passing_summary_and_cross_summary_were_written():
     rows = _read(xs)
     assert len(rows) == 1, f"expected one representative row, got {len(rows)}"
     assert rows[0]["cross_tier"] in {"A", "B", "C", "none"}
-    assert rows[0]["mpnn_sequence"] == "6Q76_single_run", \
-        f"cross summary is keyed {rows[0]['mpnn_sequence']!r}, expected 6Q76_single_run"
+    assert rows[0]["mpnn_sequence"] == RUN_NAME, \
+        f"cross summary is keyed {rows[0]['mpnn_sequence']!r}, expected {RUN_NAME!r}"
 
 
 @pytest.mark.check_test_run
@@ -226,7 +275,9 @@ def test_launch_script_records_the_configured_knobs():
         pytest.skip("tool-interface run; provenance is in negsteer_result.json")
     assert launch.is_file(), "no launch.sh recorded"
     body = launch.read_text()
-    for flag in ("--n-designs 1", "--num-seeds 1", "--diffusion-samples 1"):
+    for flag in (f"--n-designs {N_DESIGNS}",
+                 f"--num-seeds {NUM_SEEDS}",
+                 f"--diffusion-samples {DIFFUSION}"):
         assert flag in body, f"launch.sh does not carry {flag!r}"
     assert "--boltz-constraints" not in body, \
         "the single-run config is unconstrained but the run carried constraints"

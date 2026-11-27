@@ -232,10 +232,16 @@ those modules are no longer the coverage gap they once were.
 one knob turned down, `negsteer_n_designs` at 3 rather than 20. The fan-out is
 then 3 designs by 3 seeds, 9 prediction tasks instead of 60. 6G10 was chosen
 because its cold start fails badly, 23.9 Å against the 5 Å threshold, so the
-plan stages designs and the steering fan-out actually runs. Its committed run
-also contaminated 4 of 6 checked designs, so the reversion fan-out is exercised
-too. Neither empty-fan-out bypass in `main.nf` is covered by it, and the stub
-run in CI is what covers those.
+plan stages designs and the steering fan-out actually runs.
+
+It does NOT exercise the reversion fan-out, and an earlier version of this
+paragraph said it did. The 4-of-6 contamination figure behind that claim is
+from the 20-design `experiments/benchmarking/` run, not from this config.
+Contamination is only checked on designs that pass the RMSD gate, and in the
+cluster run of 2026-11-27 none of the nine did, so `build-contaminated`
+reported 0 checked and `plan-reversions` wrote an empty plan. What this config
+covers instead is the empty-fan-out bypass, on real hardware rather than only
+under CI's stub run.
 
 One config drives both entry points, the Nextflow workflow and the engine CLI,
 so the two paths are compared on identical inputs and neither can lose coverage
@@ -244,11 +250,13 @@ to the other.
 It is not a benchmark configuration and its numbers must never be pooled with
 the benchmark in the analyses repository.
 
-The assertions deliberately do not check the pose. One design and one seed is
-far too little sampling to expect a rescue, and asserting `ra_eff` improved
+The assertions deliberately do not check the pose. Three designs by three
+seeds is far too little sampling to expect a rescue, where the benchmark's
+15-of-18 came from 50 mutation sets per target, and asserting `ra_eff` improved
 would make the test flaky for reasons unrelated to whether the engine works.
 What is checked is that every stage ran and wrote what it promises, that the
-counts match the config, and one real invariant: that steering never mutated a
+counts match the config, which the assertions read from `config.yml` rather
+than restate, and one real invariant: that steering never mutated a
 residue in the protected true interface. Steering that mutated the binding site
 would be destroying it rather than removing a competitor, and every downstream
 number would still look plausible.
