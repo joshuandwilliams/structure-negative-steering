@@ -245,7 +245,12 @@ under CI's stub run.
 
 One config drives both entry points, the Nextflow workflow and the engine CLI,
 so the two paths are compared on identical inputs and neither can lose coverage
-to the other.
+to the other. That was a claim before it was true: the `--via-cli` branch
+hardcoded one design, one seed, one diffusion sample, one recycling step, three
+max-mutations and a pool of six, against the config's 3, 3, 5, 3, 6 and 12. The
+orchestrator produced nine rows where the CLI produced one, so
+`test_single_run_cli_matches_orchestrator.py` could not pass. The branch now
+reads every knob from the config.
 
 It is not a benchmark configuration and its numbers must never be pooled with
 the benchmark in the analyses repository.
