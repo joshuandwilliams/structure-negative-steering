@@ -34,7 +34,8 @@
 #   ./scripts/submit.sh test-run --via-cli  # through `negsteer run`
 #
 # --via-cli runs the SAME config through the tool interface instead of the
-# shell orchestrator, into tests/test_run/run_cli/. Everything else is identical,
+# shell orchestrator, into tests/test_run/run_cli/. Every steering knob is read
+# from that config rather than restated here, so the two runs are comparable,
 # so the two run directories are directly comparable and
 # test_single_run_cli_matches_orchestrator.py asserts they agree.
 #
@@ -140,6 +141,37 @@ if [ -n "$VIA_CLI" ]; then
     REFERENCE="$(cd "$SINGLE_RUN_DIR" && realpath "$(grep -E '^[[:space:]]*reference_pdb:' "$CONFIG" \
         | head -1 | sed -E 's/^[^:]*:[[:space:]]*//; s/^"//; s/"[[:space:]]*$//')")"
 
+    # Every steering knob comes from the config, not from literals here. Six
+    # were hardcoded and four of them disagreed with it: 1 design against 3,
+    # 1 seed against 3, 1 diffusion sample against 5, 1 recycling step against
+    # 3, 3 max-mutations against 6 and a pool of 6 against 12.
+    #
+    # That made this file's own claim that "everything else is identical" false,
+    # and made test_single_run_cli_matches_orchestrator.py impossible to pass:
+    # it compares the two run directories row by row, and the orchestrator
+    # produced nine rows where the CLI produced one. The comparison is the only
+    # thing that validates the tool interface end to end against the runner
+    # behind the published numbers, so it has to be given comparable runs.
+    cfg_val() {
+        grep -E "^[[:space:]]*$1:" "$CONFIG" | head -1 \
+            | sed -E 's/^[^:]*:[[:space:]]*//; s/#.*$//; s/"//g' | tr -d '[:space:]'
+    }
+    N_DESIGNS="$(cfg_val negsteer_n_designs)"
+    NUM_SEEDS="$(cfg_val negsteer_num_seeds)"
+    DIFFUSION="$(cfg_val negsteer_diffusion_samples)"
+    RECYCLING="$(cfg_val negsteer_recycling_steps)"
+    MAX_MUT="$(cfg_val negsteer_max_mutations)"
+    POOL="$(cfg_val negsteer_candidate_pool_size)"
+    MODE="$(cfg_val negsteer_mode)"
+    SEED="$(cfg_val negsteer_seed)"
+    for v in N_DESIGNS NUM_SEEDS DIFFUSION RECYCLING MAX_MUT POOL MODE SEED; do
+        if [ -z "${!v}" ]; then
+            echo "ERROR: could not read $v from $CONFIG" >&2
+            exit 2
+        fi
+    done
+    echo "CLI knobs from config: ${N_DESIGNS} designs x ${NUM_SEEDS} seeds x ${DIFFUSION} samples"
+
     # python -m rather than the bare `negsteer`, because the image has not been
     # rebuilt yet. Both reach the same CLI; PYTHONPATH is what makes the
     # bind-mounted checkout importable.
@@ -157,15 +189,15 @@ if [ -n "$VIA_CLI" ]; then
             --receptor-chain    A \
             --effector-chain    B \
             --outdir            "$RUN_DIR" \
-            --n-designs         1 \
-            --num-seeds         1 \
-            --diffusion-samples 1 \
-            --recycling-steps   1 \
-            --max-mutations     3 \
-            --candidate-pool-size 6 \
+            --n-designs         "$N_DESIGNS" \
+            --num-seeds         "$NUM_SEEDS" \
+            --diffusion-samples "$DIFFUSION" \
+            --recycling-steps   "$RECYCLING" \
+            --max-mutations     "$MAX_MUT" \
+            --candidate-pool-size "$POOL" \
             --protected-set-source true_interface \
-            --mode              mild \
-            --seed              0 \
+            --mode              "$MODE" \
+            --seed              "$SEED" \
             --contact-cutoff    5.0 \
             --rmsd-threshold    5.0 \
             --metric-column     steered_ra_eff_vs_truth \
