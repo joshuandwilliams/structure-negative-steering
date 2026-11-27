@@ -7,7 +7,7 @@ boltz2_negative_steering, the per-cycle loop in boltz2_iterate_steering, the
 contamination and reversion harvest in reversion, and extract_passing.
 
 These skip cleanly when no single-run test is present. Point elsewhere with
-NEGSTEER_SINGLE_RUN_DIR.
+NEGSTEER_SINGLE_RUN_DIR, which single_run.py reads.
 
 What is deliberately NOT asserted: the pose. The config's sampling is far too
 little to expect a rescue, and asserting `ra_eff` improved would make the test
@@ -16,7 +16,7 @@ that every stage ran, wrote what it promises to write, and that the numbers it
 wrote are internally consistent.
 
 Every expected value is READ FROM tests/test_run/config.yml rather than written
-here. The previous version hardcoded 6Q76 at one design, one seed and one
+here, through single_run.py. The previous version hardcoded 6Q76 at one design, one seed and one
 diffusion sample. Commit 8429e44 changed the config to 6G10 at 3 x 3 x 5 and
 did not update these assertions, so five of them failed against a perfectly
 good run: the receptor length, the plan's recorded sequence, the seed count,
@@ -27,16 +27,24 @@ Deriving the numbers removes the chance of that happening again.
 
 from __future__ import annotations
 
-import csv
 import json
-import os
 import re
-from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SINGLE_RUN = Path(os.environ.get("NEGSTEER_SINGLE_RUN_DIR", REPO_ROOT / "tests" / "test_run"))
+# SINGLE_RUN, the config parser and the values derived from it are shared with
+# test_single_run_cli_matches_orchestrator.py, which asserts on the same tree.
+# single_run.py says why they are not written here. It is a sibling module, and
+# pytest puts this directory on sys.path.
+from single_run import (
+    DIFFUSION,
+    N_DESIGNS,
+    NUM_SEEDS,
+    RUN_NAME,
+    SINGLE_RUN,
+)
+from single_run import read_csv as _read
+
 RUN = SINGLE_RUN / "run"
 CYCLE0 = RUN / "cycle_0"
 
@@ -44,38 +52,6 @@ needs_run = pytest.mark.skipif(
     not (RUN / "raw_per_seed_results.csv").is_file(),
     reason=f"no single-run test under {RUN}. "
            "Run: sbatch tests/test_run.slurm.sh")
-
-
-def _read(path: Path) -> list[dict]:
-    with path.open() as fh:
-        return list(csv.DictReader(fh))
-
-
-def _config() -> dict[str, str]:
-    """The run's own config.yml, as plain key to string value.
-
-    Hand-parsed rather than via PyYAML: this module is imported on the laptop
-    tier too, where yaml is in the `runtime` extra but this file has no other
-    reason to need it. Only scalar `key: value` lines matter here.
-    """
-    cfg: dict[str, str] = {}
-    path = SINGLE_RUN / "config.yml"
-    if not path.is_file():
-        return cfg
-    for line in path.read_text().splitlines():
-        line = line.split("#", 1)[0].strip()
-        if not line or ":" not in line:
-            continue
-        k, _, v = line.partition(":")
-        cfg[k.strip()] = v.strip().strip('"').strip("'")
-    return cfg
-
-
-CFG = _config()
-N_DESIGNS = int(CFG.get("negsteer_n_designs", 0) or 0)
-NUM_SEEDS = int(CFG.get("negsteer_num_seeds", 0) or 0)
-DIFFUSION = int(CFG.get("negsteer_diffusion_samples", 0) or 0)
-RUN_NAME = CFG.get("name", "")
 
 
 # ── the prepare stage ────────────────────────────────────────────────────────
