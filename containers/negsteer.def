@@ -77,6 +77,12 @@ From: joshuandwilliams/negsteer:2.2.1
     command -v negsteer
     test -s /opt/boltz_cache/boltz2_conf.ckpt
     test -s /opt/boltz_cache/boltz2_aff.ckpt
+    # mols.tar as well as mols/. boltz/main.py:210 tests for the tar before it
+    # tests for the extracted directory, so an image carrying only mols/ tries
+    # to download the CCD on every prediction and dies with "Network is
+    # unreachable" on a compute node.
+    test -s /opt/boltz_cache/mols.tar
+    test -d /opt/boltz_cache/mols
     echo "negsteer image ready"
 
 %runscript
