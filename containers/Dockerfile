@@ -216,9 +216,23 @@ RUN pip install -c /opt/build_scratch/constraints.txt nvidia-ml-py \
 
 
 # ── Model weights, baked in because the cluster is airgapped ────────────────
-# 6.21 GB in three files. Without them a run reaches for HuggingFace at
+# 6.21 GB downloaded, and about 8 GB on disk because mols.tar is kept as well
+# as its extracted contents. Without them a run reaches for HuggingFace at
 # predict time and fails on a node with no route out, which is why
 # HF_HUB_OFFLINE is set below rather than left to chance.
+#
+# mols.tar MUST NOT be deleted after extracting, which cost a cluster run to
+# learn. boltz/main.py:210 is `if not tar_mols.exists()` and then separately
+# `if not mols.exists()`, so it tests for the TAR before it tests for the
+# extracted directory. An image with mols/ but no mols.tar therefore tries to
+# download the CCD on every prediction, and on a compute node that dies with
+# `OSError: [Errno 101] Network is unreachable` from inside boltz, which reads
+# like a network problem rather than a missing file. boltz2_negsteer.def
+# extracted the tar and left it in place, which is why it never saw this.
+#
+# The `test -s` below turns that into a build failure rather than a run
+# failure, since the two files are 1.86 GB of apparent duplication and look
+# exactly like something worth deleting.
 ENV BOLTZ_CACHE=/opt/boltz_cache \
     TORCH_HOME=/opt/torch_hub
 RUN mkdir -p "$BOLTZ_CACHE" "$TORCH_HOME" \
@@ -229,8 +243,8 @@ RUN mkdir -p "$BOLTZ_CACHE" "$TORCH_HOME" \
  && wget -q -O "$BOLTZ_CACHE/mols.tar" \
       https://huggingface.co/boltz-community/boltz-2/resolve/main/mols.tar \
  && tar xf "$BOLTZ_CACHE/mols.tar" -C "$BOLTZ_CACHE" \
- && rm -f "$BOLTZ_CACHE/mols.tar" \
- && chmod -R a+rX "$BOLTZ_CACHE" "$TORCH_HOME"
+ && chmod -R a+rX "$BOLTZ_CACHE" "$TORCH_HOME" \
+ && test -s "$BOLTZ_CACHE/mols.tar" && test -d "$BOLTZ_CACHE/mols"
 
 # ── The engine ──────────────────────────────────────────────────────────────
 # bin/ is staged as a directory of standalone entry points invoked by path,
