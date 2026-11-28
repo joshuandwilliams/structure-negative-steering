@@ -240,9 +240,6 @@ if [ -f "$TEST_CONTAINER" ]; then
         ln -sfn "$RUN_DIR" "${SINGLE_RUN_DIR}/.cli_view/run"
         ln -sfn "${SINGLE_RUN_DIR}/inputs" "${SINGLE_RUN_DIR}/.cli_view/inputs"
         SINGLE_RUN_ASSERT_DIR="${SINGLE_RUN_DIR}/.cli_view"
-        # Plus the comparison against the orchestrator run, which is the
-        # assertion that actually validates the tool.
-        TESTS="$TESTS ${REPO_DIR}/tests/characterization/test_single_run_cli_matches_orchestrator.py"
     fi
     # addopts is cleared here on purpose. These tests only READ the run's
     # output, so measuring them would report the assertions rather than the
@@ -251,6 +248,27 @@ if [ -f "$TEST_CONTAINER" ]; then
         env NEGSTEER_SINGLE_RUN_DIR="$SINGLE_RUN_ASSERT_DIR" \
         python -m pytest -o addopts="" $TESTS -m check_test_run -ra --no-header
     PYTEST_RC=$?
+
+    # The comparison against the orchestrator run is the assertion that
+    # actually validates the tool, and it needs a SECOND invocation because it
+    # needs a different directory. The engine assertions above run against
+    # .cli_view, whose "run" is a symlink to run_cli. This module reads
+    # <dir>/run and <dir>/run_cli as two trees, so handed .cli_view it would
+    # resolve both to the CLI run and compare it against itself. It gets the
+    # real tree, which is the one holding both.
+    if [ -n "$VIA_CLI" ] && [ -f "${SINGLE_RUN_DIR}/run/raw_per_seed_results.csv" ]; then
+        singularity exec --bind "$REPO_DIR" "$TEST_CONTAINER" \
+            env NEGSTEER_SINGLE_RUN_DIR="$SINGLE_RUN_DIR" \
+            python -m pytest -o addopts="" \
+            "${REPO_DIR}/tests/characterization/test_single_run_cli_matches_orchestrator.py" \
+            -m check_test_run -ra --no-header
+        CMP_RC=$?
+        [ "$PYTEST_RC" -eq 0 ] && PYTEST_RC=$CMP_RC
+    elif [ -n "$VIA_CLI" ]; then
+        echo
+        echo "No orchestrator run at ${SINGLE_RUN_DIR}/run, so the CLI"
+        echo "comparison is skipped. Run this script once without --via-cli."
+    fi
 
     # Merge the per-stage .coverage.* files the engine dropped, if any.
     if [ -n "${NEGSTEER_COVERAGE:-}" ]; then

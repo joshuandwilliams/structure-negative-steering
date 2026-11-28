@@ -11,6 +11,10 @@ hardware with the same seed, and their run directories are compared:
     sbatch tests/test_run.slurm.sh --via-cli  -> run_cli/
 
 Skips cleanly unless both exist, so it costs nothing when only one has run.
+The tree comes from single_run.py, so NEGSTEER_SINGLE_RUN_DIR points this and
+test_engine_single_run.py at the same place. It used to read
+NEGSTEER_SINGLE_RUN_BASE, which nothing sets, so on a relocated tree it looked
+at the checkout, found nothing and skipped.
 
 On tolerance: Boltz is seeded, but CUDA kernel scheduling is not bit-exact
 across runs, so structural metrics are compared with a tolerance rather than
@@ -22,15 +26,15 @@ nondeterminism cannot explain a difference in those.
 
 from __future__ import annotations
 
-import csv
 import json
-import os
-from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SINGLE_RUN = Path(os.environ.get("NEGSTEER_SINGLE_RUN_BASE", REPO_ROOT / "tests" / "test_run"))
+# Shared with test_engine_single_run.py, which asserts on the same tree.
+# single_run.py is a sibling module and pytest puts this directory on sys.path.
+from single_run import RUN_NAME, SINGLE_RUN
+from single_run import read_csv as _read
+
 ORCH = SINGLE_RUN / "run"
 CLI = SINGLE_RUN / "run_cli"
 
@@ -44,9 +48,36 @@ needs_both = pytest.mark.skipif(
            "--via-cli.")
 
 
-def _read(path: Path) -> list[dict]:
-    with path.open() as fh:
-        return list(csv.DictReader(fh))
+@pytest.mark.check_test_run
+def test_the_two_run_directories_are_not_the_same_tree():
+    """Not a comparison, a guard on the comparison.
+
+    tests/test_run.slurm.sh runs the --via-cli job against a `.cli_view`
+    directory whose `run` is a symlink to `run_cli`, so that
+    test_engine_single_run.py can assert on the CLI output without learning a
+    second layout. Point this module at that view and ORCH resolves to the CLI
+    run, CLI resolves to nothing, and every test below either skips or compares
+    the CLI run against itself and passes for free.
+
+    This runs unconditionally, so a tree that cannot support the comparison
+    fails here rather than passing quietly below.
+    """
+    if not ORCH.exists():
+        pytest.skip(f"no run/ under {SINGLE_RUN}")
+
+    wrong_dir = (f"Point NEGSTEER_SINGLE_RUN_DIR at the directory holding both "
+                 f"run/ and run_cli/, not at the .cli_view shim. It is at "
+                 f"{SINGLE_RUN}.")
+
+    # The shim's only possible shape: run/ is a link whose target is run_cli/.
+    assert ORCH.resolve().name != "run_cli", (
+        f"{ORCH} resolves to {ORCH.resolve()}, so the orchestrator side is "
+        f"really the CLI run. {wrong_dir}")
+
+    if CLI.exists():
+        assert ORCH.resolve() != CLI.resolve(), (
+            f"{ORCH} and {CLI} are one tree at {ORCH.resolve()}, so this "
+            f"module would compare a run against itself. {wrong_dir}")
 
 
 def _key(row: dict) -> tuple[str, str]:
@@ -136,6 +167,6 @@ def test_only_the_cli_run_carries_a_result_manifest():
     assert not (ORCH / "negsteer_result.json").exists()
 
     payload = json.loads(manifest.read_text())
-    assert payload["name"] == "6Q76_single_run"
+    assert payload["name"] == RUN_NAME
     assert payload["status"] in {"ok", "skipped_steering"}
     assert payload["runtime_seconds"] > 0
