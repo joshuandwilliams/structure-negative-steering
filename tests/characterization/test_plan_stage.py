@@ -206,8 +206,11 @@ def test_steering_never_mutates_the_protected_interface(tmp_path):
         "test cannot assert the invariant at all.")
 
     steered = work / "steered"
-    if not steered.is_dir():
-        pytest.skip("no steered designs produced")
+    # Asserted, not skipped, like the two sibling tests. This is the second
+    # guard in this test and it was missed when the first became an assertion.
+    assert steered.is_dir(), (
+        "the plan stage wrote no steered/ directory, so the protected-interface "
+        "invariant went unchecked. That is a failure of the stage.")
 
     for d in sorted(steered.iterdir()):
         fasta = d / "receptor.fasta"

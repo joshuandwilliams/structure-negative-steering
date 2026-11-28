@@ -112,6 +112,16 @@ def test_steering_mutations_avoid_the_protected_interface():
     rows = _read(RUN / "raw_per_seed_results.csv")
     steered = [r for r in rows if r.get("design") not in ("initial", "", None)]
     if not steered:
+        # A cold start that already passed is a real outcome, and the plan
+        # records it. Without that check this skipped whenever steering
+        # produced nothing, including when it produced nothing because it
+        # broke, which is exactly what this test is for.
+        skipped = json.loads(
+            (CYCLE0 / "plan.json").read_text()).get("skip_steering")
+        assert skipped, (
+            "no steered designs in the run, and plan.json does not say "
+            "skip_steering. Steering was meant to run and produced nothing, "
+            "so the protected-interface invariant went unchecked.")
         pytest.skip("cold start passed, so no steered design was produced")
 
     for r in steered:

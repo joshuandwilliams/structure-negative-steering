@@ -142,8 +142,12 @@ def test_extract_row_is_stage_aware_about_reversion():
     rows = _read(FIXTURE / "aggregated_results.csv")
     reverted = [r for r in rows
                 if (r.get("reverted_ra_eff_vs_truth_median") or "").strip()]
-    if not reverted:
-        pytest.skip("no reversion-attempted designs in this run")
+    # Asserted, not skipped. full_run/6G10 is committed and carries two rows
+    # with a reverted median, so an empty list means the fixture changed under
+    # the test rather than that this run had no reversions.
+    assert reverted, (
+        "the committed fixture has no reversion-attempted designs, so the "
+        "stage-awareness rule below cannot be checked at all.")
     got = ep.extract_row(reverted[0], None)
     if got and got.get("ra_eff_vs_truth_median"):
         assert got["ra_eff_vs_truth_median"] == \

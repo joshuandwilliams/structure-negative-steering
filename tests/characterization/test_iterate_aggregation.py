@@ -39,8 +39,10 @@ def _per_seed(target: str) -> list[dict]:
 @needs_cohort
 def test_aggregation_collapses_real_seeds_into_one_row():
     rows = [r for r in _per_seed("6G10") if r.get("design") not in ("initial", "")]
-    if not rows:
-        pytest.skip("no steered rows in the fixture")
+    # Asserted, not skipped. The 6G10 fixture is committed with 60 steered
+    # rows, so an empty list means the fixture changed, not that this run had
+    # nothing to aggregate.
+    assert rows, "the committed 6G10 fixture has no steered rows to collapse"
     agg = nsagg._aggregate_per_sequence(rows, "steered_")
     assert isinstance(agg, dict) and agg, "aggregation produced nothing"
 
