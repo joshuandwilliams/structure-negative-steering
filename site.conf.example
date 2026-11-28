@@ -6,10 +6,18 @@
 # that would be lives here, so a clone runs on any SLURM site once this file
 # is filled in.
 #
-# Sourced by scripts/site_conf.sh, which the SLURM launchers and
-# scripts/submit.sh load. Plain shell, so a value may reference another.
-# Every setting is optional. An unset one falls back to the neutral default
-# noted beside it, and the script that needs it says so if it cannot continue.
+# Sourced by scripts/site_conf.sh, which exactly two scripts load:
+# scripts/submit.sh and scripts/run_workflow.slurm.sh.
+# scripts/negative_steering.slurm.sh and tests/test_run.slurm.sh do NOT load
+# it, and inherit these values from submit.sh through sbatch instead. Running
+# either of those by hand means setting NEGSTEER_BOLTZ_IMG yourself.
+#
+# Plain shell, so a value may reference another. Every setting here is
+# optional. An unset one falls back to the neutral default noted beside it,
+# and the script that needs it says so if it cannot continue.
+#
+# Every SITE setting is here. Four more variables exist for development and
+# testing rather than for a site, and they are listed at the bottom.
 
 
 # ── Where the repo lives on the cluster ──────────────────────────────────────
@@ -64,7 +72,11 @@
 
 
 # ── Containers ───────────────────────────────────────────────────────────────
-# The Boltz image, built from containers/boltz2_negsteer.def. A config that
+# The Boltz image. On a cluster it is built with
+# `apptainer build negsteer.img containers/negsteer.def`, which bootstraps the
+# published Docker image that containers/Dockerfile defines.
+# containers/boltz2_negsteer.def is the superseded Apptainer definition, kept
+# as a fallback, and is not what builds this. A config that
 # leaves boltz_container null falls back to this, so one value covers every
 # such config. No default: a run without it stops and says so.
 #
@@ -88,3 +100,40 @@
 # Leave both unset if `java` and `nextflow` are already on PATH.
 #NEGSTEER_JAVA_HOME="/path/to/jdk-17"
 #NEGSTEER_NEXTFLOW_IMG="/path/to/NextFlow.img"
+
+
+# ── The check_test_run assertions ────────────────────────────────────────────
+# An image with pytest in it, built from containers/Dockerfile.test. The
+# runtime image above deliberately has none, because one image runs the engine
+# and one tests it.
+#
+# Left unset, tests/test_run.slurm.sh still produces the run and then says it
+# is skipping the assertions. They can be run afterwards from anywhere against
+# the finished tree:
+#
+#   pytest -m check_test_run tests/characterization/test_engine_single_run.py
+#
+# No default. Read by tests/test_run.slurm.sh.
+#NEGSTEER_TEST_CONTAINER="/path/to/negsteer-test.img"
+
+
+# ── Not site settings: development and testing ───────────────────────────────
+# These are read from the environment and are deliberately NOT set here. They
+# are listed so the set of variables this engine reads is written down in one
+# place.
+#
+#   NEGSTEER_SITE_CONF       which file scripts/site_conf.sh sources. Default:
+#                            site.conf beside it. Point it elsewhere to keep
+#                            several sites in one checkout.
+#   NEGSTEER_REPO            the checkout tests/test_run.slurm.sh should use,
+#                            when it is not the submission directory.
+#   NEGSTEER_SINGLE_RUN_DIR  the run tree the check_test_run assertions read.
+#                            Default: tests/test_run.
+#   NEGSTEER_COVERAGE        set to 1 to wrap every in-container Python call in
+#                            `coverage run`, so a cluster run measures bin/
+#                            rather than only the assertions. Needs coverage
+#                            inside the image.
+#   NEGSTEER_BIN             the directory holding the engine's bin/, for
+#                            `negsteer` when the package and the engine are not
+#                            siblings. It is the escape hatch the CLI names in
+#                            its own error message.

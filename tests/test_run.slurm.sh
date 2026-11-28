@@ -50,7 +50,7 @@
 #   pytest -m check_test_run tests/characterization/test_engine_single_run.py
 #
 # To measure how much of bin/ the run actually exercised, set
-# NEGSTEER_SINGLE_RUN_COVERAGE=1. That wraps every in-container Python call in
+# NEGSTEER_COVERAGE=1. That wraps every in-container Python call in
 # `coverage run`, so the engine itself is instrumented rather than just the
 # assertions. It needs coverage installed in the Boltz image, and is skipped
 # with a warning if it is not.

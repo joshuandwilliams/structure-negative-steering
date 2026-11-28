@@ -11,7 +11,20 @@ complex and two residue-index files, and writes a run directory. Callers are
 expected to read negsteer_result.json rather than glob for files.
 """
 
-__version__ = "1.0.0"
+# Read from the installed distribution rather than written here, so there is
+# one declaration. Hand-writing it here meant pyproject.toml said 0.0.0.9000
+# while `negsteer --version` and every negsteer_result.json said 1.0.0.
+#
+# The fallback covers running from a source tree that was never pip-installed,
+# which the test suite does. It repeats pyproject's value and is the only place
+# that can drift, so it is kept identical on purpose.
+try:  # pragma: no cover - the installed path is what CI exercises
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _dist_version
+
+    __version__ = _dist_version("structure-negative-steering")
+except (ImportError, PackageNotFoundError):  # pragma: no cover
+    __version__ = "0.0.0.9000"
 
 # The output contract, versioned separately from the package. A caller pins
 # this rather than __version__. The package may change without the shape of

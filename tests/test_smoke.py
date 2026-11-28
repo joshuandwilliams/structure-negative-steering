@@ -113,8 +113,9 @@ def test_flowchart_colours_the_gpu_stages_as_gpu_stages() -> None:
 @pytest.mark.logic
 def test_submit_wrapper_selects_the_cluster_profile() -> None:
     """Nextflow auto-applies a profile named `standard` when -profile is
-    omitted, and this repo's `standard` pins every label to the local
-    executor. A wrapper that dropped -profile hpc would run Boltz inside the
+    omitted. This repo deliberately HAS no `standard`, so omitting -profile
+    leaves `process.executor` at its default of local. A wrapper that dropped
+    -profile hpc would run Boltz inside the
     2-CPU head job instead of submitting it, which fails slowly and looks
     like a resource problem rather than a wiring one."""
     assert "-profile hpc" in SUBMIT_SH.read_text()

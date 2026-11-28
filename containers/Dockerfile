@@ -30,9 +30,13 @@
 # is the version the committed benchmark used.
 #
 # SIZE. The three weight files alone are 6.21 GB (conf 2.29, aff 2.06, mols
-# 1.86, measured from the HuggingFace headers), and the base is 2.9 GB
-# compressed. This will not build on a standard GitHub-hosted runner, which
-# has 14 GB of SSD. Build it on the software node.
+# 1.86, measured from the HuggingFace headers). The base adds only 0.18 GB
+# compressed, so the weights plus torch and the CUDA packages are what make the
+# published image 9.33 GB compressed (Docker Hub, joshuandwilliams/negsteer
+# 2.2.1, 2026-11-27) and the built Apptainer image 11 GB on disk. This will not
+# build on a standard GitHub-hosted runner, which has 14 GB of SSD. Build it on
+# the software node. An earlier version of this note said the base was 2.9 GB:
+# that is the -cudnn-runtime- variant rejected above, not the one used.
 # =============================================================================
 FROM nvidia/cuda:12.8.1-base-rockylinux9
 

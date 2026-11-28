@@ -14,8 +14,8 @@ drawn here are exactly the processes `modules/negsteer_stages.nf` defines, so a
 stage added or renamed without redrawing fails the suite. A figure that has
 drifted from the code is worse than no figure, because it is still believed.
 
-The method the workflow runs is a separate figure, under
-[What it measures](#what-it-measures).
+The method the workflow runs is a separate figure,
+`docs/negative_steering_flowchart.svg`, embedded at the top of the README.
 
 One target is one `config.yml`. The two fan-outs, one Boltz-2 call per steered design and one per reverted design, were bash loops inside a single SLURM job. They are Nextflow channels now, so each prediction is a task with its own resources, retry and failure. The width of each fan-out is read from the stage before it rather than from the config. The plan legitimately stages fewer designs than asked, or none at all when the cold start already passes.
 
@@ -65,6 +65,7 @@ Everything else has a default. `--n-designs`, `--num-seeds`, `--diffusion-sample
 ```json
 {
   "contract_version": 1,
+  "negsteer_version": "0.0.0.9000",
   "name": "design_00",
   "status": "ok",
   "skip_steering": false,
@@ -99,7 +100,7 @@ singularity exec --nv --bind $REPO negsteer.img \
 
 The engine is a mid-pipeline component. It does not turn a bare PDB into results by itself. It needs both chain sequences plus a true-interface and a design-region index file, and it uses the complex as the comparison basis. Runs are config-driven, one YAML per target.
 
-The HPC is airgapped, so nothing is installed there and everything runs in a container. `negative_steering.slurm.sh` uses only `bash`, `grep` and `singularity` on the host, and the workflow's stages hold to the same rule. All Python runs inside the Boltz image, which ships `yaml`, `gemmi`, `biopython` and `numpy`. The GPU allocation is required or Boltz fails with "No supported gpu backend found!".
+The HPC is airgapped, so nothing is installed there and everything runs in a container. `negative_steering.slurm.sh` runs no Python on the host. It uses `bash` with `grep`, `sed`, `realpath`, `basename` and `dirname`, plus `singularity`, and the workflow's stages hold to the same rule. The rule that is enforced is the Python one, because Python is what needs the dependencies the cluster does not have. All Python runs inside the Boltz image, which ships `yaml`, `gemmi`, `biopython` and `numpy`. The GPU allocation is required or Boltz fails with "No supported gpu backend found!".
 
 `tests/characterization/test_no_host_python.py` enforces that. Every `script:` block's Python must be wrapped in `singularity exec`, and every `stub:` block must need no container at all. The first cluster run failed on the one stage that broke the rule, `NEGSTEER_READ_CONFIG`, which called the host's `python3` for a driver that needs PyYAML.
 
@@ -142,7 +143,7 @@ sbatch -t 12:00:00 scripts/run_workflow.slurm.sh tests/test_run/config.yml
 nextflow run main.nf -profile local --targets '...' -stub-run   # walk the DAG
 ```
 
-The wrapper resolves the JDK and the Nextflow launcher itself. Nothing is installed on the cluster. It extracts the launcher from `NextFlow.img` into this repo's own `nxf_home/` on first use, rather than borrowing a sibling repo's, so a run here cannot write into that one. `NEGSTEER_JAVA_HOME` and `NEGSTEER_NEXTFLOW_IMG` override both paths.
+The wrapper resolves the JDK and the Nextflow launcher itself. Nothing is installed on the cluster. It extracts the launcher from `NextFlow.img` into the launch directory's own `nxf_home/` on first use, rather than borrowing a sibling repo's, so a run here cannot write into that one. The launch directory is `NEGSTEER_LAUNCH_DIR`, which is this repo only when the targets are, so with targets in another repository `nxf_home/` is not here at all. `NEGSTEER_JAVA_HOME` and `NEGSTEER_NEXTFLOW_IMG` override both paths.
 
 The head process is the one thing that does not run in a container. Its whole job is to submit and poll SLURM jobs, and `sbatch` and `squeue` are host binaries, so inside an image it would have no scheduler to talk to. That is why it needs a host JVM, which `NEGSTEER_JAVA_HOME` in `site.conf` points at, or any `java` already on PATH. The Nextflow version is not a host version either. The launcher is extracted from `NEGSTEER_NEXTFLOW_IMG`, whose own `%post` pins 25.10.4 by URL, and the host supplies only the JVM to run it. Install Nextflow 25.10.4 normally instead and `run_workflow.slurm.sh` uses that. Every pipeline stage still runs inside the Boltz image.
 
@@ -165,10 +166,19 @@ A single target can still be run without Nextflow, which is useful when debuggin
 ```bash
 ./scripts/submit.sh steer tests/test_run/config.yml
 
-# CPU-only steps need no GPU node. Run them interactively with bash:
-bash scripts/negative_steering.slurm.sh <config> --dry-run
-bash scripts/negative_steering.slurm.sh <config> --prepare-only
+# CPU-only steps need no GPU node. Run them interactively with bash.
+# site.conf is NOT picked up this way, so set the image yourself: the script
+# never sources scripts/site_conf.sh, and inherits NEGSTEER_BOLTZ_IMG from
+# submit.sh through sbatch instead.
+NEGSTEER_BOLTZ_IMG=/path/to/negsteer.img \
+    bash scripts/negative_steering.slurm.sh <config> --dry-run
+NEGSTEER_BOLTZ_IMG=/path/to/negsteer.img \
+    bash scripts/negative_steering.slurm.sh <config> --prepare-only
 ```
+
+Without it, a config carrying `boltz_container: null`, which
+`tests/test_run/config.yml` does, leaves the resolver with nothing and the
+script exits with a hard error.
 
 `scripts/submit_benchmarks.sh`, which wrapped that runner for the whole
 benchmark with one `sbatch` per target, moved to the analyses repository with
@@ -199,7 +209,17 @@ The config driver is the supported path. `prepare_complex_inputs.py` also runs o
 
 Prepare writes `receptor.fasta`, `effector.fasta`, `true_interface.txt` and `design_region.txt`. For 6G10 that is receptor chain A at 76 residues, effector chain B at 83, and 26 interface residues at 5 Å.
 
-The interface is either derived from heavy-atom contacts with `--derive --contact-cutoff`, or supplied with `--interface-file`. Chains default to receptor A and effector B, overridden with `--receptor-chain` and `--effector-chain`. The design region takes `--design-region none|all` or `--design-region-file FILE`.
+The interface is either derived from heavy-atom contacts with `--derive --contact-cutoff`, or supplied with `--interface-file`. Chains default to receptor A and effector B, overridden with `--receptor-chain` and `--effector-chain`. The design region takes `--design-region none|interface|all`, defaulting to `interface`, or `--design-region-file FILE`, which overrides it.
+
+`--ablate` destroys the receptor's true interface before the run, which is the
+control for the 18/18 result. `--ablate alanine` sets every interface position
+to A, `--ablate scrambled` permutes the residues already there at fixed
+composition, and `none` is the default. `--ablate-seed` seeds the permutation,
+defaulting to a hash of the complex stem so a re-run reproduces it. The ground
+truth PDB is untouched either way, so restraints and RMSD still reference the
+solved pose. The arm that uses these flags is in `negative-steering-analyses`;
+the flags themselves are here, and
+`tests/characterization/test_interface_ablation.py` covers them.
 
 **The two residue files use different index bases.** `--interface-file` takes 0-based positional indices, one per line or comma-separated, with `#` comments ignored. `--design-region-file` takes a 1-based list.
 
@@ -236,7 +256,9 @@ plan stages designs and the steering fan-out actually runs.
 
 It does NOT exercise the reversion fan-out, and an earlier version of this
 paragraph said it did. The 4-of-6 contamination figure behind that claim is
-from the 20-design `experiments/benchmarking/` run, not from this config.
+from the 20-design benchmarking run, whose tree now lives in
+`negative-steering-analyses` under `experiments/benchmarking/`, not from this
+config.
 Contamination is only checked on designs that pass the RMSD gate, and in the
 cluster run of 2026-11-27 none of the nine did, so `build-contaminated`
 reported 0 checked and `plan-reversions` wrote an empty plan. What this config
@@ -282,17 +304,20 @@ the RFDiffusion contig parsing and the two `derive_*` scripts that read a
 design pipeline's `rfdiffusion_metrics.json`. The pipeline keeps its own
 copies, which is where that code belongs.
 
-The `hpc` tier pins a finished benchmark run. It asserts both variants cover the
-same targets, that every run carries the outputs it should, that one run yields
-exactly one tiered representative, and that a run under `constrained/` really
-did carry `--boltz-constraints`. That last one is the only thing that would
-catch a run landing in the wrong variant directory, which would silently make
-the comparison between them meaningless. The tier skips cleanly when no run tree
-is present. Point it elsewhere with `NEGSTEER_BENCH_DIR`.
+There is no `hpc` test tier here any more, and this paragraph used to describe
+one. It asserted on a finished benchmark run: that both variants covered the
+same targets, that each run carried its outputs, that one run yielded exactly
+one tiered representative, and that a run under `constrained/` really did carry
+`--boltz-constraints`. The benchmark tree moved to `negative-steering-analyses`
+in the repository split, and those assertions went with it. The markers here
+are `logic`, `check_test_run` and `slow`, declared in `pyproject.toml`.
+`NEGSTEER_BENCH_DIR`, which pointed that tier elsewhere, is read by nothing in
+this repository.
 
-Two invariants worth naming, because both were wrong on the first attempt.
-`summary.txt` is not written by every run, since a target whose cold start
-already passed short-circuits before it. And `cross_tier` is assigned from
+Two invariants worth naming, because both were wrong on the first attempt at
+asserting on a finished run. `summary.txt` is not written by every run, since a
+target whose cold start already passed sets `skip_steering` and `collect`
+returns before the summary write. And `cross_tier` is assigned from
 `passing_summary.csv`, so a tier-none row can still carry a non-zero
 `rep_n_pass`. That block is filled by a best-of-a-bad-lot fallback from
 `aggregated_results.csv` rather than by the passing gate.

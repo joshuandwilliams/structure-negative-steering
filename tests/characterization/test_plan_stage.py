@@ -174,8 +174,12 @@ def test_steering_produces_the_requested_number_of_designs(tmp_path):
     _run_plan(work, wrong)
 
     steered = work / "steered"
-    if not steered.is_dir():
-        pytest.skip("this cold start did not reach the steering stage")
+    # Asserted, not skipped. A plan that produced no steering is the failure
+    # this test exists to catch, so skipping on it would make the test vacuous.
+    assert steered.is_dir(), (
+        "the plan stage wrote no steered/ directory, so it never reached "
+        "steering. That is a failure of the stage, not a run this test does "
+        "not apply to.")
     designs = {p.name.rsplit("_s", 1)[0] for p in steered.iterdir() if p.is_dir()}
     assert len(designs) <= 2, f"asked for 2 designs, got {sorted(designs)}"
     assert designs, "the steering stage produced no designs"
@@ -193,8 +197,13 @@ def test_steering_never_mutates_the_protected_interface(tmp_path):
     plan = json.loads((work / "plan.json").read_text())
     wild = plan["wild_type_receptor_seq"]
     true_idx = set(plan.get("true_interface_idx") or plan.get("true_site_idx") or [])
-    if not true_idx:
-        pytest.skip("plan.json does not record the protected index set")
+    # Asserted, not skipped. This is the central invariant of the method, and
+    # a plan.json that stopped recording the protected set would have silently
+    # removed the only test of it.
+    assert true_idx, (
+        "plan.json records no true_interface_idx or true_site_idx, so there is "
+        "no protected set to check the mutations against. Without it this "
+        "test cannot assert the invariant at all.")
 
     steered = work / "steered"
     if not steered.is_dir():
@@ -520,8 +529,11 @@ def test_no_steering_mutation_lands_in_the_design_region(tmp_path):
     work = tmp_path / "work"
     _run_plan(work, wrong, "--design-region-indices-file", str(region))
     steered = work / "steered"
-    if not steered.is_dir():
-        pytest.skip("this cold start did not reach the steering stage")
+    # Asserted, not skipped, for the same reason as the true-interface test:
+    # no steered/ means the stage failed, and a skip would hide it.
+    assert steered.is_dir(), (
+        "the plan stage wrote no steered/ directory with a design region "
+        "supplied, so the design-region invariant went unchecked.")
     wild = _plan_of(work)["wild_type_receptor_seq"]
     region_idx = set(range(29, 45))
     for d in sorted(steered.iterdir()):

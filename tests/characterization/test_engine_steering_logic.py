@@ -270,24 +270,72 @@ def test_float_or_none(raw, expected):
 
 # ── maximin selection: how diverse designs are chosen ────────────────────────
 
+# maximin_select takes a list of candidate DICTS, each carrying a float
+# `min_dist_to_upstream`, and returns the k most distant. These tests used to
+# pass a list of (name, {}) tuples, so `c["min_dist_to_upstream"]` raised
+# TypeError, an `except Exception` caught it and the tests skipped themselves.
+# Both asserted nothing for as long as that stood.
+
+
+def _cand(name, dist, **extra):
+    """One candidate, with the keys maximin_select reads and nothing else."""
+    c = {"design": name, "min_dist_to_upstream": float(dist)}
+    c.update(extra)
+    return c
+
+
 @pytest.mark.logic
-def test_maximin_returns_at_most_k():
-    cands = [(f"d{i}", {}) for i in range(10)]
-    try:
-        got = cold.maximin_select(cands, 3)
-    except Exception:
-        pytest.skip("maximin_select needs a distance structure not built here")
-    assert len(got) <= 3
+def test_maximin_takes_the_k_most_distant_candidates():
+    """Diversity is the whole point of the selection. Taking the k largest
+    `min_dist_to_upstream` is what stops a cycle spending its budget on ten
+    near-identical designs."""
+    cands = [_cand(f"d{i}", i) for i in range(10)]
+    got = cold.maximin_select(cands, 3)
+    assert [c["design"] for c in got] == ["d9", "d8", "d7"]
 
 
 @pytest.mark.logic
 def test_maximin_of_fewer_than_k_returns_everything():
-    cands = [(f"d{i}", {}) for i in range(2)]
-    try:
-        got = cold.maximin_select(cands, 5)
-    except Exception:
-        pytest.skip("maximin_select needs a distance structure not built here")
-    assert len(got) == 2
+    cands = [_cand("d0", 1.0), _cand("d1", 2.0)]
+    got = cold.maximin_select(cands, 5)
+    assert [c["design"] for c in got] == ["d1", "d0"]
+
+
+@pytest.mark.logic
+def test_maximin_breaks_a_distance_tie_on_the_better_pose():
+    """Equal distance means equally diverse, so the pose decides. Lower ra_eff
+    wins, because that is the design that is closer to being right."""
+    cands = [_cand("worse", 5.0, receptor_aligned_effector_rmsd_vs_truth=9.0),
+             _cand("better", 5.0, receptor_aligned_effector_rmsd_vs_truth=2.0)]
+    assert [c["design"] for c in cold.maximin_select(cands, 1)] == ["better"]
+
+
+@pytest.mark.logic
+def test_maximin_judges_a_reverted_design_on_its_reverted_pose():
+    """`_active_ra_eff_for_selection` is set by finalize and is the only
+    post-reversion view here, because the steered base columns are never
+    overwritten. A pose_holds design must be ranked on what it kept, not on
+    the pre-reversion prediction it did not."""
+    cands = [
+        _cand("raw_looks_good", 5.0,
+              receptor_aligned_effector_rmsd_vs_truth=1.0,
+              _active_ra_eff_for_selection=20.0),
+        _cand("holds_up", 5.0,
+              receptor_aligned_effector_rmsd_vs_truth=8.0,
+              _active_ra_eff_for_selection=2.0),
+    ]
+    assert [c["design"] for c in cold.maximin_select(cands, 1)] == ["holds_up"]
+
+
+@pytest.mark.logic
+def test_maximin_puts_an_unreadable_pose_last_rather_than_crashing():
+    """A missing or non-numeric ra_eff becomes inf, so the candidate sorts to
+    the back of its distance tie instead of raising mid-cycle."""
+    cands = [_cand("unreadable", 5.0,
+                   receptor_aligned_effector_rmsd_vs_truth="n/a"),
+             _cand("fine", 5.0, receptor_aligned_effector_rmsd_vs_truth=3.0)]
+    assert [c["design"] for c in cold.maximin_select(cands, 2)] == \
+        ["fine", "unreadable"]
 
 
 # ── extract_passing: cross-seed mutation summaries ───────────────────────────

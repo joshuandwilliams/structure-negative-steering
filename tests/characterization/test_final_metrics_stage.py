@@ -286,6 +286,42 @@ def test_populate_all_reaches_every_row_including_the_dropped_ones(agg,
 
 
 @pytest.mark.logic
+def test_a_metric_column_the_table_lacks_is_refused(agg, tmp_path, capsys):
+    """A missing filter column must stop the stage, not empty it.
+
+    The filter reads the row with .get, so a column that is not in
+    all_results_multicycle.csv yields None for every row and rejects all of
+    them. The stage then exits 0 having written no metrics at all, and the only
+    trace is a per-seed CSV whose confidence columns are blank.
+
+    That is how `negsteer run` produced 23 empty columns on the cluster: its
+    --metric-column default was receptor_aligned_effector_rmsd, the per-design
+    name, while this table carries steered_ra_eff_vs_truth.
+    """
+    run = Run(tmp_path / "exp").design("d0", ra=2.0).write()
+    assert invoke(agg, run, "--metric-column",
+                  "receptor_aligned_effector_rmsd") == 2
+    err = capsys.readouterr().err
+    assert "is not a column of" in err
+    # The message has to name the columns that ARE there, or the next person
+    # has to go and read the aggregator to find the right name.
+    assert "steered_ra_eff_vs_truth" in err
+
+
+@pytest.mark.logic
+def test_populate_all_does_not_need_the_metric_column_at_all(agg, tmp_path):
+    """The refusal above must not fire when the filter is bypassed.
+
+    --populate-all returns True for every row before the column is ever read,
+    so demanding the column there would reject a run that does not need it.
+    """
+    run = Run(tmp_path / "exp").design("d0", ra=2.0).write()
+    assert invoke(agg, run, "--populate-all",
+                  "--metric-column", "a_column_that_does_not_exist") == 0
+    assert run.read()[0]["steered_iptm"] == "0.8"
+
+
+@pytest.mark.logic
 def test_the_threshold_is_configurable(agg, tmp_path):
     run = Run(tmp_path / "exp").design("d0", ra=7.5).write()
     assert invoke(agg, run, "--rmsd-threshold", "10") == 0
