@@ -35,9 +35,9 @@
 #
 # --via-cli runs the SAME config through the tool interface instead of the
 # shell orchestrator, into tests/test_run/run_cli/. Every steering knob is read
-# from that config rather than restated here, so the two runs are comparable,
-# so the two run directories are directly comparable and
-# test_single_run_cli_matches_orchestrator.py asserts they agree.
+# from that config rather than restated here, so the two run directories are
+# directly comparable and test_single_run_cli_matches_orchestrator.py asserts
+# they agree.
 #
 # That comparison is the only thing that proves the tool end to end. The unit
 # tests assert the CLI emits the same stage commands, which is an argv-level

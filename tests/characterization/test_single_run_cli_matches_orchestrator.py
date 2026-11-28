@@ -116,6 +116,28 @@ ALLOWED_TO_DIFFER = {
 }
 
 
+# Continuous metrics are compared with a relative tolerance, for the reason in
+# the module docstring: Boltz is seeded but CUDA kernel scheduling is not
+# bit-exact. Measured on the 2026-11-28 pair, 9 of 10 rows matched to the last
+# digit and one differed by 0.01 pLDDT points, 80.60 against 80.59, which is
+# the 4th significant figure. complex_plddt is the same quantity over 100, so
+# that is one value reported twice rather than two independent differences.
+#
+# 1e-3 relative absorbs that and nothing larger. The absolute floor covers
+# columns that sit near zero, where a relative tolerance is meaningless: the
+# ipSAE columns are legitimately 0.0 on this target.
+REL_TOL = 1e-3
+ABS_TOL = 1e-4
+
+
+def _num(v):
+    """float, or None when the text is not a number."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 @pytest.mark.check_test_run
 @needs_both
 def test_every_column_agrees_except_the_run_paths():
@@ -130,6 +152,10 @@ def test_every_column_agrees_except_the_run_paths():
     Two default divergences caused it, both since fixed and both now pinned by
     test_postprocess_defaults.py. This is the assertion that would have caught
     them on the data rather than on the source.
+
+    A value against a blank is always a failure, whatever the tolerance. That
+    is the shape the defect took, and absent data is not a small numeric
+    difference.
     """
     orch = {_key(r): r for r in _read(ORCH / "raw_per_seed_results.csv")}
     cli = {_key(r): r for r in _read(CLI / "raw_per_seed_results.csv")}
@@ -137,22 +163,37 @@ def test_every_column_agrees_except_the_run_paths():
                if c not in ALLOWED_TO_DIFFER]
     assert columns, "no comparable columns, so this asserted nothing"
 
-    differing = {}
+    missing, differing = {}, {}
     for col in columns:
-        bad = [k for k in orch
-               if (orch[k].get(col) or "").strip()
-               != (cli[k].get(col) or "").strip()]
-        if bad:
-            k = bad[0]
-            differing[col] = (len(bad), orch[k].get(col), cli[k].get(col))
+        for k in orch:
+            a = (orch[k].get(col) or "").strip()
+            b = (cli[k].get(col) or "").strip()
+            if (a == "") != (b == ""):
+                missing.setdefault(col, []).append((k, a, b))
+                continue
+            if a == b:
+                continue
+            x, y = _num(a), _num(b)
+            if x is None or y is None:
+                differing.setdefault(col, []).append((k, a, b))
+            elif abs(x - y) > max(ABS_TOL, REL_TOL * max(abs(x), abs(y))):
+                differing.setdefault(col, []).append((k, a, b))
+
+    assert not missing, (
+        "a column is populated on one path and blank on the other:\n"
+        + "\n".join(
+            f"  {c}: {len(rows)}/{len(orch)} rows, e.g. {rows[0][0]} "
+            f"orch={rows[0][1]!r} cli={rows[0][2]!r}"
+            for c, rows in sorted(missing.items()))
+        + "\n\nA blank is not a measured null. The analyses read it as "
+          "absent data.")
 
     assert not differing, (
-        "columns differ between the two paths:\n"
+        f"columns disagree by more than {REL_TOL:g} relative:\n"
         + "\n".join(
-            f"  {c}: {n}/{len(orch)} rows, e.g. orch={o!r} cli={v!r}"
-            for c, (n, o, v) in sorted(differing.items()))
-        + "\n\nA column blank on one side is not a measured null. The "
-          "analyses read it as absent data.")
+            f"  {c}: {len(rows)}/{len(orch)} rows, e.g. {rows[0][0]} "
+            f"orch={rows[0][1]!r} cli={rows[0][2]!r}"
+            for c, rows in sorted(differing.items())))
 
 
 @pytest.mark.check_test_run
