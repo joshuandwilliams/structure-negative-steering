@@ -6,19 +6,31 @@ Two images, because one runs the engine and one tests it.
 |:---|:---|:---|
 | `Dockerfile` | runtime | Boltz-2 2.2.1, torch 2.6.0+cu124, the CUDA 12.8 stack, the Boltz weights, and the engine |
 | `Dockerfile.test` | test | Python 3.11, numpy, gemmi, biopython, PyYAML, pytest. No torch, no CUDA, no Boltz |
+| `negsteer.def` | runtime | Apptainer definition that bootstraps the published Docker image. This is how the cluster image is built |
 | `boltz2_negsteer.def` | runtime | The Apptainer definition the runtime `Dockerfile` was ported from. See below |
 
 ## Building
 
-Build from the repository root, not from here, because the runtime image copies
-in `bin/`, `negsteer/` and `pyproject.toml`.
+On a cluster, you do not build the runtime image. `negsteer.def` bootstraps the
+published Docker image, so there is no Docker daemon and no account involved:
+
+```bash
+apptainer build negsteer.img containers/negsteer.def
+```
+
+`negsteer.def` documents an airgapped variant too, bootstrapping from a
+`docker-archive` tarball rather than from the registry.
+
+To change what is *in* the image, build it from the repository root, not from
+here, because the runtime image copies in `bin/`, `negsteer/` and
+`pyproject.toml`.
 
 ```bash
 docker build -t negsteer:dev      -f containers/Dockerfile      .
 docker build -t negsteer-test:dev -f containers/Dockerfile.test .
 ```
 
-Apptainer converts either one without a registry:
+With a local Docker daemon, Apptainer converts either one without a registry:
 
 ```bash
 apptainer build negsteer.sif      docker-daemon://negsteer:dev
@@ -30,9 +42,10 @@ Then point the pipeline at it with `NEGSTEER_BOLTZ_IMG` in `site.conf`, and the
 
 The runtime image will not build on a GitHub-hosted runner. The three weight
 files are 6.21 GB on their own (`boltz2_conf.ckpt` 2.29, `boltz2_aff.ckpt`
-2.06, `mols.tar` 1.86, from the HuggingFace response headers) and the CUDA base
-is another 2.9 GB compressed, against the 14 GB of SSD a standard runner has.
-Build it on a machine with disk and a route out to the internet.
+2.06, `mols.tar` 1.86, from the HuggingFace response headers), and the whole
+image is 9.33 GB compressed on Docker Hub, against the 14 GB of SSD a standard
+runner has. The CUDA base contributes only 0.18 GB of that. Build it on a
+machine with disk and a route out to the internet.
 
 ## Why the weights are inside the image
 
@@ -70,10 +83,13 @@ be deleted once that is done rather than maintained in parallel.
 
 Two things the port changes deliberately:
 
-- The base image. `nvidia/cuda:12.8.1-cudnn-runtime-rockylinux9` is the same
-  RHEL 9 family as the def's AlmaLinux 9, with CUDA 12.8 and cuDNN 9 already
-  installed, which replaces 123 lines of hand-rolled NVIDIA yum-repo setup and
-  package selection.
+- The base image. `nvidia/cuda:12.8.1-base-rockylinux9` is the same RHEL 9
+  family as the def's AlmaLinux 9 and ships `cuda.repo` already configured,
+  which replaces the def's hand-rolled NVIDIA yum-repo setup. The package
+  selection is NOT replaced: the Dockerfile still installs the CUDA 12.8
+  packages and `libcudnn9-cuda-12` by hand. The `-cudnn-runtime-` variant was
+  rejected deliberately, because at 2.9 GB compressed it bundles a CUDA runtime
+  and cuDNN that the dnf list then installs over the top.
 - Python. The def compiled 3.11.9 from source to get sqlite support. Rocky 9
   AppStream ships `python3.11-3.11.13` built with it, so the compile is gone.
 

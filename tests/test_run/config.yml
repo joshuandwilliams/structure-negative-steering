@@ -5,13 +5,19 @@
 #   sbatch tests/test_run.slurm.sh         the engine entry point directly
 #
 # One config for both, so the two paths are compared on identical inputs and
-# neither loses coverage to the other. The hpc tier asserts on whichever ran.
+# neither loses coverage to the other. The check_test_run tier asserts on
+# whichever ran.
 #
 # 6G10 was chosen because its cold start fails badly, 23.9 A against the 5 A
 # threshold, so the plan stages designs and the steering fan-out actually runs.
-# Its committed run also contaminated 4 of 6 checked designs, so the reversion
-# fan-out is exercised too. Both empty-fan-out bypasses in main.nf are therefore
-# NOT covered here; -stub-run is what covers those.
+# It does NOT exercise the reversion fan-out, and this comment used to say it
+# did. The 4-of-6 contamination figure behind that claim came from the
+# 20-design benchmarking run, not from this config. Contamination is only
+# checked on designs passing the RMSD gate, and in the cluster runs of
+# 2026-11-27 none of the nine did, so build-contaminated reported 0 checked and
+# plan-reversions wrote an empty plan. What this config covers instead is the
+# empty-fan-out bypass, on real hardware. -stub-run covers the populated
+# fan-outs. See docs/implementation-notes.md.
 #
 # Everything is the shipped 6G10 benchmark configuration except negsteer_n_designs,
 # which is 3 rather than 20. That is the only cost knob turned down, so the fan-out

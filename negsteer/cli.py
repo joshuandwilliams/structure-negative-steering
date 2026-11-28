@@ -389,9 +389,35 @@ def build_parser() -> argparse.ArgumentParser:
 
     pp = r.add_argument_group("post-processing")
     pp.add_argument("--postprocess-rmsd-threshold", type=float, default=5.0)
-    pp.add_argument("--metric-column", default="receptor_aligned_effector_rmsd")
+    # These two defaults must match bin/negative_steering_run_one.sh, which
+    # produced the committed benchmark, and negsteer_aggregate.py's own
+    # argparse defaults. They did not, and each one alone was enough to leave
+    # every confidence and interface metric blank:
+    #
+    #   --metric-column was receptor_aligned_effector_rmsd, which is the
+    #   per-design column name. compute-final-metrics filters
+    #   all_results_multicycle.csv, which carries steered_ra_eff_vs_truth, so
+    #   the column was absent, every row failed the filter and the stage wrote
+    #   nothing while exiting 0.
+    #
+    #   --populate-all was off, so the filter was not bypassed either. The
+    #   orchestrator has it on (run_one.sh PP_POPULATE_ALL=1), which is how the
+    #   benchmark came to carry metrics on all 60 steered rows.
+    #
+    # The analyses read a blank metric as absent data, not as a measured null:
+    # confidence_common._final_seed_value treats a blank
+    # steered_n_contacts_on_mutated_positions as an unusable seed.
+    pp.add_argument("--metric-column", default="steered_ra_eff_vs_truth")
     pp.add_argument("--postprocess-contact-cutoff", type=float, default=5.0)
-    pp.add_argument("--populate-all", action="store_true")
+    pp.add_argument("--populate-all", dest="populate_all",
+                    action="store_true", default=True,
+                    help="populate confidence and interface metrics on every "
+                         "row, not only the rows passing the ra_eff and intact "
+                         "filter. On by default, matching the orchestrator.")
+    pp.add_argument("--no-populate-all", dest="populate_all",
+                    action="store_false",
+                    help="only populate metrics on passing rows. Cheaper, and "
+                         "it leaves holes the analyses read as absent data.")
     pp.add_argument("--max-passing", type=int, default=5)
     pp.add_argument("--novelty-cutoff", type=float, default=10.0)
 

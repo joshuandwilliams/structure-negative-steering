@@ -106,6 +106,93 @@ def test_both_paths_wrote_the_same_columns():
     assert orch == cli, f"column difference: {orch ^ cli}"
 
 
+# Columns whose values are allowed to differ, each for a named reason. Anything
+# not listed here must match, because nothing else about the two runs differs.
+ALLOWED_TO_DIFFER = {
+    # The run directory is literally named differently, run/ against run_cli/,
+    # so every absolute path inside it differs. The filenames are compared
+    # instead, below.
+    "pdb",
+}
+
+
+@pytest.mark.check_test_run
+@needs_both
+def test_every_column_agrees_except_the_run_paths():
+    """The assertion the other comparisons were missing.
+
+    Until this existed, this module compared column NAMES, statuses, ra_eff,
+    mutations and tier. The first cluster comparison, on 2026-11-27, passed
+    every one of those while 24 of 84 columns actually differed: 23 were blank
+    on the CLI side, including every confidence metric, every ipSAE column, the
+    interface pLDDT, the weighted Jaccard and the contamination check.
+
+    Two default divergences caused it, both since fixed and both now pinned by
+    test_postprocess_defaults.py. This is the assertion that would have caught
+    them on the data rather than on the source.
+    """
+    orch = {_key(r): r for r in _read(ORCH / "raw_per_seed_results.csv")}
+    cli = {_key(r): r for r in _read(CLI / "raw_per_seed_results.csv")}
+    columns = [c for c in _read(ORCH / "raw_per_seed_results.csv")[0]
+               if c not in ALLOWED_TO_DIFFER]
+    assert columns, "no comparable columns, so this asserted nothing"
+
+    differing = {}
+    for col in columns:
+        bad = [k for k in orch
+               if (orch[k].get(col) or "").strip()
+               != (cli[k].get(col) or "").strip()]
+        if bad:
+            k = bad[0]
+            differing[col] = (len(bad), orch[k].get(col), cli[k].get(col))
+
+    assert not differing, (
+        "columns differ between the two paths:\n"
+        + "\n".join(
+            f"  {c}: {n}/{len(orch)} rows, e.g. orch={o!r} cli={v!r}"
+            for c, (n, o, v) in sorted(differing.items()))
+        + "\n\nA column blank on one side is not a measured null. The "
+          "analyses read it as absent data.")
+
+
+@pytest.mark.check_test_run
+@needs_both
+def test_the_pdb_filenames_match_even_though_the_paths_cannot():
+    """`pdb` is exempt above because the two run directories have different
+    names. The basename still has to match, or the two paths predicted
+    different things."""
+    orch = {_key(r): r for r in _read(ORCH / "raw_per_seed_results.csv")}
+    for k, row in {_key(r): r for r in _read(
+            CLI / "raw_per_seed_results.csv")}.items():
+        a = (row.get("pdb") or "").rsplit("/", 1)[-1]
+        b = (orch[k].get("pdb") or "").rsplit("/", 1)[-1]
+        assert a == b, f"{k}: predicted {a!r} against {b!r}"
+
+
+@pytest.mark.check_test_run
+@needs_both
+def test_the_confidence_metrics_are_present_on_both_sides():
+    """Stated separately from the comparison above, because two runs that both
+    wrote nothing would agree.
+
+    compute-final-metrics is the only thing that writes these. The CLI skipped
+    them for a whole run while agreeing on every other assertion in this file.
+    """
+    required = ("steered_iptm", "steered_complex_plddt",
+                "steered_interface_plddt", "steered_ipsae_min",
+                "steered_n_contacts_on_mutated_positions")
+    for label, path in (("orchestrator", ORCH), ("CLI", CLI)):
+        rows = [r for r in _read(path / "raw_per_seed_results.csv")
+                if r.get("design") != "initial"]
+        assert rows, f"{label} produced no steered rows"
+        for col in required:
+            filled = sum(1 for r in rows if (r.get(col) or "").strip())
+            assert filled == len(rows), (
+                f"{label}: {col} is blank on {len(rows) - filled} of "
+                f"{len(rows)} steered rows. compute-final-metrics did not run "
+                f"on them, so the analyses will read absent data.")
+
+
 @pytest.mark.check_test_run
 @needs_both
 def test_every_row_agrees_on_status():

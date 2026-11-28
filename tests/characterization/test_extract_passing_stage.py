@@ -85,8 +85,12 @@ def test_every_passing_row_carries_the_columns_tiering_reads(run_dir):
           "--output", str(out),
           "--per-seed", str(run_dir / "raw_per_seed_results.csv"))
     rows = _read(out)
-    if not rows:
-        pytest.skip("this run admitted no designs")
+    # Asserted, not skipped. The fixture is committed and does admit designs,
+    # so an empty result means extract_passing dropped them, which is what
+    # this test is for.
+    assert rows, (
+        "extract_passing admitted no designs from the committed fixture, so "
+        "there are no rows to check the tiering columns on.")
     for col in ("n_pass", "n_seeds"):
         assert col in rows[0], f"passing_summary lacks {col}, which tiering needs"
 

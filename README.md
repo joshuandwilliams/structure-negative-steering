@@ -32,12 +32,20 @@ seeds. The runs, the tables behind these counts and the nine analysis
 documents are in
 [`negative-steering-analyses`](https://github.com/joshuandwilliams/negative-steering-analyses).
 
-| Method | Correctly posed |
-|:---|---:|
-| Boltz-2, no MSA | 5 / 18 |
-| Boltz-2 with reference restraints | 13 / 18 |
-| Boltz-2 with negative steering, 50 sets | 15 / 18 |
-| Both together, 20 sets | 18 / 18 |
+| Method | Correctly posed | Source column |
+|:---|---:|:---|
+| Boltz-2, no MSA | 4 / 18 | `cold_start_ra_eff` |
+| Boltz-2 with reference restraints | 11 / 18 | `constrained_cold_start_ra_eff` |
+| Boltz-2 with negative steering, 50 sets | 15 / 18 | `dose_sweep_pass_counts.csv`, dose 50 |
+| Both together, 20 sets | 18 / 18 | `constrained_rep_ra_eff` |
+
+Every count is the number of the 18 targets whose named column is under 5 Å, in
+`analyses/01-pose-rescue/benchmark_summary.csv` except where stated. The first
+two rows read 5 and 13 until 2026-11-28. Both were wrong against that file,
+which gives 4 and 11, and the no-steering 4 is corroborated by the dose sweep's
+own zero-set column below. The constrained run trees are not committed, only
+their configs, so `constrained_cold_start_ra_eff` is the only source for the
+restraints row.
 
 Accuracy climbs with the number of steering mutation sets sampled, so the count
 is a cost decision rather than a fixed requirement.
@@ -74,8 +82,8 @@ regenerates a committed figure byte for byte, belongs with the analyses in
 
 ### Your cluster
 
-Nothing in this repo names a partition, a container path or an email address.
-Everything that would is in one file:
+No partition name is hard-coded anywhere, and no site configuration lives
+outside one file:
 
 ```bash
 cp site.conf.example site.conf    # then fill in the partitions and the image
@@ -127,8 +135,16 @@ resubmitted with the identical command and skips what already finished.
 To walk the whole DAG on a laptop with no container and no GPU:
 
 ```bash
-nextflow run main.nf -profile local --targets 'tests/test_run/config.yml' -stub-run
+nextflow run main.nf -profile local --targets 'tests/test_run/config.yml' \
+    -stub-run --allow_host_python
 ```
+
+`--allow_host_python` is required, not optional. `NEGSTEER_READ_CONFIG` is the
+one process with no `stub:` block, so it runs for real even under `-stub-run`,
+and it resolves a container first. `tests/test_run/config.yml` sets
+`boltz_container: null`, so the resolver falls back to `NEGSTEER_BOLTZ_IMG`,
+which a laptop does not have, and the stage fails. CI passes the same flag for
+the same reason.
 
 ## Using it as a tool
 

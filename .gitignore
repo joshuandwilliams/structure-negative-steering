@@ -95,7 +95,9 @@ timeline.html
 # ----- Archive: superseded code kept for the record, not run -----
 # archive/prerepo_scripts/ holds the pre-repo sequence-walk and seed-variance
 # diagnostics. Nothing imports them and they are excluded from ruff. Kept
-# because eight of them have no descendant anywhere in this repo's history.
+# because they have no descendant anywhere in this repo's history. How many
+# there are is deliberately not stated: this directory is gitignored, so there
+# is no tracked copy for a reader to check a count against.
 archive/
 
 # The testing image's def is local-only, and containers/Dockerfile.test

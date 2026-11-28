@@ -85,19 +85,84 @@ def test_majority_positions_of_nothing_is_empty():
 
 # ── ranking ──────────────────────────────────────────────────────────────────
 
+# _compute_unified_ranks only ranks rows _ranking_metric calls eligible, which
+# means a clean steered row or a pose_holds row, and it reads the prefixed
+# column names. The previous fixture used bare `true_jaccard` and
+# `ra_eff_vs_truth` with no intact flag, so no row was eligible, nothing was
+# ranked, and the test skipped itself rather than asserting the ordering.
+
+
+def _rankable(design, ra, tj, **extra):
+    """A clean steered row: no verdict, receptor intact, ra_eff under 5 A."""
+    r = {"design": design, "reversion_verdict": "",
+         "steered_receptor_intact": "1",
+         "steered_ra_eff_vs_truth": str(ra),
+         "steered_true_jaccard": str(tj)}
+    r.update(extra)
+    return r
+
+
 @pytest.mark.logic
 def test_unified_ranks_order_by_the_composite():
-    rows = [
-        {"design": "a", "true_jaccard": "0.9", "ra_eff_vs_truth": "1.0"},
-        {"design": "b", "true_jaccard": "0.5", "ra_eff_vs_truth": "20.0"},
-        {"design": "c", "true_jaccard": "0.7", "ra_eff_vs_truth": "5.0"},
-    ]
+    """The composite is steered_true_jaccard − 0.05 · ra_eff, higher better,
+    and it is the primary ranker. Ordering on ra_eff alone would prefer a
+    design that moved the pose while losing the interface it had to keep."""
+    rows = [_rankable("a", 1.0, 0.9),    # 0.90 - 0.05 = 0.85
+            _rankable("b", 4.0, 0.5),    # 0.50 - 0.20 = 0.30
+            _rankable("c", 2.0, 0.7)]    # 0.70 - 0.10 = 0.60
     nsagg._compute_unified_ranks(rows)
-    ranked = [r for r in rows if r.get("rank_by_composite_score") not in (None, "")]
-    if not ranked:
-        pytest.skip("ranking is gated on eligibility fields not present here")
-    best = min(ranked, key=lambda r: int(r["rank_by_composite_score"]))
-    assert best["design"] == "a", "the highest composite did not rank first"
+    by = {r["design"]: r["rank_by_composite_score"] for r in rows}
+    assert by == {"a": 1, "c": 2, "b": 3}
+
+
+@pytest.mark.logic
+def test_rank_by_ra_eff_is_ascending_and_independent_of_the_composite():
+    """Both ranks are written on the same pass, and they disagree on purpose.
+    Here b has the second-best pose and the worst composite."""
+    rows = [_rankable("a", 1.0, 0.9), _rankable("b", 2.0, 0.1),
+            _rankable("c", 3.0, 0.8)]
+    nsagg._compute_unified_ranks(rows)
+    by = {r["design"]: (r["rank_by_ra_eff"], r["rank_by_composite_score"])
+          for r in rows}
+    assert by["a"] == (1, 1)
+    assert by["b"] == (2, 3)
+    assert by["c"] == (3, 2)
+
+
+@pytest.mark.logic
+@pytest.mark.parametrize("over,why", [
+    ({"design": "initial"}, "the cold-start baseline is not a design"),
+    ({"steered_receptor_intact": "0"}, "the receptor was broken"),
+    ({"steered_ra_eff_vs_truth": "25.0"}, "the pose is past the 5 A filter"),
+    ({"steered_ra_eff_vs_truth": ""}, "there is no pose to rank"),
+    ({"steered_true_jaccard": ""}, "the composite has no jaccard term"),
+    ({"reversion_verdict": "new_contamination"}, "it was contaminated"),
+])
+def test_an_ineligible_row_gets_a_blank_rank_not_a_bad_one(over, why):
+    """A blank is the only honest answer. A number would put the row into the
+    sort order, and cmd_aggregate sorts on it to pick what to carry forward."""
+    rows = [_rankable("eligible", 1.0, 0.9), _rankable("other", 2.0, 0.8)]
+    rows[0].update(over)
+    nsagg._compute_unified_ranks(rows)
+    assert rows[0]["rank_by_composite_score"] == "", why
+
+
+@pytest.mark.logic
+def test_a_pose_holds_row_is_ranked_on_its_reverted_pose():
+    """Eligibility and the ra_eff term come from the reverted prediction,
+    because that is what the design kept. The jaccard term still comes from
+    the steered row, since the overlap is computed once and rides on the
+    designed sequence rather than on the steering mutations."""
+    holds = {"design": "held", "reversion_verdict": "pose_holds",
+             "reverted_receptor_intact": "1",
+             "reverted_ra_eff_vs_truth": "1.0",
+             "steered_ra_eff_vs_truth": "30.0",
+             "steered_true_jaccard": "0.9"}
+    rows = [holds, _rankable("clean", 2.0, 0.7)]
+    nsagg._compute_unified_ranks(rows)
+    # On the reverted 1.0 A it wins; on the steered 30 A it would be ineligible.
+    assert holds["rank_by_composite_score"] == 1
+    assert holds["rank_by_ra_eff"] == 1
 
 
 @pytest.mark.logic

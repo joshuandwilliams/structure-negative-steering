@@ -2221,6 +2221,25 @@ def cmd_compute_final_metrics(args: argparse.Namespace) -> int:
     metric_col = args.metric_column
     threshold = args.rmsd_threshold
 
+    # A metric column that is not in the table at all is a wiring error, not a
+    # run where nothing qualified. _passes_final_metrics_filter reads the row
+    # with .get, so a missing column yields None for every row and the filter
+    # rejects all of them. The stage then exits 0 having written no metrics,
+    # and the only trace is a confidence column of blanks in the per-seed CSV.
+    #
+    # That is exactly how `negsteer run` came to produce 23 empty columns: its
+    # --metric-column defaulted to receptor_aligned_effector_rmsd, which is the
+    # per-design column name, while this table carries
+    # steered_ra_eff_vs_truth. Nothing failed, so nothing was noticed.
+    if not args.populate_all and metric_col not in base_fieldnames:
+        near = ", ".join(c for c in base_fieldnames
+                         if "rmsd" in c or "ra_eff" in c) or "none"
+        print(f"ERROR: --metric-column '{metric_col}' is not a column of "
+              f"{all_results_csv.name}. Every row would fail the filter and "
+              f"no metrics would be written. Columns carrying 'rmsd' or "
+              f"'ra_eff': {near}", file=sys.stderr)
+        return 2
+
     # With skip_steering=true at cycle 0 there are no steered designs
     # to filter against, and the initial row is the only row.  It still
     # needs confidence metrics so the comparison table has something

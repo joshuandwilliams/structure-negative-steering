@@ -128,7 +128,8 @@ export NXF_WORK="${LAUNCH_DIR}/work"
 export NXF_TEMP="${NXF_WORK}/tmp"
 
 # .nextflow.log's location is fixed before nextflow.config is read, so it needs
-# the environment variable rather than a config setting. See the README.
+# the environment variable rather than a config setting. See
+# docs/implementation-notes.md.
 export NXF_LOG_FILE="${LAUNCH_DIR}/.nextflow-reports/nextflow.log"
 
 mkdir -p "${NXF_HOME}" "${NXF_WORK}" "${NXF_TEMP}" "${LAUNCH_DIR}/.nextflow-reports"

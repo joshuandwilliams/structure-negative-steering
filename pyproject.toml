@@ -64,8 +64,11 @@ addopts = """
 markers = [
     "logic: runs anywhere with Python. Pure helpers on synthetic input, plus tests that read the committed fixtures and reference structures. No cluster, no container.",
     "check_test_run: asserts on the output of a real run. Needs tests/test_run.slurm.sh to have run on the cluster first.",
-    "slow: long-running test.",
 ]
+# `slow` was declared here and used by no test. With --strict-markers an
+# undeclared marker is an error, so a declared and unused one is dead config
+# that the tier tables in README.md and docs/implementation-notes.md did not
+# list. Re-add it alongside the first test that needs it.
 
 [tool.ruff]
 line-length = 100
